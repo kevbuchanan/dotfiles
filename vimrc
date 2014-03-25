@@ -1,8 +1,6 @@
-execute pathogen#infect()
-
 set rtp+=~/.vim/bundle/vundle/
-
 call vundle#rc()
+
 Bundle 'gmarik/vundle'
 Bundle 'pangloss/vim-javascript'
 Bundle 'tpope/vim-markdown'
@@ -17,6 +15,7 @@ Bundle 'https://github.com/guns/vim-clojure-static'
 Bundle 'https://github.com/scrooloose/nerdtree'
 Bundle "https://github.com/tpope/vim-fugitive"
 Bundle "https://github.com/tpope/vim-fireplace"
+
 filetype plugin indent on
 filetype detect
 
