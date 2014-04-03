@@ -1,7 +1,15 @@
+PATH=/usr/local/bin:/usr/local/sbin:$PATH
+
+zstyle ':completion:*:*:git:*' script ~/.zsh/git-completion.bash
+fpath=(~/.zsh $fpath)
+autoload -U compinit && compinit
+
 alias tmux='tmux -2'
 alias be="bundle exec "
 alias reload="source ~/.zshrc"
 alias config="vim ~/.zshrc"
+
+PGDATA=/usr/local/var/postgres
 
 eval "$(rbenv init -)"
 

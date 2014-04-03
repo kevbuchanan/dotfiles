@@ -4,6 +4,7 @@ require 'fileutils'
 
 LINKS = ["vim",
          "vimrc",
+         "zsh",
          "zshrc",
          "tmux.conf",
          "gitconfig"]

@@ -11,24 +11,30 @@ Bundle 'https://github.com/vim-ruby/vim-ruby'
 Bundle 'https://github.com/vim-scripts/ruby-matchit'
 Bundle 'https://github.com/mattn/emmet-vim'
 Bundle 'https://github.com/gregsexton/MatchTag'
-Bundle 'https://github.com/guns/vim-clojure-static'
+Bundle "https://github.com/vim-scripts/VimClojure"
 Bundle 'https://github.com/scrooloose/nerdtree'
 Bundle "https://github.com/tpope/vim-fugitive"
 Bundle "https://github.com/tpope/vim-fireplace"
+Bundle "https://github.com/kchmck/vim-coffee-script"
+Bundle "https://github.com/slim-template/vim-slim"
 
 filetype plugin indent on
+syntax on
 filetype detect
 
-syntax enable
+autocmd BufRead,BufNewFile *.cljs setlocal filetype=clojure
+autocmd BufRead,BufNewFile *.clj setlocal filetype=clojure
+autocmd BufRead,BufNewFile *.hiccup setlocal filetype=clojure
 
 runtime macros/matchit.vim
 
-let vimclojure#HightlightBuiltins=0
+let vimclojure#HightlightBuiltins=1
 let vimclojure#ParenRainbow=1
 
 let g:paredit_matchlines=200
 let g:paredit_mode=0
 
+set backspace=indent,eol,start
 set nocompatible
 set ruler
 set wildmenu
