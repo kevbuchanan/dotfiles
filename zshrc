@@ -6,6 +6,7 @@ autoload -U compinit && compinit
 
 alias tmux='tmux -2'
 alias be="bundle exec "
+alias bi="bundle install"
 alias reload="source ~/.zshrc"
 alias config="vim ~/.zshrc"
 
