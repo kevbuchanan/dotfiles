@@ -9,6 +9,8 @@ alias be="bundle exec "
 alias bi="bundle install"
 alias reload="source ~/.zshrc"
 alias config="vim ~/.zshrc"
+alias mongodb="mongod --config /usr/local/etc/mongod.conf"
+alias postgres="postgres -D /usr/local/var/postgres"
 
 PGDATA=/usr/local/var/postgres
 

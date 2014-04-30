@@ -17,6 +17,7 @@ Bundle "https://github.com/tpope/vim-fugitive"
 Bundle "https://github.com/tpope/vim-fireplace"
 Bundle "https://github.com/kchmck/vim-coffee-script"
 Bundle "https://github.com/slim-template/vim-slim"
+Bundle "https://github.com/nelstrom/vim-visual-star-search"
 
 filetype plugin indent on
 syntax on
@@ -33,6 +34,8 @@ let vimclojure#ParenRainbow=1
 
 let g:paredit_matchlines=200
 let g:paredit_mode=0
+
+let NERDTreeShowHidden=1
 
 set backspace=indent,eol,start
 set nocompatible
