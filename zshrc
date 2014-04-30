@@ -38,7 +38,7 @@ git_prompt_info() {
 
 # Checks if working tree is dirty
 parse_git_dirty() {
-  if command git diff-index --quiet HEAD 2> /dev/null; then
+  if command git diff --quiet HEAD 2> /dev/null; then
     echo "$ZSH_THEME_GIT_PROMPT_CLEAN"
   else
     echo "$ZSH_THEME_GIT_PROMPT_DIRTY"
