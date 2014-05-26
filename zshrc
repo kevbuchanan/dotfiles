@@ -11,8 +11,12 @@ alias reload="source ~/.zshrc"
 alias config="vim ~/.zshrc"
 alias mongodb="mongod --config /usr/local/etc/mongod.conf"
 alias postgres="postgres -D /usr/local/var/postgres"
-
 PGDATA=/usr/local/var/postgres
+
+bindkey "^H" beginning-of-line
+bindkey "^L" end-of-line
+bindkey "^J" history-incremental-search-backward
+bindkey "^K" history-search-backward
 
 eval "$(rbenv init -)"
 
