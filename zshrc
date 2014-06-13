@@ -49,3 +49,10 @@ parse_git_dirty() {
   fi
 }
 
+function ssh_key_for {
+  curl -i https://api.github.com/users/${1}/keys
+}
+
+function add_ssh_key {
+  ${1} >> ~/.ssh/authorized_keys
+}
