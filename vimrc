@@ -28,7 +28,7 @@ autocmd BufRead,BufNewFile *.cljs setlocal filetype=clojure
 autocmd BufRead,BufNewFile *.clj setlocal filetype=clojure
 autocmd BufRead,BufNewFile *.hiccup setlocal filetype=clojure
 
-autocmd FileType clojure setlocal lispwords+=describe,it,context,around
+autocmd FileType clojure setlocal lispwords+=describe,it,context,around,deftest,testing
 
 runtime macros/matchit.vim
 
