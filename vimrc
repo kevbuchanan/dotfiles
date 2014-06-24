@@ -18,6 +18,7 @@ Bundle "https://github.com/tpope/vim-fireplace"
 Bundle "https://github.com/kchmck/vim-coffee-script"
 Bundle "https://github.com/slim-template/vim-slim"
 Bundle "https://github.com/nelstrom/vim-visual-star-search"
+Bundle "https://github.com/Keithbsmiley/swift.vim"
 
 filetype plugin indent on
 syntax on
@@ -26,6 +27,8 @@ filetype detect
 autocmd BufRead,BufNewFile *.cljs setlocal filetype=clojure
 autocmd BufRead,BufNewFile *.clj setlocal filetype=clojure
 autocmd BufRead,BufNewFile *.hiccup setlocal filetype=clojure
+
+autocmd FileType clojure setlocal lispwords+=describe,it,context,around
 
 runtime macros/matchit.vim
 
