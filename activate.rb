@@ -4,6 +4,7 @@ require 'fileutils'
 
 LINKS = ["vim",
          "vimrc",
+         "rspec",
          "zsh",
          "zshrc",
          "tmux.conf",
