@@ -27,16 +27,13 @@ filetype detect
 autocmd BufRead,BufNewFile *.cljs setlocal filetype=clojure
 autocmd BufRead,BufNewFile *.clj setlocal filetype=clojure
 autocmd BufRead,BufNewFile *.hiccup setlocal filetype=clojure
-
 autocmd FileType clojure setlocal lispwords+=describe,it,context,around,deftest,testing
-
-runtime macros/matchit.vim
 
 let vimclojure#HightlightBuiltins=1
 let vimclojure#ParenRainbow=1
-
 let g:paredit_matchlines=200
 let g:paredit_mode=0
+runtime macros/matchit.vim
 
 let NERDTreeShowHidden=1
 
@@ -65,14 +62,13 @@ set nowrap
 set completeopt=longest,menu
 set wildmode=list:longest,list:full
 
-:command W w
-
 " Highlight trailing whitespace
 autocmd InsertEnter * match ExtraWhitespace /\s\+\%#\@<!$/
 autocmd BufRead,InsertLeave * match ExtraWhitespace /\s\+$/
 
 " Autoremove trailing spaces when saving the buffer
 autocmd FileType c,cpp,clj,eruby,html,java,javascript,php,ruby autocmd BufWritePre <buffer> :%s/\s\+$//e
+autocmd BufWritePre * :%s/\s\+$//e
 
 " Highlight too-long lines
 autocmd BufRead,InsertEnter,InsertLeave * 2match LineLengthError /\%126v.*/
@@ -86,14 +82,14 @@ autocmd ColorScheme * highlight ExtraWhitespace ctermbg=red guibg=red
 let &t_Co=256
 colorscheme tomorrow-night
 
-autocmd BufWritePre * :%s/\s\+$//e
-
 let mapleader = "\\"
 
 map <C-H> <C-W>h
 map <C-L> <C-W>l
 map <C-J> <C-W>j
 map <C-K> <C-W>k
+
+:command W w
 
 map <C-n> :NERDTreeToggle<CR>
 

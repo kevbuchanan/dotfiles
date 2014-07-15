@@ -11,6 +11,7 @@
 	editor = vim
 
 [alias]
+  b = branch
   co = checkout
   ci = commit
   st = status

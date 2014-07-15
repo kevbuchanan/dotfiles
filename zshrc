@@ -33,14 +33,12 @@ local ret_status="%(?:%{$fg_bold[green]%}➜ :%{$fg_bold[red]%}➜ %s)"
 
 PROMPT='${ret_status}%{$fg_bold[green]%}%p %{$fg[cyan]%}%c %{$fg_bold[blue]%}$(git_prompt_info)%{$fg_bold[blue]%} % %{$reset_color%}'
 
-# get the name of the branch we are on
 git_prompt_info() {
   ref=$(command git symbolic-ref HEAD 2> /dev/null) || \
   ref=$(command git rev-parse --short HEAD 2> /dev/null) || return
   echo "$ZSH_THEME_GIT_PROMPT_PREFIX${ref#refs/heads/}$(parse_git_dirty)$ZSH_THEME_GIT_PROMPT_SUFFIX"
 }
 
-# Checks if working tree is dirty
 parse_git_dirty() {
   if command git diff --quiet HEAD 2> /dev/null; then
     echo "$ZSH_THEME_GIT_PROMPT_CLEAN"
@@ -53,6 +51,15 @@ function ssh_key_for {
   curl -i https://api.github.com/users/${1}/keys
 }
 
-function add_ssh_key {
-  ${1} >> ~/.ssh/authorized_keys
+# one time setup to add pair alias and only allow public key authentication through ssh pair@<localhostname>.local
+function set_pair_config {
+  sudo dscl . -append /Users/$USER RecordName Pair pair
+  sudo sed -E -i.bak 's/^#?(PasswordAuthentication|ChallengeResponseAuthentication).*$/\1 no/' /etc/sshd_config
+}
+
+# authorize a public key to attach to the pair tmux session, add_pair <key>
+function add_pair {
+  command="command=\"/usr/local/bin/tmux attach -t pair\" "
+  command+=${1}
+  echo $command >> ~/.ssh/authorized_keys
 }
