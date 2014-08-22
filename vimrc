@@ -19,6 +19,8 @@ Bundle "https://github.com/kchmck/vim-coffee-script"
 Bundle "https://github.com/slim-template/vim-slim"
 Bundle "https://github.com/nelstrom/vim-visual-star-search"
 Bundle "https://github.com/Keithbsmiley/swift.vim"
+Bundle "https://github.com/digitaltoad/vim-jade"
+Bundle "https://github.com/travitch/hasksyn"
 
 filetype plugin indent on
 syntax on

@@ -7,6 +7,7 @@ autoload -U compinit && compinit
 alias tmux='tmux -2'
 alias be="bundle exec "
 alias bi="bundle install"
+alias resetdb="RAILS_ENV=test be rake environment db:drop db:create db:migrate"
 alias reload="source ~/.zshrc"
 alias config="vim ~/.zshrc"
 alias mongodb="mongod --config /usr/local/etc/mongod.conf"
@@ -33,13 +34,13 @@ local ret_status="%(?:%{$fg_bold[green]%}➜ :%{$fg_bold[red]%}➜ %s)"
 
 PROMPT='${ret_status}%{$fg_bold[green]%}%p %{$fg[cyan]%}%c %{$fg_bold[blue]%}$(git_prompt_info)%{$fg_bold[blue]%} % %{$reset_color%}'
 
-git_prompt_info() {
+function git_prompt_info() {
   ref=$(command git symbolic-ref HEAD 2> /dev/null) || \
   ref=$(command git rev-parse --short HEAD 2> /dev/null) || return
   echo "$ZSH_THEME_GIT_PROMPT_PREFIX${ref#refs/heads/}$(parse_git_dirty)$ZSH_THEME_GIT_PROMPT_SUFFIX"
 }
 
-parse_git_dirty() {
+function parse_git_dirty() {
   if command git diff --quiet HEAD 2> /dev/null; then
     echo "$ZSH_THEME_GIT_PROMPT_CLEAN"
   else
@@ -47,19 +48,37 @@ parse_git_dirty() {
   fi
 }
 
-function ssh_key_for {
+function ssh_key_for() {
   curl -i https://api.github.com/users/${1}/keys
 }
 
 # one time setup to add pair alias and only allow public key authentication through ssh pair@<localhostname>.local
-function set_pair_config {
+function set_pair_config() {
   sudo dscl . -append /Users/$USER RecordName Pair pair
   sudo sed -E -i.bak 's/^#?(PasswordAuthentication|ChallengeResponseAuthentication).*$/\1 no/' /etc/sshd_config
 }
 
 # authorize a public key to attach to the pair tmux session, add_pair <key>
-function add_pair {
+function add_pair() {
   command="command=\"/usr/local/bin/tmux attach -t pair\" "
   command+=${1}
   echo $command >> ~/.ssh/authorized_keys
+}
+
+# watch for changes in files with $1 extension and run $2 command on change
+function watch() {
+  pattern="./**/*.$1"
+  command=$2
+
+  time=0
+  while true; do
+    newtime=$(find $~pattern -exec stat -f "%m" \{\} \; | sort -n -r | head -1)
+    if [ "$newtime" -gt "$time" ]; then
+      clear
+      $command
+    fi
+
+    time=$newtime;
+    sleep 1
+  done
 }
