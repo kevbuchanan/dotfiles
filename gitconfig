@@ -1,14 +1,14 @@
 [user]
-	name = kevinbuch
-	email = kevaustinbuch@gmail.com
+  name = Kevin Buchanan
+  email = kevaustinbuch@gmail.com
 
 [push]
-	default = simple
+  default = simple
 
 [core]
-	autocrlf = input
+  autocrlf = input
   safecrlf = true
-	editor = vim
+  editor = vim
 
 [alias]
   b = branch
@@ -16,13 +16,14 @@
   ci = commit
   st = status
   br = branch
+  amend = commit --amend -C HEAD
   hist = log --pretty=format:'%h %ad | %s%d [%an]' --graph --date=short
   type = cat-file -t
   dump = cat-file -p
   diffc = diff --cached
 
 [credential]
-	helper = osxkeychain
+  helper = osxkeychain
 
 [color]
-	ui = true
+  ui = true
