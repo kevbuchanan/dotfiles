@@ -72,12 +72,11 @@ function watch() {
 
   time=0
   while true; do
-    newtime=$(find $~pattern -exec stat -f "%m" \{\} \; | sort -n -r | head -1)
+    newtime=$(find $~pattern | xargs stat -f %m | sort -n -r | head -1)
     if [ "$newtime" -gt "$time" ]; then
       clear
-      $command
+      eval $command
     fi
-
     time=$newtime;
     sleep 1
   done
