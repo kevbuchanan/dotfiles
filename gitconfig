@@ -17,10 +17,11 @@
   st = status
   br = branch
   amend = commit --amend -C HEAD
+  reword = commit --amend -m
   hist = log --pretty=format:'%h %ad | %s%d [%an]' --graph --date=short
-  type = cat-file -t
-  dump = cat-file -p
   diffc = diff --cached
+  ggrep = grep --break --heading -n
+  up = log --stat @{u}..HEAD
 
 [credential]
   helper = osxkeychain

@@ -48,6 +48,7 @@ function parse_git_dirty() {
   fi
 }
 
+# get public keys from github, ssh_key_for <github username>
 function ssh_key_for() {
   curl -i https://api.github.com/users/${1}/keys
 }
@@ -58,14 +59,14 @@ function set_pair_config() {
   sudo sed -E -i.bak 's/^#?(PasswordAuthentication|ChallengeResponseAuthentication).*$/\1 no/' /etc/sshd_config
 }
 
-# authorize a public key to attach to the pair tmux session, add_pair <key>
+# authorize a public key to attach to the pair tmux session, add_pair <public key>
 function add_pair() {
   command="command=\"/usr/local/bin/tmux attach -t pair\" "
   command+=${1}
   echo $command >> ~/.ssh/authorized_keys
 }
 
-# watch for changes in files with $1 extension and run $2 command on change
+# watch for changes in files with $1 extension and run $2 command on change, watch <extension> <command>
 function watch() {
   pattern="./**/*.$1"
   command=$2
