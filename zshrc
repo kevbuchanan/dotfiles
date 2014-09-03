@@ -5,6 +5,9 @@ fpath=(~/.zsh $fpath)
 autoload -U compinit && compinit
 
 alias tmux='tmux -2'
+alias ls="ls -FG"
+alias lsa="ls -A"
+alias lsl="ls -hl"
 alias be="bundle exec "
 alias bi="bundle install"
 alias resetdb="RAILS_ENV=test be rake environment db:drop db:create db:migrate"
