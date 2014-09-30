@@ -10,7 +10,6 @@ alias lsa="ls -A"
 alias lsl="ls -hl"
 alias be="bundle exec "
 alias bi="bundle install"
-alias resetdb="RAILS_ENV=test be rake environment db:drop db:create db:migrate"
 alias reload="source ~/.zshrc"
 alias config="vim ~/.zshrc"
 alias mongodb="mongod --config /usr/local/etc/mongod.conf"
@@ -23,6 +22,7 @@ bindkey "^J" history-incremental-search-backward
 bindkey "^K" history-search-backward
 
 eval "$(rbenv init -)"
+PATH=$HOME/.rbenv/bin:$PATH
 
 autoload colors; colors;
 export LSCOLORS="Gxfxcxdxbxegedabagacad"
@@ -84,4 +84,25 @@ function watch() {
     time=$newtime;
     sleep 1
   done
+}
+
+# export key for <email>
+function export-pgp() {
+  gpg --armor --export $1
+}
+
+# encrypt message for <email> from clipboard
+function encrypt-to() {
+  echo $2 | gpg --encrypt --armor --recipient $1 | pbcopy
+  echo "Message encrypted to $1 and copied to clipboard"
+}
+
+# decrypt from clipboard
+function decrypt() {
+  pbpaste | gpg --decrypt
+}
+
+# find pgp key for <name or email>
+function find-pgp() {
+  gpg --keyserver hkp://pgp.mit.edu --search-keys $1
 }
