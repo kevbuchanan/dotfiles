@@ -21,6 +21,7 @@ Bundle "https://github.com/nelstrom/vim-visual-star-search"
 Bundle "https://github.com/Keithbsmiley/swift.vim"
 Bundle "https://github.com/digitaltoad/vim-jade"
 Bundle "https://github.com/travitch/hasksyn"
+Bundle "https://github.com/pangloss/vim-javascript"
 
 filetype plugin indent on
 syntax on
@@ -29,7 +30,7 @@ filetype detect
 autocmd BufRead,BufNewFile *.cljs setlocal filetype=clojure
 autocmd BufRead,BufNewFile *.clj setlocal filetype=clojure
 autocmd BufRead,BufNewFile *.hiccup setlocal filetype=clojure
-autocmd FileType clojure setlocal lispwords+=describe,it,context,around,deftest,testing
+autocmd FileType clojure setlocal lispwords+=describe,it,context,around,deftest,testing,with-*
 
 let vimclojure#HightlightBuiltins=1
 let vimclojure#ParenRainbow=1
