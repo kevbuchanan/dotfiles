@@ -1,7 +1,7 @@
 PATH=/usr/local/bin:/usr/local/sbin:$PATH
 
-zstyle ':completion:*:*:git:*' script ~/.zsh/git-completion.bash
 fpath=(~/.zsh $fpath)
+zstyle ':completion:*:*:git:*' script ~/.zsh/git-completion.bash
 autoload -U compinit && compinit
 
 alias tmux='tmux -2'
