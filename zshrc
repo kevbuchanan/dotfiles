@@ -23,6 +23,7 @@ bindkey "^K" history-search-backward
 
 eval "$(rbenv init -)"
 PATH=$HOME/.rbenv/bin:$PATH
+PATH=$HOME/.rbenv/shims:$PATH
 
 PATH=$HOME/.cabal/bin:$PATH
 
