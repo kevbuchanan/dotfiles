@@ -24,6 +24,8 @@ bindkey "^K" history-search-backward
 eval "$(rbenv init -)"
 PATH=$HOME/.rbenv/bin:$PATH
 
+PATH=$HOME/.cabal/bin:$PATH
+
 autoload colors; colors;
 export LSCOLORS="Gxfxcxdxbxegedabagacad"
 setopt prompt_subst

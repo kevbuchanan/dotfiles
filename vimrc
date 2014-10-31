@@ -20,8 +20,7 @@ Bundle "https://github.com/slim-template/vim-slim"
 Bundle "https://github.com/nelstrom/vim-visual-star-search"
 Bundle "https://github.com/Keithbsmiley/swift.vim"
 Bundle "https://github.com/digitaltoad/vim-jade"
-Bundle "https://github.com/travitch/hasksyn"
-Bundle "https://github.com/pangloss/vim-javascript"
+Bundle "https://github.com/dag/vim2hs"
 
 filetype plugin indent on
 syntax on
@@ -39,6 +38,9 @@ let g:paredit_mode=0
 runtime macros/matchit.vim
 
 let NERDTreeShowHidden=1
+
+let g:haskell_conceal=0
+set nofoldenable
 
 set backspace=indent,eol,start
 set nocompatible
