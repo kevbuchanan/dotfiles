@@ -54,6 +54,10 @@ function parse_git_dirty() {
   fi
 }
 
+function ip() {
+  ifconfig | grep "broadcast"
+}
+
 # get public keys from github, ssh_key_for <github username>
 function ssh_key_for() {
   curl -i https://api.github.com/users/${1}/keys
