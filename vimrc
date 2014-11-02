@@ -89,6 +89,8 @@ colorscheme tomorrow-night
 
 let mapleader = "\\"
 
+map <Leader>v :set paste!<CR>
+
 map <C-H> <C-W>h
 map <C-L> <C-W>l
 map <C-J> <C-W>j
