@@ -22,10 +22,11 @@ bindkey "^J" history-incremental-search-backward
 bindkey "^K" history-search-backward
 
 eval "$(rbenv init -)"
-PATH=$HOME/.rbenv/bin:$PATH
-PATH=$HOME/.rbenv/shims:$PATH
 
-PATH=$HOME/.cabal/bin:$PATH
+PATH=$HOME/.rbenv/shims:$PATH
+PATH=$PATH:$HOME/.rbenv/bin
+
+PATH=$PATH:$HOME/.cabal/bin
 
 autoload colors; colors;
 export LSCOLORS="Gxfxcxdxbxegedabagacad"
@@ -76,14 +77,19 @@ function add_pair() {
   echo $command >> ~/.ssh/authorized_keys
 }
 
-# watch for changes in files with $1 extension and run $2 command on change, watch <extension> <command>
+# watch for changes in files with $1 pattern and run $2 command on change, watch <extension> <command>
 function watch() {
-  pattern="./**/*.$1"
+  pattern=$1
   command=$2
 
   time=0
+  os=`uname`
+  time_format="-f %m"
+  if [ "$os" "==" "Linux" ]; then
+    $time_format="--format %X"
+  fi
   while true; do
-    newtime=$(find $~pattern | xargs stat -f %m | sort -n -r | head -1)
+    newtime=$(find $~pattern | xargs stat $time_format | sort -n -r | head -1)
     if [ "$newtime" -gt "$time" ]; then
       clear
       eval $command
