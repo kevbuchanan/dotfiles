@@ -21,6 +21,7 @@ Bundle "https://github.com/nelstrom/vim-visual-star-search"
 Bundle "https://github.com/Keithbsmiley/swift.vim"
 Bundle "https://github.com/digitaltoad/vim-jade"
 Bundle "https://github.com/dag/vim2hs"
+Bundle "https://github.com/jimenezrick/vimerl"
 
 filetype plugin indent on
 syntax on
