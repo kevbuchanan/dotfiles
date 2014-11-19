@@ -1,6 +1,8 @@
 PATH=/usr/local/bin:/usr/local/sbin:$PATH
 
+os=`uname`
 fpath=(~/.zsh $fpath)
+
 autoload -U compinit && compinit
 
 alias tmux='tmux -2'
@@ -12,6 +14,9 @@ alias reload="source ~/.zshrc"
 alias config="vim ~/.zshrc"
 alias mongodb="mongod --config /usr/local/etc/mongod.conf"
 alias postgres="postgres -D /usr/local/var/postgres"
+if [ "$os" "==" "Linux" ]; then
+  alias postgres="sudo /etc/init.d/postgresql start"
+fi
 PGDATA=/usr/local/var/postgres
 
 bindkey "^H" beginning-of-line
@@ -82,13 +87,12 @@ function watch() {
   command=$2
 
   time=0
-  os=`uname`
   time_format="-f %m"
   if [ "$os" "==" "Linux" ]; then
-    $time_format="--format %X"
+    time_format="--format %X"
   fi
   while true; do
-    newtime=$(find $~pattern | xargs stat $time_format | sort -n -r | head -1)
+    newtime=$(find $~pattern | eval "xargs stat ${time_format}" | sort -n -r | head -1)
     if [ "$newtime" -gt "$time" ]; then
       clear
       eval $command
