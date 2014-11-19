@@ -1,6 +1,5 @@
 PATH=/usr/local/bin:/usr/local/sbin:$PATH
 
-os=`uname`
 fpath=(~/.zsh $fpath)
 
 autoload -U compinit && compinit
@@ -14,7 +13,7 @@ alias reload="source ~/.zshrc"
 alias config="vim ~/.zshrc"
 alias mongodb="mongod --config /usr/local/etc/mongod.conf"
 alias postgres="postgres -D /usr/local/var/postgres"
-if [ "$os" "==" "Linux" ]; then
+if [ "$OSTYPE" "==" "linux-gnu" ]; then
   alias postgres="sudo /etc/init.d/postgresql start"
 fi
 PGDATA=/usr/local/var/postgres
@@ -88,7 +87,7 @@ function watch() {
 
   time=0
   time_format="-f %m"
-  if [ "$os" "==" "Linux" ]; then
+  if [ "$OSTYPE" "==" "linux-gnu" ]; then
     time_format="--format %X"
   fi
   while true; do
