@@ -32,6 +32,9 @@ autocmd BufRead,BufNewFile *.clj setlocal filetype=clojure
 autocmd BufRead,BufNewFile *.hiccup setlocal filetype=clojure
 autocmd FileType clojure setlocal lispwords+=describe,it,context,around,deftest,testing,with-*
 
+autocmd BufRead,BufNewFile *.erl,*.es.*.hrl,*.yaws,*.xrl,*.src set tabstop=4 shiftwidth=4
+au BufNewFile,BufRead *.erl,*.es,*.hrl,*.yaws,*.xrl,*.src setf erlang
+
 let vimclojure#HightlightBuiltins=1
 let vimclojure#ParenRainbow=1
 let g:paredit_matchlines=200
