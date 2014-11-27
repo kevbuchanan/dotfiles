@@ -5,8 +5,13 @@ fpath=(~/.zsh $fpath)
 autoload -U compinit && compinit
 
 alias tmux='tmux -2'
-alias ls="ls -AFG"
-alias lsd="ls -AFGhl"
+if [ "$OSTYPE" "==" "linux-gnu" ]; then
+  alias ls="ls -AF --color"
+  alias lsl="ls -l"
+else
+  alias ls="ls -AFG"
+  alias lsl="ls -hl"
+fi
 alias be="bundle exec "
 alias bi="bundle install"
 alias reload="source ~/.zshrc"
