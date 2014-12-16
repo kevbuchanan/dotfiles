@@ -35,6 +35,8 @@ PATH=$PATH:$HOME/.rbenv/bin
 
 PATH=$PATH:$HOME/.cabal/bin
 
+export JAVA_HOME=$(/usr/libexec/java_home)
+
 autoload colors; colors;
 export LSCOLORS="Gxfxcxdxbxegedabagacad"
 setopt prompt_subst
