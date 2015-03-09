@@ -4,7 +4,8 @@ fpath=(~/.zsh $fpath)
 
 autoload -U compinit && compinit
 
-alias tmux='tmux -2'
+alias tmux="tmux -2"
+alias tma="tmux attach -t"
 if [ "$OSTYPE" "==" "linux-gnu" ]; then
   alias ls="ls -AF --color"
   alias lsl="ls -l"
@@ -65,6 +66,11 @@ function git_prompt_info() {
   echo "$ZSH_THEME_GIT_PROMPT_PREFIX${ref#refs/heads/}$(parse_git_dirty)$ZSH_THEME_GIT_PROMPT_SUFFIX"
 }
 
+function mkcd() {
+  mkdir -p $1
+  cd $1
+}
+
 function ip() {
   ifconfig | grep "broadcast"
 }
@@ -90,7 +96,8 @@ function add_pair() {
 # watch for changes in files with $1 pattern and run $2 command on change, watch <extension> <command>
 function watch() {
   pattern=$1
-  command=$2
+  shift
+  command=$@
 
   time=0
   time_format="-f %m"
