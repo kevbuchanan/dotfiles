@@ -22,6 +22,8 @@ Bundle "https://github.com/Keithbsmiley/swift.vim"
 Bundle "https://github.com/digitaltoad/vim-jade"
 Bundle "https://github.com/dag/vim2hs"
 Bundle "https://github.com/jimenezrick/vimerl"
+Bundle "https://github.com/hdima/python-syntax"
+Bundle "https://github.com/junegunn/vim-easy-align"
 
 filetype plugin indent on
 syntax on
@@ -37,11 +39,17 @@ au BufNewFile,BufRead *.erl,*.es,*.hrl,*.yaws,*.xrl,*.src setf erlang
 
 autocmd BufRead,BufNewFile *.java set tabstop=4 shiftwidth=4
 
+vmap <Enter> <Plug>(EasyAlign)
+nmap ga <Plug>(EasyAlign)
+
 let vimclojure#HightlightBuiltins=1
 let vimclojure#ParenRainbow=1
 let g:paredit_matchlines=200
 let g:paredit_mode=0
 runtime macros/matchit.vim
+
+autocmd FileType python setlocal tabstop=8 expandtab shiftwidth=4 softtabstop=4
+let python_highlight_all=1
 
 let NERDTreeShowHidden=1
 
