@@ -20,7 +20,7 @@
   reword = commit --amend -m
   hist = log --pretty=format:'%h %ad | %s%d [%an]' --graph --date=short
   diffc = diff --cached
-  ggrep = grep --break --heading -n
+  g = grep --break --heading -n
   up = log --stat @{u}..HEAD
 
 [credential]
