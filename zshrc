@@ -15,6 +15,7 @@ else
 fi
 alias be="bundle exec "
 alias bi="bundle install"
+alias pst="pstree"
 alias reload="source ~/.zshrc"
 alias config="vim ~/.zshrc"
 alias mongodb="mongod --config /usr/local/etc/mongod.conf"
@@ -72,7 +73,7 @@ function mkcd() {
 }
 
 function ip() {
-  ifconfig | grep "broadcast"
+  curl ipecho.net/plain
 }
 
 # get public keys from github, ssh_key_for <github username>
@@ -135,3 +136,19 @@ function decrypt() {
 function find-pgp() {
   gpg --keyserver hkp://pgp.mit.edu --search-keys $1
 }
+
+function git-open {
+  git remote -v | grep ${1=origin} | grep push | \
+  awk '{ print $2 }' | \
+  sed 's/git@/https:\/\//' | sed 's/\.git//' | sed 's/\.com:/\.com\//' | \
+  xargs open
+}
+
+function docker-clean {
+  docker rm $(docker ps -a -q)
+  docker rmi $(docker images | grep '^<none>' | awk '{ print $3 }')
+}
+
+export DOCKER_HOST=tcp://192.168.59.103:2376
+export DOCKER_CERT_PATH=/Users/kevinbuchanan/.boot2docker/certs/boot2docker-vm
+export DOCKER_TLS_VERIFY=1
