@@ -28,6 +28,7 @@ Bundle "https://github.com/junegunn/vim-easy-align"
 filetype plugin indent on
 syntax on
 filetype detect
+set clipboard=unnamed
 
 autocmd BufRead,BufNewFile *.cljs setlocal filetype=clojure
 autocmd BufRead,BufNewFile *.clj setlocal filetype=clojure
