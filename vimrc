@@ -2,13 +2,15 @@ set rtp+=~/.vim/bundle/vundle/
 call vundle#rc()
 
 Bundle 'gmarik/vundle'
-Bundle 'pangloss/vim-javascript'
+Bundle 'jelera/vim-javascript-syntax'
+Bundle 'mustache/vim-mustache-handlebars'
 Bundle 'tpope/vim-markdown'
 Bundle 'tpope/vim-rails'
 Bundle 'thoughtbot/vim-rspec'
 Bundle 'kien/ctrlp.vim'
 Bundle 'https://github.com/vim-ruby/vim-ruby'
 Bundle 'https://github.com/vim-scripts/ruby-matchit'
+Bundle 'https://github.com/tpope/vim-bundler'
 Bundle 'https://github.com/mattn/emmet-vim'
 Bundle 'https://github.com/gregsexton/MatchTag'
 Bundle "https://github.com/vim-scripts/VimClojure"
@@ -24,6 +26,7 @@ Bundle "https://github.com/dag/vim2hs"
 Bundle "https://github.com/jimenezrick/vimerl"
 Bundle "https://github.com/hdima/python-syntax"
 Bundle "https://github.com/junegunn/vim-easy-align"
+Bundle "https://github.com/elixir-lang/vim-elixir"
 
 filetype plugin indent on
 syntax on
@@ -33,12 +36,13 @@ set clipboard=unnamed
 autocmd BufRead,BufNewFile *.cljs setlocal filetype=clojure
 autocmd BufRead,BufNewFile *.clj setlocal filetype=clojure
 autocmd BufRead,BufNewFile *.hiccup setlocal filetype=clojure
-autocmd FileType clojure setlocal lispwords+=describe,it,context,around,deftest,testing,with-redefs,with-*
+autocmd FileType clojure setlocal lispwords+=describe,it,context,around,deftest,testing,with-redefs,defspec
 
 autocmd BufRead,BufNewFile *.erl,*.es.*.hrl,*.yaws,*.xrl,*.src set tabstop=4 shiftwidth=4
 au BufNewFile,BufRead *.erl,*.es,*.hrl,*.yaws,*.xrl,*.src setf erlang
 
 autocmd BufRead,BufNewFile *.java set tabstop=4 shiftwidth=4
+autocmd BufRead,BufNewFile Capfile setlocal filetype=ruby
 
 vmap <Enter> <Plug>(EasyAlign)
 nmap ga <Plug>(EasyAlign)

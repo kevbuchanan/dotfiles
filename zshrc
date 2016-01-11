@@ -76,6 +76,10 @@ function ip() {
   curl ipecho.net/plain
 }
 
+function utcdate() {
+  TZ=UTC date '+%Y.%m.%d_%H.%M'
+}
+
 # get public keys from github, ssh_key_for <github username>
 function ssh_key_for() {
   curl -i https://api.github.com/users/${1}/keys
