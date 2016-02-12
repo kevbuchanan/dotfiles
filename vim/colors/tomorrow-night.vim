@@ -352,6 +352,11 @@ if has("gui_running") || &t_Co == 88 || &t_Co == 256
   call <SID>X("javaScriptNumber", s:orange, "", "")
   call <SID>X("javaScriptMember", s:orange, "", "")
 
+  " Java Highlighting
+  call <SID>X("javaStatement", s:blue, "", "")
+  call <SID>X("javaScopeDecl", s:purple, "", "")
+  call <SID>X("javaConditional", s:purple, "", "")
+
   " HTML Highlighting
   call <SID>X("htmlTag", s:red, "", "")
   call <SID>X("htmlTagName", s:red, "", "")

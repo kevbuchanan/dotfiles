@@ -15,6 +15,7 @@ else
 fi
 alias be="bundle exec "
 alias bi="bundle install"
+alias clj="drip -cp ~/.m2/repository/org/clojure/clojure/1.8.0/clojure-1.8.0.jar clojure.main"
 alias pst="pstree"
 alias reload="source ~/.zshrc"
 alias config="vim ~/.zshrc"
