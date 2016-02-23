@@ -283,9 +283,11 @@ if has("gui_running") || &t_Co == 88 || &t_Co == 256
   call <SID>X("Structure", s:purple, "", "")
   call <SID>X("Function", s:blue, "", "")
   call <SID>X("Constant", s:orange, "", "")
+  call <SID>X("Delimiter", s:orange, "", "")
   call <SID>X("String", s:green, "", "")
   call <SID>X("Special", s:foreground, "", "")
   call <SID>X("PreProc", s:purple, "", "")
+  call <SID>X("Keyword", s:purple, "", "")
   call <SID>X("Operator", s:aqua, "", "none")
   call <SID>X("Type", s:blue, "", "none")
   call <SID>X("Define", s:purple, "", "none")
@@ -363,15 +365,19 @@ if has("gui_running") || &t_Co == 88 || &t_Co == 256
   call <SID>X("htmlArg", s:red, "", "")
   call <SID>X("htmlScriptTag", s:red, "", "")
 
+  " Swift Highlighting
+  call <SID>X("swiftClosureArgument", s:red, "", "")
+  call <SID>X("swiftType", s:yellow, "", "")
+
   " Diff Highlighting
   call <SID>X("diffAdded", s:green, "", "")
   call <SID>X("diffRemoved", s:red, "", "")
 
-    " ShowMarks Highlighting
-    call <SID>X("ShowMarksHLl", s:orange, s:background, "none")
-    call <SID>X("ShowMarksHLo", s:purple, s:background, "none")
-    call <SID>X("ShowMarksHLu", s:yellow, s:background, "none")
-    call <SID>X("ShowMarksHLm", s:aqua, s:background, "none")
+  " ShowMarks Highlighting
+  call <SID>X("ShowMarksHLl", s:orange, s:background, "none")
+  call <SID>X("ShowMarksHLo", s:purple, s:background, "none")
+  call <SID>X("ShowMarksHLu", s:yellow, s:background, "none")
+  call <SID>X("ShowMarksHLm", s:aqua, s:background, "none")
 
   " Delete Functions
   delf <SID>X
