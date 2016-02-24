@@ -7,11 +7,10 @@ Plugin 'gmarik/vundle'
 Plugin 'jelera/vim-javascript-syntax'
 Plugin 'mustache/vim-mustache-handlebars'
 Plugin 'tpope/vim-markdown'
-Plugin 'tpope/vim-rails'
-Plugin 'thoughtbot/vim-rspec'
 Plugin 'kien/ctrlp.vim'
 Plugin 'vim-ruby/vim-ruby'
 Plugin 'vim-scripts/ruby-matchit'
+Plugin 'thoughtbot/vim-rspec'
 Plugin 'tpope/vim-bundler'
 Plugin 'mattn/emmet-vim'
 Plugin 'gregsexton/MatchTag'
@@ -20,10 +19,8 @@ Plugin 'scrooloose/nerdtree'
 Plugin 'tpope/vim-fugitive'
 Plugin 'tpope/vim-fireplace'
 Plugin 'kchmck/vim-coffee-script'
-Plugin 'slim-template/vim-slim'
 Plugin 'nelstrom/vim-visual-star-search'
 Plugin 'Keithbsmiley/swift.vim'
-Plugin 'digitaltoad/vim-jade'
 Plugin 'dag/vim2hs'
 Plugin 'jimenezrick/vimerl'
 Plugin 'hdima/python-syntax'
@@ -46,6 +43,7 @@ autocmd BufRead,BufNewFile *.erl,*.es.*.hrl,*.yaws,*.xrl,*.src set tabstop=4 shi
 au BufNewFile,BufRead *.erl,*.es,*.hrl,*.yaws,*.xrl,*.src setf erlang
 
 autocmd BufRead,BufNewFile *.java set tabstop=4 shiftwidth=4
+
 autocmd BufRead,BufNewFile Capfile setlocal filetype=ruby
 
 vmap <Enter> <Plug>(EasyAlign)
@@ -78,6 +76,7 @@ set hlsearch
 set incsearch
 set history=1000
 set undolevels=1000
+set autoread
 set nobackup
 set noswapfile
 set number
@@ -89,6 +88,7 @@ set smartcase
 set nowrap
 set completeopt=longest,menu
 set wildmode=list:longest,list:full
+set scrolloff=4
 
 " Highlight trailing whitespace
 autocmd InsertEnter * match ExtraWhitespace /\s\+\%#\@<!$/
@@ -107,7 +107,7 @@ autocmd ColorScheme * highlight LineLengthError ctermbg=black guibg=black
 highlight ExtraWhitespace ctermbg=red guibg=red
 autocmd ColorScheme * highlight ExtraWhitespace ctermbg=red guibg=red
 
-let &t_Co=256
+set t_Co=256
 colorscheme tomorrow-night
 
 let mapleader = "\\"
