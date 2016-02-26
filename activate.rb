@@ -2,21 +2,24 @@
 
 require 'fileutils'
 
-LINKS = ["vim",
-         "vimrc",
-         "rspec",
-         "zsh",
-         "zshrc",
-         "tmux.conf",
-         "gitconfig"]
+LINKS = {
+  "vim" => ".vim",
+  "vimrc" => ".vimrc",
+  "rspec" => ".rspec",
+  "zsh" => ".zsh",
+  "zshrc" => ".zshrc",
+  "tmux.conf" => ".tmux.conf",
+  "gitconfig" => ".gitconfig",
+  "fish" => ".config/fish"
+}
 
 working_dir = File.expand_path(File.dirname(__FILE__))
 home_dir = File.expand_path("~")
-dot_files = LINKS.map { |link| File.join(working_dir, link) }
 
-dot_files.each do |filename|
-  sym_link = File.join(home_dir, ".#{File.basename(filename)}")
+LINKS.each do |existing, new|
+  sym_link = File.join(working_dir, existing)
+  dotfile = File.join(home_dir, new)
 
-  FileUtils.rm sym_link if File.symlink?(sym_link) || File.exist?(sym_link)
-  FileUtils.ln_s filename, sym_link
+  FileUtils.rm(dotfile) if File.symlink?(dotfile) || File.exist?(dotfile)
+  FileUtils.ln_s(sym_link, dotfile)
 end
