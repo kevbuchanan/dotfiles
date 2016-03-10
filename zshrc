@@ -44,15 +44,13 @@ autoload colors; colors;
 export LSCOLORS="Gxfxcxdxbxegedabagacad"
 setopt prompt_subst
 
-zstyle ':completion:*:*:git:*' script ~/.zsh/git-completion.bash
-ZSH_THEME_GIT_PROMPT_PREFIX="git:(%{$fg[red]%}"
-ZSH_THEME_GIT_PROMPT_SUFFIX="%{$reset_color%}"
-ZSH_THEME_GIT_PROMPT_DIRTY="%{$fg[blue]%}) %{$fg[yellow]%}✗%{$reset_color%}"
-ZSH_THEME_GIT_PROMPT_CLEAN="%{$fg[blue]%})"
+ZSH_THEME_GIT_PROMPT_PREFIX=" %{$fg[red]%}["
+ZSH_THEME_GIT_PROMPT_SUFFIX="%{$fg[red]%}]%{$reset_color%}"
+ZSH_THEME_GIT_PROMPT_DIRTY="%{$fg[yellow]%} ✗"
+ZSH_THEME_GIT_PROMPT_CLEAN=""
 
 local ret_status="%(?:%{$fg_bold[green]%}➜ :%{$fg_bold[red]%}➜ %s)"
-
-PROMPT='${ret_status}%{$fg_bold[green]%}%p %{$fg[cyan]%}%c %{$fg_bold[blue]%}$(git_prompt_info)%{$fg_bold[blue]%} % %{$reset_color%}'
+PROMPT='%{$fg_bold[blue]%}>%@ %{$fg[cyan]%}%~%{$fg_bold[blue]%}$(git_prompt_info)%{$fg_bold[blue]%} ${ret_status} %{$reset_color%}'
 
 function parse_git_dirty() {
   if command git diff --quiet HEAD 2> /dev/null; then
