@@ -44,13 +44,13 @@ autoload colors; colors;
 export LSCOLORS="Gxfxcxdxbxegedabagacad"
 setopt prompt_subst
 
-ZSH_THEME_GIT_PROMPT_PREFIX=" %{$fg[red]%}["
-ZSH_THEME_GIT_PROMPT_SUFFIX="%{$fg[red]%}]%{$reset_color%}"
-ZSH_THEME_GIT_PROMPT_DIRTY="%{$fg[yellow]%} ✗"
+ZSH_THEME_GIT_PROMPT_PREFIX=" %{$fg[red]%}❯❯ "
+ZSH_THEME_GIT_PROMPT_SUFFIX="%{$reset_color%}"
+ZSH_THEME_GIT_PROMPT_DIRTY="%{$fg[yellow]%} +"
 ZSH_THEME_GIT_PROMPT_CLEAN=""
 
-local ret_status="%(?:%{$fg_bold[green]%}➜ :%{$fg_bold[red]%}➜ %s)"
-PROMPT='%{$fg_bold[blue]%}>%@ %{$fg[cyan]%}%~%{$fg_bold[blue]%}$(git_prompt_info)%{$fg_bold[blue]%} ${ret_status} %{$reset_color%}'
+local ret_status="%(?:%{$fg_bold[green]%}❯❯:%{$fg_bold[red]%}❯❯%s)"
+PROMPT='%{$fg_bold[blue]%}❯❯ %n %{$fg[cyan]%}❯❯ %1d%{$fg_bold[blue]%}$(git_prompt_info)%{$fg_bold[blue]%} ${ret_status} %{$reset_color%}'
 
 function parse_git_dirty() {
   if command git diff --quiet HEAD 2> /dev/null; then
