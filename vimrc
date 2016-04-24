@@ -26,6 +26,7 @@ Plugin 'jimenezrick/vimerl'
 Plugin 'hdima/python-syntax'
 Plugin 'junegunn/vim-easy-align'
 Plugin 'elixir-lang/vim-elixir'
+Plugin 'fatih/vim-go'
 
 call vundle#end()
 
