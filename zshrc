@@ -87,7 +87,7 @@ function ssh_key_for() {
 # one time setup to add pair alias and only allow public key authentication through ssh pair@<localhostname>.local
 function set_pair_config() {
   sudo dscl . -append /Users/$USER RecordName Pair pair
-  sudo sed -E -i.bak 's/^#?(PasswordAuthentication|ChallengeResponseAuthentication).*$/\1 no/' /etc/sshd_config
+  sudo sed -E -i.bak 's/^#?(PasswordAuthentication|ChallengeResponseAuthentication).*$/\1 no/' /etc/ssh/sshd_config
 }
 
 # authorize a public key to attach to the pair tmux session, add_pair <public key>
@@ -98,7 +98,7 @@ function add_pair() {
 }
 
 # watch for changes in files with $1 pattern and run $2 command on change, watch <extension> <command>
-function watch() {
+function wchange() {
   pattern=$1
   shift
   command=$@
@@ -158,3 +158,16 @@ export DOCKER_TLS_VERIFY=1
 
 export GOPATH=$HOME/code/go
 export PATH=$PATH:$GOPATH/bin
+
+function replace() {
+  find_this="$1"
+  shift
+  replace_with="$1"
+  shift
+
+  temp="${TMPDIR:-/tmp}/replace_temp_file.$$"
+  IFS=$'\n'
+  for item in $(ag -l --nocolor "$find_this" "$@"); do
+    sed "s/$find_this/$replace_with/g" "$item" > "$temp" && mv "$temp" "$item"
+  done
+}
