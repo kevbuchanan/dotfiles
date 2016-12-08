@@ -30,6 +30,8 @@ Plugin 'fatih/vim-go'
 Plugin 'leafgarland/typescript-vim'
 Plugin 'Quramy/tsuquyomi'
 Plugin 'Shougo/vimproc.vim'
+Plugin 'mxw/vim-jsx'
+Plugin 'rust-lang/rust.vim'
 
 call vundle#end()
 
@@ -62,10 +64,14 @@ runtime macros/matchit.vim
 autocmd FileType python setlocal tabstop=8 expandtab shiftwidth=4 softtabstop=4
 let python_highlight_all=1
 
+autocmd BufRead,BufNewFile *.tsx set filetype=javascript.jsx
+
 let NERDTreeShowHidden=1
 
 let g:haskell_conceal=0
 set nofoldenable
+
+let g:tsuquyomi_single_quote_import=1
 
 set backspace=indent,eol,start
 set nocompatible

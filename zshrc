@@ -26,8 +26,6 @@ if [ "$OSTYPE" "==" "linux-gnu" ]; then
 fi
 PGDATA=/usr/local/var/postgres
 
-bindkey "^H" beginning-of-line
-bindkey "^L" end-of-line
 bindkey "^J" history-incremental-search-backward
 bindkey "^K" history-search-backward
 
@@ -40,6 +38,7 @@ PATH=$PATH:$HOME/.cabal/bin
 
 export JAVA_HOME=$(/usr/libexec/java_home)
 
+# prompt
 autoload colors; colors;
 export LSCOLORS="Gxfxcxdxbxegedabagacad"
 setopt prompt_subst
@@ -65,6 +64,7 @@ function git_prompt_info() {
   ref=$(command git rev-parse --short HEAD 2> /dev/null) || return
   echo "$ZSH_THEME_GIT_PROMPT_PREFIX${ref#refs/heads/}$(parse_git_dirty)$ZSH_THEME_GIT_PROMPT_SUFFIX"
 }
+# end prompt
 
 function mkcd() {
   mkdir -p $1
