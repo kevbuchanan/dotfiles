@@ -55,6 +55,9 @@ autocmd BufRead,BufNewFile Capfile setlocal filetype=ruby
 vmap <Enter> <Plug>(EasyAlign)
 nmap ga <Plug>(EasyAlign)
 
+let g:typescript_compiler_binary = 'tsc'
+let g:typescript_compiler_options = '--experimentalDecorators'
+
 let vimclojure#HightlightBuiltins=1
 let vimclojure#ParenRainbow=1
 let g:paredit_matchlines=200
@@ -64,13 +67,12 @@ runtime macros/matchit.vim
 autocmd FileType python setlocal tabstop=8 expandtab shiftwidth=4 softtabstop=4
 let python_highlight_all=1
 
-autocmd BufRead,BufNewFile *.tsx set filetype=javascript.jsx
-
 let NERDTreeShowHidden=1
 
 let g:haskell_conceal=0
 set nofoldenable
 
+let g:tsuquyomi_completion_detail=1
 let g:tsuquyomi_single_quote_import=1
 
 set backspace=indent,eol,start
