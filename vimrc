@@ -68,6 +68,7 @@ autocmd FileType python setlocal tabstop=8 expandtab shiftwidth=4 softtabstop=4
 let python_highlight_all=1
 
 let NERDTreeShowHidden=1
+let NERDTreeCascadeSingleChildDir=0
 
 let g:haskell_conceal=0
 set nofoldenable
