@@ -1,39 +1,38 @@
 set nocompatible
 filetype off
-set rtp+=~/.vim/bundle/vundle
-call vundle#begin()
+call plug#begin('~/.vim/plugged')
 
-Plugin 'gmarik/vundle'
-Plugin 'jelera/vim-javascript-syntax'
-Plugin 'mustache/vim-mustache-handlebars'
-Plugin 'tpope/vim-markdown'
-Plugin 'kien/ctrlp.vim'
-Plugin 'vim-ruby/vim-ruby'
-Plugin 'vim-scripts/ruby-matchit'
-Plugin 'thoughtbot/vim-rspec'
-Plugin 'tpope/vim-bundler'
-Plugin 'mattn/emmet-vim'
-Plugin 'gregsexton/MatchTag'
-Plugin 'vim-scripts/VimClojure'
-Plugin 'scrooloose/nerdtree'
-Plugin 'tpope/vim-fugitive'
-Plugin 'tpope/vim-fireplace'
-Plugin 'kchmck/vim-coffee-script'
-Plugin 'nelstrom/vim-visual-star-search'
-Plugin 'Keithbsmiley/swift.vim'
-Plugin 'dag/vim2hs'
-Plugin 'jimenezrick/vimerl'
-Plugin 'hdima/python-syntax'
-Plugin 'junegunn/vim-easy-align'
-Plugin 'elixir-lang/vim-elixir'
-Plugin 'fatih/vim-go'
-Plugin 'leafgarland/typescript-vim'
-Plugin 'Quramy/tsuquyomi'
-Plugin 'Shougo/vimproc.vim'
-Plugin 'mxw/vim-jsx'
-Plugin 'rust-lang/rust.vim'
+Plug 'jelera/vim-javascript-syntax'
+Plug 'mustache/vim-mustache-handlebars'
+Plug 'tpope/vim-markdown'
+Plug 'kien/ctrlp.vim'
+Plug 'vim-ruby/vim-ruby'
+Plug 'vim-scripts/ruby-matchit'
+Plug 'tpope/vim-bundler'
+Plug 'mattn/emmet-vim'
+Plug 'gregsexton/MatchTag'
+Plug 'vim-scripts/VimClojure'
+Plug 'scrooloose/nerdtree'
+Plug 'tpope/vim-fugitive'
+Plug 'tpope/vim-fireplace'
+Plug 'kchmck/vim-coffee-script'
+Plug 'nelstrom/vim-visual-star-search'
+Plug 'Keithbsmiley/swift.vim'
+Plug 'dag/vim2hs'
+Plug 'jimenezrick/vimerl'
+Plug 'hdima/python-syntax'
+Plug 'junegunn/vim-easy-align'
+Plug 'elixir-lang/vim-elixir'
+Plug 'fatih/vim-go'
+Plug 'leafgarland/typescript-vim'
+Plug 'Quramy/tsuquyomi'
+Plug 'Shougo/vimproc.vim'
+Plug 'mxw/vim-jsx'
+Plug 'rust-lang/rust.vim'
+Plug 'elmcast/elm-vim'
+Plug '/usr/local/opt/fzf' | Plug 'junegunn/fzf.vim'
 
-call vundle#end()
+call plug#end()
 
 filetype plugin indent on
 syntax on
@@ -51,6 +50,8 @@ au BufNewFile,BufRead *.erl,*.es,*.hrl,*.yaws,*.xrl,*.src setf erlang
 autocmd BufRead,BufNewFile *.java set tabstop=4 shiftwidth=4
 
 autocmd BufRead,BufNewFile Capfile setlocal filetype=ruby
+
+autocmd BufRead,BufNewFile *.fodt.eex setlocal filetype=xml
 
 vmap <Enter> <Plug>(EasyAlign)
 nmap ga <Plug>(EasyAlign)
@@ -125,7 +126,10 @@ colorscheme tomorrow-night
 
 let mapleader = "\\"
 
-map <Leader>v :set paste!<CR>
+nmap <Leader>v :set paste!<CR>
+nmap <Leader>t :Files<CR>
+nmap <Leader>r :Tags<CR>
+nmap <Leader>a :Ag<CR>
 
 map <C-H> <C-W>h
 map <C-L> <C-W>l
@@ -139,9 +143,3 @@ map <C-n> :NERDTreeToggle<CR>
 if filereadable(".vimrc.local")
   source .vimrc.local
 endif
-
-"Rspec.vim mappings
-map <Leader>. :call RunCurrentSpecFile()<CR>
-map <Leader>s :call RunNearestSpec()<CR>
-map <Leader>l :call RunLastSpec()<CR>
-map <Leader>a :call RunAllSpecs()<CR>

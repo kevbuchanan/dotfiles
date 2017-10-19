@@ -7,9 +7,10 @@ $ cd dotfiles
 
 $ ./activate.rb
 
-$ git clone https://github.com/gmarik/Vundle.vim vim/bundle/vundle
+$ curl -fLo ~/.vim/autoload/plug.vim --create-dirs \
+    https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim
 
-$ vim +PluginInstall +qall
+$ vim +PlugInstall +qall
 ```
 
 

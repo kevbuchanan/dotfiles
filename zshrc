@@ -38,6 +38,19 @@ PATH=$PATH:$HOME/.cabal/bin
 
 export JAVA_HOME=$(/usr/libexec/java_home)
 
+if [ -e /usr/local/opt/fzf/shell/completion.zsh ]; then
+  source /usr/local/opt/fzf/shell/key-bindings.zsh
+  source /usr/local/opt/fzf/shell/completion.zsh
+fi
+
+export FZF_DEFAULT_COMMAND='ag --nocolor -g ""'
+export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
+export FZF_ALT_C_COMMAND="$FZF_DEFAULT_COMMAND"
+export FZF_DEFAULT_OPTS='
+--color fg:242,bg:236,hl:65,fg+:15,bg+:239,hl+:108
+--color info:108,prompt:109,spinner:108,pointer:168,marker:168
+'
+
 # prompt
 autoload colors; colors;
 export LSCOLORS="Gxfxcxdxbxegedabagacad"
@@ -169,5 +182,16 @@ function replace() {
   IFS=$'\n'
   for item in $(ag -l --nocolor "$find_this" "$@"); do
     sed "s/$find_this/$replace_with/g" "$item" > "$temp" && mv "$temp" "$item"
+  done
+}
+
+function remove() {
+  find_this="$1"
+  shift
+
+  temp="${TMPDIR:-/tmp}/remove_temp_file.$$"
+  IFS=$'\n'
+  for item in $(ag -l --nocolor "$find_this" "$@"); do
+    sed "/$find_this/d" "$item" > "$temp" && mv "$temp" "$item"
   done
 }
