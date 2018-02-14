@@ -5,6 +5,7 @@ fpath=(~/.zsh $fpath)
 autoload -U compinit && compinit
 
 export EDITOR="vim"
+bindkey -e
 
 alias tmux="tmux -2"
 alias tma="tmux attach -t"
