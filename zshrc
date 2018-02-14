@@ -197,3 +197,5 @@ function remove() {
     sed "/$find_this/d" "$item" > "$temp" && mv "$temp" "$item"
   done
 }
+
+source ~/.zsh/tmuxinator.zsh
