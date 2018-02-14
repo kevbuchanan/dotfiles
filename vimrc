@@ -5,7 +5,6 @@ call plug#begin('~/.vim/plugged')
 Plug 'jelera/vim-javascript-syntax'
 Plug 'mustache/vim-mustache-handlebars'
 Plug 'tpope/vim-markdown'
-Plug 'kien/ctrlp.vim'
 Plug 'vim-ruby/vim-ruby'
 Plug 'vim-scripts/ruby-matchit'
 Plug 'tpope/vim-bundler'
@@ -31,6 +30,7 @@ Plug 'mxw/vim-jsx'
 Plug 'rust-lang/rust.vim'
 Plug 'elmcast/elm-vim'
 Plug '/usr/local/opt/fzf' | Plug 'junegunn/fzf.vim'
+Plug 'hashivim/vim-terraform'
 
 call plug#end()
 
