@@ -9,6 +9,7 @@ bindkey -e
 
 alias tmux="tmux -2"
 alias tma="tmux attach -t"
+
 if [ "$OSTYPE" "==" "linux-gnu" ]; then
   alias ls="ls -AF --color"
   alias lsl="ls -l"
@@ -16,30 +17,28 @@ else
   alias ls="ls -AFG"
   alias lsl="ls -hl"
 fi
+
 alias be="bundle exec "
 alias bi="bundle install"
 alias clj="drip -cp ~/.m2/repository/org/clojure/clojure/1.8.0/clojure-1.8.0.jar clojure.main"
 alias pst="pstree"
 alias reload="source ~/.zshrc"
 alias config="vim ~/.zshrc"
+
 alias mongodb="mongod --config /usr/local/etc/mongod.conf"
 alias postgres="postgres -D /usr/local/var/postgres"
 if [ "$OSTYPE" "==" "linux-gnu" ]; then
   alias postgres="sudo /etc/init.d/postgresql start"
 fi
-PGDATA=/usr/local/var/postgres
+export PGDATA=/usr/local/var/postgres
 
 bindkey "^J" history-incremental-search-backward
 bindkey "^K" history-search-backward
 
-eval "$(rbenv init -)"
-
-PATH=$HOME/.rbenv/shims:$PATH
-PATH=$PATH:$HOME/.rbenv/bin
-
 PATH=$PATH:$HOME/.cabal/bin
 
-export JAVA_HOME=$(/usr/libexec/java_home)
+# Set JAVA_HOME from asdf java version
+. ~/.asdf/plugins/java/set-java-home.zsh
 
 if [ -e /usr/local/opt/fzf/shell/completion.zsh ]; then
   source /usr/local/opt/fzf/shell/key-bindings.zsh
@@ -93,6 +92,10 @@ function ip() {
 
 function utcdate() {
   TZ=UTC date '+%Y.%m.%d_%H.%M'
+}
+
+function uuid() {
+  ruby -e 'require "securerandom"; puts SecureRandom.uuid'
 }
 
 # get public keys from github, ssh_key_for <github username>
@@ -168,10 +171,6 @@ function docker-clean {
   docker rmi $(docker images | grep '^<none>' | awk '{ print $3 }')
 }
 
-export DOCKER_HOST=tcp://192.168.59.103:2376
-export DOCKER_CERT_PATH=/Users/kevinbuchanan/.boot2docker/certs/boot2docker-vm
-export DOCKER_TLS_VERIFY=1
-
 export GOPATH=$HOME/code/go
 export PATH=$PATH:$GOPATH/bin
 
@@ -199,4 +198,35 @@ function remove() {
   done
 }
 
+function rename() {
+  replace="$1"
+  shift
+  with="$2"
+  shift
+  for file in "$@"; do
+    mv "$file" "${file%replace}$with"
+  done
+}
+
+function highlight() {
+  grep --color "$1\|$"
+}
+
+function find_largest() {
+  du -sh *  | grep -E "\d[M|G]"
+}
+
+function find_largest_in() {
+  du -k "$1" | awk '$1 > 100000' | sort -nr
+}
+
 source ~/.zsh/tmuxinator.zsh
+source ~/.asdf/asdf.sh
+source ~/.cargo/env
+source ~/.poetry/env
+
+export ERL_AFLAGS="-kernel shell_history enabled"
+
+function air() {
+  curl -s "http://www.airnowapi.org/aq/observation/zipCode/current/?format=application/json&zipCode=$1&API_KEY=57A93924-AE07-44F4-8EB3-EF834610F42D" | jq 'map({ "type": .ParameterName, "value": .AQI, "category": .Category.Name })'
+}

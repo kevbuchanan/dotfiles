@@ -5,10 +5,20 @@
 [push]
   default = simple
 
+[pull]
+  rebase = true
+
 [core]
   autocrlf = input
   safecrlf = false
   editor = vim
+  pager = "diff-so-fancy | less --tabs=4 -RFX"
+
+[interactive]
+  diffFilter = "diff-so-fancy --patch"
+
+[rerere]
+  enabled = true
 
 [alias]
   b = branch
@@ -29,3 +39,18 @@
 
 [color]
   ui = true
+
+[filter "lfs"]
+  clean = git-lfs clean -- %f
+  smudge = git-lfs smudge -- %f
+  process = git-lfs filter-process
+  required = true
+
+[diff]
+  context = 5
+
+[init]
+  defaultBranch = main
+
+[includeIf "gitdir:~/code/example/"]
+  path = ~/code/example/.gitconfig

@@ -2,24 +2,31 @@
 
 require 'fileutils'
 
-LINKS = {
-  "vim" => ".vim",
-  "vimrc" => ".vimrc",
-  "rspec" => ".rspec",
-  "zsh" => ".zsh",
-  "zshrc" => ".zshrc",
-  "tmux.conf" => ".tmux.conf",
-  "gitconfig" => ".gitconfig",
-  "fish" => ".config/fish"
-}
+LINKS = [
+  # vim
+  ["vim", ".vim"],
+  ["vimrc", ".vimrc"],
+  # nvim
+  ["vim/colors", ".config/nvim/colors"],
+  ["vim/autoload", ".config/nvim/autoload"],
+  ["vimrc", ".config/nvim/init.vim"],
+  # zsh
+  ["zsh", ".zsh"],
+  ["zshrc", ".zshrc"],
+  # etc
+  ["tmux.conf", ".tmux.conf"],
+  ["gitconfig", ".gitconfig"],
+  ["fish", ".config/fish"],
+  ["rspec", ".rspec"]
+]
 
 working_dir = File.expand_path(File.dirname(__FILE__))
 home_dir = File.expand_path("~")
 
-LINKS.each do |existing, new|
-  sym_link = File.join(working_dir, existing)
-  dotfile = File.join(home_dir, new)
+LINKS.each do |source_file, config_file|
+  source_file_path = File.join(working_dir, source_file)
+  config_file_path = File.join(home_dir, config_file)
 
-  FileUtils.rm(dotfile) if File.symlink?(dotfile) || File.exist?(dotfile)
-  FileUtils.ln_s(sym_link, dotfile)
+  FileUtils.mkdir_p(File.dirname(config_file_path))
+  FileUtils.ln_s(source_file_path, config_file_path, force: true)
 end

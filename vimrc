@@ -1,5 +1,6 @@
 set nocompatible
-filetype off
+filetype plugin indent on
+
 call plug#begin('~/.vim/plugged')
 
 Plug 'jelera/vim-javascript-syntax'
@@ -9,12 +10,10 @@ Plug 'vim-ruby/vim-ruby'
 Plug 'vim-scripts/ruby-matchit'
 Plug 'tpope/vim-bundler'
 Plug 'mattn/emmet-vim'
-Plug 'gregsexton/MatchTag'
 Plug 'vim-scripts/VimClojure'
 Plug 'scrooloose/nerdtree'
 Plug 'tpope/vim-fugitive'
 Plug 'tpope/vim-fireplace'
-Plug 'kchmck/vim-coffee-script'
 Plug 'nelstrom/vim-visual-star-search'
 Plug 'Keithbsmiley/swift.vim'
 Plug 'dag/vim2hs'
@@ -23,21 +22,30 @@ Plug 'hdima/python-syntax'
 Plug 'junegunn/vim-easy-align'
 Plug 'elixir-lang/vim-elixir'
 Plug 'fatih/vim-go'
-Plug 'leafgarland/typescript-vim'
-Plug 'Quramy/tsuquyomi'
-Plug 'Shougo/vimproc.vim'
-Plug 'mxw/vim-jsx'
 Plug 'rust-lang/rust.vim'
 Plug 'elmcast/elm-vim'
 Plug '/usr/local/opt/fzf' | Plug 'junegunn/fzf.vim'
 Plug 'hashivim/vim-terraform'
+Plug 'udalov/kotlin-vim'
+Plug 'cespare/vim-toml'
+Plug 'neoclide/coc.nvim', {'branch': 'release'}
+Plug 'vim-test/vim-test'
+Plug 'kassio/neoterm'
+Plug 'slim-template/vim-slim'
 
 call plug#end()
 
-filetype plugin indent on
+let g:coc_global_extensions = [
+      \ 'coc-tsserver'
+      \ ]
+
 syntax on
-filetype detect
 set clipboard=unnamed
+
+let test#strategy = "neoterm"
+let g:neoterm_default_mod = "botright vertical"
+let g:neoterm_shell = "zsh"
+let g:neoterm_keep_term_open = 0
 
 autocmd BufRead,BufNewFile *.cljs setlocal filetype=clojure
 autocmd BufRead,BufNewFile *.clj setlocal filetype=clojure
@@ -52,12 +60,6 @@ autocmd BufRead,BufNewFile *.java set tabstop=4 shiftwidth=4
 autocmd BufRead,BufNewFile Capfile setlocal filetype=ruby
 
 autocmd BufRead,BufNewFile *.fodt.eex setlocal filetype=xml
-
-vmap <Enter> <Plug>(EasyAlign)
-nmap ga <Plug>(EasyAlign)
-
-let g:typescript_compiler_binary = 'tsc'
-let g:typescript_compiler_options = '--experimentalDecorators'
 
 let vimclojure#HightlightBuiltins=1
 let vimclojure#ParenRainbow=1
@@ -74,11 +76,9 @@ let NERDTreeCascadeSingleChildDir=0
 let g:haskell_conceal=0
 set nofoldenable
 
-let g:tsuquyomi_completion_detail=1
-let g:tsuquyomi_single_quote_import=1
-
 set backspace=indent,eol,start
 set nocompatible
+set visualbell
 set ruler
 set wildmenu
 set tabstop=2
@@ -121,6 +121,10 @@ autocmd ColorScheme * highlight LineLengthError ctermbg=black guibg=black
 highlight ExtraWhitespace ctermbg=red guibg=red
 autocmd ColorScheme * highlight ExtraWhitespace ctermbg=red guibg=red
 
+autocmd FileType swift setlocal tabstop=2
+autocmd FileType swift setlocal softtabstop=2
+autocmd FileType swift setlocal shiftwidth=2
+
 set t_Co=256
 colorscheme tomorrow-night
 
@@ -128,18 +132,28 @@ let mapleader = "\\"
 
 nmap <Leader>v :set paste!<CR>
 nmap <Leader>t :Files<CR>
-nmap <Leader>r :Tags<CR>
 nmap <Leader>a :Ag<CR>
+vmap <Enter> <Plug>(EasyAlign)
+nmap ga <Plug>(EasyAlign)
+
+nmap <silent> t<C-n> :TestNearest<CR>
+nmap <silent> t<C-f> :TestFile<CR>
+nmap <silent> t<C-s> :TestSuite<CR>
+nmap <silent> t<C-l> :TestLast<CR>
+nmap <silent> t<C-g> :TestVisit<CR>
 
 map <C-H> <C-W>h
 map <C-L> <C-W>l
 map <C-J> <C-W>j
 map <C-K> <C-W>k
+map <C-n> :NERDTreeToggle<CR>
 
 :command W w
 
-map <C-n> :NERDTreeToggle<CR>
-
 if filereadable(".vimrc.local")
   source .vimrc.local
+endif
+
+if filereadable("~/.vimrc.coc")
+  source ~/.vimrc.coc
 endif
