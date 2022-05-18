@@ -6,10 +6,12 @@ LINKS = [
   # vim
   ["vim", ".vim"],
   ["vimrc", ".vimrc"],
+  ["vimrc.coc", ".vimrc.coc"],
   # nvim
   ["vim/colors", ".config/nvim/colors"],
   ["vim/autoload", ".config/nvim/autoload"],
   ["vimrc", ".config/nvim/init.vim"],
+  ["vimrc.coc", ".config/nvim/coc.vim"],
   # zsh
   ["zsh", ".zsh"],
   ["zshrc", ".zshrc"],

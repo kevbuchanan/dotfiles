@@ -160,6 +160,10 @@ if filereadable(".vimrc.local")
   source .vimrc.local
 endif
 
-if filereadable("~/.vimrc.coc")
+if filereadable(expand("~/.vimrc.coc"))
   source ~/.vimrc.coc
+endif
+
+if filereadable(expand("~/.config/nvim/coc.vim"))
+  source ~/.config/nvim/coc.vim
 endif
