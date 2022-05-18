@@ -14,6 +14,10 @@ Plug 'vim-scripts/VimClojure'
 Plug 'scrooloose/nerdtree'
 Plug 'tpope/vim-fugitive'
 Plug 'tpope/vim-fireplace'
+Plug 'pangloss/vim-javascript'
+Plug 'leafgarland/typescript-vim'
+Plug 'maxmellon/vim-jsx-pretty'
+Plug 'jparise/vim-graphql'
 Plug 'nelstrom/vim-visual-star-search'
 Plug 'Keithbsmiley/swift.vim'
 Plug 'dag/vim2hs'
@@ -34,6 +38,8 @@ Plug 'kassio/neoterm'
 Plug 'slim-template/vim-slim'
 
 call plug#end()
+
+nnoremap <silent><leader>1 :source ~/.vimrc \| :PlugInstall<CR>
 
 let g:coc_global_extensions = [
       \ 'coc-tsserver'
