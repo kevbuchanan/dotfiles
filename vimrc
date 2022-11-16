@@ -42,6 +42,7 @@ call plug#end()
 nnoremap <silent><leader>1 :source ~/.vimrc \| :PlugInstall<CR>
 
 let g:coc_global_extensions = [
+      \ 'coc-rust-analyzer',
       \ 'coc-tsserver'
       \ ]
 
