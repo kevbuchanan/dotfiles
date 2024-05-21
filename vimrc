@@ -25,10 +25,10 @@ Plug 'jimenezrick/vimerl'
 Plug 'hdima/python-syntax'
 Plug 'junegunn/vim-easy-align'
 Plug 'elixir-lang/vim-elixir'
-Plug 'fatih/vim-go'
 Plug 'rust-lang/rust.vim'
 Plug 'elmcast/elm-vim'
-Plug '/usr/local/opt/fzf' | Plug 'junegunn/fzf.vim'
+Plug 'junegunn/fzf', { 'do': { -> fzf#install() } }
+Plug 'junegunn/fzf.vim'
 Plug 'hashivim/vim-terraform'
 Plug 'udalov/kotlin-vim'
 Plug 'cespare/vim-toml'
@@ -36,6 +36,7 @@ Plug 'neoclide/coc.nvim', {'branch': 'release'}
 Plug 'vim-test/vim-test'
 Plug 'kassio/neoterm'
 Plug 'slim-template/vim-slim'
+Plug 'iamcco/markdown-preview.nvim', { 'do': 'cd app && npx --yes yarn install' }
 
 call plug#end()
 
@@ -43,8 +44,10 @@ nnoremap <silent><leader>1 :source ~/.vimrc \| :PlugInstall<CR>
 
 let g:coc_global_extensions = [
       \ 'coc-rust-analyzer',
-      \ 'coc-tsserver'
+      \ 'coc-tsserver',
+      \ 'coc-java',
       \ ]
+let g:coc_disable_transparent_cursor = 1
 
 syntax on
 set clipboard=unnamed
@@ -82,6 +85,10 @@ let NERDTreeCascadeSingleChildDir=0
 
 let g:haskell_conceal=0
 set nofoldenable
+
+let g:terraform_fmt_on_save=1
+
+let g:mkdp_theme = 'light'
 
 set backspace=indent,eol,start
 set nocompatible
@@ -157,6 +164,8 @@ map <C-n> :NERDTreeToggle<CR>
 
 :command W w
 
+:set statusline=%f
+
 if filereadable(".vimrc.local")
   source .vimrc.local
 endif
@@ -167,4 +176,8 @@ endif
 
 if filereadable(expand("~/.config/nvim/coc.vim"))
   source ~/.config/nvim/coc.vim
+  set statusline=%f\ %{coc#status()}
 endif
+
+set statusline+=%=                      " Right side
+set statusline+=ln\ %02l/%L\ :\ %02v\  " ln <line number> / <total lines> : <column number>

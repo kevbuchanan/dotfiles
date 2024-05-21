@@ -22,7 +22,7 @@ alias be="bundle exec "
 alias bi="bundle install"
 alias clj="drip -cp ~/.m2/repository/org/clojure/clojure/1.8.0/clojure-1.8.0.jar clojure.main"
 alias pst="pstree"
-alias reload="source ~/.zshrc"
+alias reload="source ~/.zshrc && source ~/.zshenv"
 alias config="vim ~/.zshrc"
 
 alias mongodb="mongod --config /usr/local/etc/mongod.conf"
@@ -222,6 +222,7 @@ function find_largest_in() {
 
 source ~/.zsh/tmuxinator.zsh
 source ~/.asdf/asdf.sh
+source /opt/homebrew/opt/asdf/libexec/asdf.sh
 source ~/.cargo/env
 source ~/.poetry/env
 
