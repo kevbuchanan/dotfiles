@@ -37,7 +37,7 @@ nvim +PlugInstall +qall
 
 nvim only:
 
-- nvim-tree replaces NERDTree, and gitsigns marks changed lines in the sign column.
+- nvim-tree replaces NERDTree, and gitsigns marks changed lines in the sign column. diffview.nvim shows a whole diff in one tab.
 - Every second, nvim reloads any unmodified buffer whose file changed on disk, so edits from Claude Code or other tools show up without a focus change. A buffer with unsaved edits gets nvim's normal conflict prompt.
 - The prose commands below.
 
@@ -99,6 +99,7 @@ vim-test runs tests in a neoterm split.
 | Command | Action |
 | --- | --- |
 | `\s` | run `fleet status` from a pane inside a fleet |
+| `:FleetDiff [task]`, `\d` | open a fleet task's changes in diffview. With no task, uses the task note in the current buffer. See [fleet](fleet/README.md#reviewing-progress). |
 | `:Prose [session]` | open a [prose](prose/README.md) review of the current file |
 | `:Prose!` | open the review in a new Claude pane |
 | `:ProseStop` | stop the prose server for the current file |

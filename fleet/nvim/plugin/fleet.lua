@@ -1,0 +1,57 @@
+-- nvim commands for fleet task review.
+--
+--   :FleetDiff [task]   open one task's changes in diffview. With no task,
+--                       uses the task note in the current buffer.
+--   <Leader>d           :FleetDiff
+--
+-- `fleet diff --rev` picks the folder and revision: the worker's worktree
+-- from Base while the task is in progress, or the repo with Base..End once
+-- `fleet clear` has recorded End.
+
+local function fleet_notes()
+  local pane = vim.env.TMUX_PANE
+  if not pane then return nil end
+  local out = vim.trim(vim.fn.system({ "tmux", "show", "-qv", "-t", pane, "@fleet_notes" }))
+  return out ~= "" and out or nil
+end
+
+local function note_task()
+  return vim.fn.expand("%:p"):match("/tasks/([%w_-]+)%.md$")
+end
+
+vim.api.nvim_create_user_command("FleetDiff", function(o)
+  local id = o.args ~= "" and o.args or note_task()
+  if not id then
+    vim.notify("FleetDiff: name a task, or run it from a task note", vim.log.levels.ERROR)
+    return
+  end
+  if vim.fn.exists(":DiffviewOpen") ~= 2 then
+    vim.notify("FleetDiff: diffview.nvim is not installed", vim.log.levels.ERROR)
+    return
+  end
+  local r = vim.system({ "fleet", "diff", "--rev", id }, { text = true }):wait()
+  if r.code ~= 0 then
+    vim.notify(vim.trim(r.stderr), vim.log.levels.ERROR)
+    return
+  end
+  local dir, rev = unpack(vim.split(vim.trim(r.stdout), "\n"))
+  -- fleet prints a note on stderr when a task has no End
+  if vim.trim(r.stderr) ~= "" then vim.notify(vim.trim(r.stderr), vim.log.levels.WARN) end
+  -- -C makes diffview use the worker's repo, not the notes repo this buffer is in
+  vim.cmd("DiffviewOpen -C" .. vim.fn.fnameescape(dir) .. " " .. rev)
+end, {
+  nargs = "?",
+  desc = "Open a fleet task's changes in diffview",
+  complete = function(lead)
+    local notes = fleet_notes()
+    if not notes then return {} end
+    local ids = {}
+    for _, f in ipairs(vim.fn.glob(notes .. "/tasks/*.md", false, true)) do
+      local id = vim.fn.fnamemodify(f, ":t:r")
+      if vim.startswith(id, lead) then table.insert(ids, id) end
+    end
+    return ids
+  end,
+})
+
+vim.keymap.set("n", "<Leader>d", "<cmd>FleetDiff<cr>", { desc = "fleet diff for this task note" })

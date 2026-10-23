@@ -3,6 +3,8 @@
 Guidance: {{GUIDANCE}}
 Worker:
 Branch:
+Base:
+End:
 
 ## Goal
 

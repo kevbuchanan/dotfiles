@@ -22,6 +22,9 @@
 #   fleet restart <seat>         kill the seat's process and relaunch claude
 #   fleet rename <seat> <title>
 #   fleet path <seat>            print a worker's worktree path
+#   fleet diff [--rev] <id> [git diff args]
+#                                one task's changes; --rev prints the folder
+#                                and revision instead, for :FleetDiff
 #   fleet shell <seat> [cmd]     open a window in a worker's worktree, running
 #                                cmd or a shell
 #
@@ -78,14 +81,40 @@ pane_of() {
 }
 
 # Sets $worktree to a worker seat's checkout, which Claude Code creates from
-# the -w name on the seat's launch line.
+# the -w name on the seat's launch line, or to empty when there is none.
+seat_checkout() {
+  worktree=
+  local record=$statedir/$S/repo
+  [[ -f $record ]] || return 0
+  local wt=$(< $record)/.claude/worktrees/$S-$1
+  [[ -d $wt ]] && worktree=$wt
+  return 0
+}
+
+# Like seat_checkout, but stops fleet with the reason there is no checkout.
 worktree_of() {
   [[ $1 == w<-> ]] || die "only worker seats have worktrees: $1"
   pane_of $1
-  local record=$statedir/$S/repo
-  [[ -f $record ]] || die "$S has no repo record, so its workers have no worktrees"
-  worktree=$(< $record)/.claude/worktrees/$S-$1
-  [[ -d $worktree ]] || die "no worktree yet at $worktree"
+  [[ -f $statedir/$S/repo ]] || die "$S has no repo record, so its workers have no worktrees"
+  seat_checkout $1
+  [[ -n $worktree ]] || die "no worktree yet at $(< $statedir/$S/repo)/.claude/worktrees/$S-$1"
+}
+
+# Header fields of a task note, the "Key: value" lines under the title.
+note_get() { sed -n "s/^$2: *//p" $1 | head -1 }
+note_set() {
+  local note=$1 key=$2 value=$3
+  if grep -q "^$key:" $note; then
+    sed -i '' "s|^$key:.*|$key: $value|" $note
+  else
+    # notes made from an older template lack the field; add it after the
+    # last header field, so fields added in turn keep their order
+    awk -v line="$key: $value" '
+      NR == FNR { if (/^(Guidance|Worker|Branch|Base|End):/) last = FNR; next }
+      { print } FNR == last { print line }
+    ' $note $note > $note.tmp
+    mv $note.tmp $note
+  fi
 }
 
 opt() { tmux display -p -t $1 "#{$2}" }
@@ -156,7 +185,7 @@ fleet_new() {
   sed "s|{{ROOT}}|$root|g" $root/settings.json > $rundir/settings.json
   jq --arg e $edit '.permissions.allow = [$e]' $rundir/settings.json > $rundir/worker-settings.json
   jq --arg e $edit '.permissions.allow = [$e] + ([
-      "status", "task", "assign", "clear", "interrupt", "rename", "path"
+      "status", "task", "assign", "clear", "interrupt", "rename", "path", "diff"
     ] | map("Bash(fleet \(.))", "Bash(fleet \(.) *)"))' \
     $rundir/settings.json > $rundir/orch-settings.json
 
@@ -247,8 +276,21 @@ fleet_assign() {
   [[ -f $note ]] || die "no task note $note"
   need_idle $pane $seat
 
+  # Base is the worker branch's commit when the task starts, and End is set by
+  # `fleet clear`, so `fleet diff` can show this task apart from the branch's
+  # earlier and later tasks
+  local worktree branch=worktree-$S-$seat base=-
+  seat_checkout $seat
+  if [[ -n $worktree ]]; then
+    branch=$(git -C $worktree symbolic-ref -q --short HEAD || print $branch)
+    base=$(git -C $worktree rev-parse HEAD)
+  fi
+  note_set $note Worker $S-$seat
+  note_set $note Branch $branch
+  note_set $note Base $base
+  note_set $note End ""
+
   # the commit is the baseline that `git diff` in the notes repo compares against
-  sed -i '' -e "s|^Worker:.*|Worker: $S-$seat|" -e "s|^Branch:.*|Branch: worktree-$S-$seat|" $note
   git -C $notes add -A
   git -C $notes commit -q --allow-empty -m "assign $id to $seat"
 
@@ -262,6 +304,11 @@ fleet_clear() {
   local seat=${1:?seat} pane
   pane_of $seat
   need_idle $pane $seat
+  local task=$(opt $pane @agent_task) worktree
+  if [[ -n $task && -f $notes/tasks/$task.md ]]; then
+    seat_checkout $seat
+    [[ -n $worktree ]] && note_set $notes/tasks/$task.md End $(git -C $worktree rev-parse HEAD)
+  fi
   tmux set -p -u -t $pane @agent_task
   tmux send-keys -t $pane -l /clear
   tmux send-keys -t $pane Enter
@@ -336,6 +383,44 @@ fleet_shell() {
   fi
 }
 
+# One task's changes. While the task is still its seat's current task, the
+# diff runs in the worktree from Base, so it includes uncommitted edits to
+# tracked files. Once `fleet clear` has recorded End, it is Base..End.
+fleet_diff() {
+  current
+  local rev_only=0
+  if [[ ${1:-} == --rev ]]; then
+    rev_only=1
+    shift
+  fi
+  local id=${1:?usage: fleet diff [--rev] <task id> [git diff args]}
+  shift
+  need_id $id
+  local note=$notes/tasks/$id.md
+  [[ -f $note ]] || die "no task note $note"
+  local base=$(note_get $note Base) end=$(note_get $note End) branch=$(note_get $note Branch)
+  local seat=${$(note_get $note Worker)#$S-}
+  [[ -n $base && $base != - ]] || die "$id has no Base; it was assigned before fleet recorded one, or its workers have no worktrees"
+  local repo=$(< $statedir/$S/repo) dir rev pane worktree
+  if [[ -n $end ]]; then
+    dir=$repo rev=$base..$end
+  else
+    pane_of $seat
+    seat_checkout $seat
+    if [[ $(opt $pane @agent_task) == $id && -n $worktree ]]; then
+      dir=$worktree rev=$base
+    else
+      print -u2 "fleet: $id has no End; showing $branch through its latest commit"
+      dir=$repo rev=$base..$branch
+    fi
+  fi
+  if (( rev_only )); then
+    print -l -- $dir $rev
+  else
+    git -C $dir diff $rev "$@"
+  fi
+}
+
 fleet_clean() {
   S=${1:?usage: fleet clean <name> [--branches]}
   local branches=0
@@ -393,6 +478,7 @@ case $cmd in
   restart) fleet_restart "$@" ;;
   rename) current; pane_of ${1:?seat}; tmux select-pane -t $pane -T ${2:?title} ;;
   path) current; worktree_of ${1:?seat}; print $worktree ;;
+  diff) fleet_diff "$@" ;;
   shell) fleet_shell "$@" ;;
   *) sed -n '2,/^$/s/^# \{0,1\}//p' $0; [[ $cmd == help ]] ;;
 esac

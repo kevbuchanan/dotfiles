@@ -14,6 +14,7 @@ fleet kill demo
 - tmux with the `allow-set-title` pane option. Tested with tmux 3.6a.
 - Claude Code 2.1.224 or later on macOS or Linux, for [cross-session messaging](https://code.claude.com/docs/en/cross-session-messaging)
 - `jq` and `git` on PATH
+- [diffview.nvim](https://github.com/sindrets/diffview.nvim), optional, for `:FleetDiff`
 - A git repository as the working folder, if workers should get worktrees. Outside a repo, every worker shares the folder.
 
 ## Concepts
@@ -28,6 +29,7 @@ fleet kill demo
 
 **Task note.** One markdown file per task under `$FLEET_HOME/<fleet>/tasks/<id>.md`, made from `templates/task.md`. The note is the record of the task, with these sections:
 
+- header fields: Guidance, Worker, Branch, and the Base and End commits that bound this task's changes on the worker's branch
 - Goal, Scope and Verify: what to do, which files the worker may edit, and how to check the result
 - Todo: a checkbox list the worker checks off as it goes
 - Questions: decisions the worker needs from you
@@ -68,10 +70,10 @@ Claude runs inside the pane's shell. When Claude exits, the pane stays open at a
 
 1. You agree on work with the orchestrator.
 2. The orchestrator runs `fleet task T3 <title>` and fills in the note.
-3. The orchestrator runs `fleet assign w2 T3`. `fleet` fills in the note's Worker and Branch lines, commits the notes repo, records `T3` in the seat's `@agent_task` option, and types `Task T3: read <path>` into the seat.
+3. The orchestrator runs `fleet assign w2 T3`. `fleet` fills in the note's Worker and Branch lines, records the worker branch's current commit as Base, commits the notes repo, records `T3` in the seat's `@agent_task` option, and types `Task T3: read <path>` into the seat.
 4. The worker works the Todo list and checks items off in the note as it finishes them.
 5. When every item is checked, the worker writes Handoff and sends `DONE T3` to the orchestrator.
-6. The orchestrator reads the handoff, reviews the branch, reports to you, and runs `fleet clear w2`. That types `/clear` and drops the seat's task, so the next task starts with empty context. Anything the next task needs travels in the notes.
+6. The orchestrator reads the handoff, reviews the task with `fleet diff T3`, reports to you, and runs `fleet clear w2`. That records the worker branch's commit as the note's End, types `/clear` and drops the seat's task, so the next task starts with empty context. Anything the next task needs travels in the notes.
 
 ### The todo check
 
@@ -111,7 +113,15 @@ Both commands need the repo record that `fleet new` writes for a fleet started i
 
 ### Reviewing progress
 
-The notes folder is a git repo, and `fleet assign` commits it before each task starts. `git -C ~/agents/<fleet> diff` shows everything agents have written in the notes since the last assignment. Worker code lives on each worker's branch, so `git log worktree-<fleet>-w2` shows what that worker committed.
+The notes folder is a git repo, and `fleet assign` commits it before each task starts. `git -C ~/agents/<fleet> diff` shows everything agents have written in the notes since the last assignment.
+
+Worker code lives on each worker's branch. A worker keeps its branch across tasks, so the branch holds every task that worker has done. The note's Base and End fields mark one task's part of it: `fleet assign` records Base, and `fleet clear` records End.
+
+- `fleet diff T3` shows task T3's changes. While T3 is still its seat's current task, the diff runs in the worktree from Base, so it includes edits the worker hasn't committed. Untracked new files don't show until the worker commits them. After `fleet clear`, it is `Base..End`, so later tasks on the same branch stay out of it. Other arguments go to `git diff`, such as `fleet diff T3 --stat`.
+- `:FleetDiff T3` in nvim opens the same diff in [diffview.nvim](https://github.com/sindrets/diffview.nvim), one tab with a file list. Run from a task note, such as in the notes pane, `:FleetDiff` with no argument and `<Leader>d` use that note's task. Task ids complete from the notes folder.
+- `git diff main...worktree-<fleet>-w2` from any checkout shows everything a worker has committed since its branch left `main`. Worktrees share the repo's git database, so worker branches are visible everywhere.
+
+A task assigned before fleet recorded Base has none, and `fleet diff` says so. A seat restarted with `fleet restart` drops its task without recording End. `fleet diff` then shows the task through the branch's latest commit and prints a warning.
 
 ### Messaging between seats
 
@@ -136,6 +146,7 @@ Claude Code refuses rapid bursts of messages to one session. The prompts tell se
 | `fleet restart <seat>` | kill the seat's process and relaunch its `claude` command |
 | `fleet rename <seat> <title>` | change the pane title |
 | `fleet path <seat>` | print a worker's worktree path |
+| `fleet diff [--rev] <id> [git diff args]` | show one task's changes. `--rev` prints the folder and revision `:FleetDiff` uses. |
 | `fleet shell <seat> [cmd]` | open window `<seat>-shell` in a worker's worktree, running `cmd` or a shell |
 
 Seat commands act on the fleet that owns the calling pane, or on the fleet named with `-s <fleet>` placed before the command, such as `fleet -s demo status`.
@@ -166,7 +177,7 @@ Fleet's `--settings` file adds to the config folder's own settings. If that fold
 
 - **Messages:** a message from another session never counts as your approval and cannot answer a permission prompt ([how a session treats an incoming message](https://code.claude.com/docs/en/cross-session-messaging#how-a-session-treats-an-incoming-message)).
 - **Typed input:** `fleet` types into panes with `tmux send-keys`, and Claude Code treats typed input as yours. That is why `fleet` sends only fixed text: `Task <id>: read <path>`, `/clear`, and Escape. Task ids must be letters, digits, `-` and `_`. No `fleet` command passes free text to a pane, so the orchestrator can't use it to answer a worker's permission prompt.
-- **Orchestrator allow rules:** its settings allow `fleet status`, `task`, `assign`, `clear`, `interrupt`, `rename` and `path`. `fleet new`, `kill`, `restart`, `clean` and `shell` still prompt you, so the orchestrator can't open windows on its own. See [permissions](https://code.claude.com/docs/en/permissions).
+- **Orchestrator allow rules:** its settings allow `fleet status`, `task`, `assign`, `clear`, `interrupt`, `rename`, `path` and `diff`. `fleet new`, `kill`, `restart`, `clean` and `shell` still prompt you, so the orchestrator can't open windows on its own. See [permissions](https://code.claude.com/docs/en/permissions).
 - **Workers:** each worker runs in auto mode, so Claude Code's classifier approves routine actions and you review work through notes and branches.
 - **Notes:** every seat may edit files under the fleet's notes folder through an `Edit` allow rule.
 
@@ -182,6 +193,7 @@ settings.json             crossSessionInbound and hooks, with {{ROOT}} for this 
 hooks/agent-state         sets @agent_state on the calling pane
 hooks/todo-check          Stop hook
 hooks/task-progress       counts done todos, total todos and open questions
+nvim/plugin/fleet.lua     :FleetDiff and <Leader>d, linked into ~/.config/nvim/plugin
 ```
 
 Run state lives outside this folder:

@@ -21,6 +21,7 @@ LINKS = [
   ["rspec", ".rspec"],
   # fleet
   ["fleet/bin/fleet", ".local/bin/fleet"],
+  ["fleet/nvim/plugin/fleet.lua", ".config/nvim/plugin/fleet.lua"],
   # prose
   ["prose/bin/prose", ".local/bin/prose"],
   ["prose/bin/prose-bg", ".local/bin/prose-bg"],
