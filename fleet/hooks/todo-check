@@ -15,17 +15,18 @@ if [ -z "$task" ] || [ ! -f "$note" ]; then
   exit 0
 fi
 
-set -- $("$here/task-progress" "$note")
-done=$1 total=$2 open=$3
+read -r checked total open <<EOF
+$("$here/task-progress" "$note")
+EOF
 
 if [ "$open" -gt 0 ]; then
   "$here/agent-state" question
-elif [ "$done" -lt "$total" ]; then
+elif [ "$checked" -lt "$total" ]; then
   if [ "$(printf '%s' "$input" | jq -r '.stop_hook_active // false')" = true ]; then
     "$here/agent-state" stalled
   else
     "$here/agent-state" busy
-    reason="$task has $((total - done)) unchecked todos in $note. Re-read the note and continue with the next item. If you are blocked, add a question under ## Questions and stop."
+    reason="$task has $((total - checked)) unchecked todos in $note. Re-read the note and continue with the next item. If you are blocked, add a question under ## Questions and stop."
     jq -cn --arg r "$reason" '{decision: "block", reason: $r}'
   fi
 else

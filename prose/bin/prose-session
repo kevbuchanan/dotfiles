@@ -12,9 +12,12 @@
 set -eu
 
 sessions() {
-  printf '%s\n' "$HOME/.claude" "${CLAUDE_CONFIG_DIR:-}" $(printf '%s' "${PROSE_CLAUDE_DIRS:-}" | tr ':' ' ') |
+  {
+    printf '%s\n' "$HOME/.claude" "${CLAUDE_CONFIG_DIR:-}"
+    printf '%s\n' "${PROSE_CLAUDE_DIRS:-}" | tr ':' '\n'
+  } |
     awk 'NF && !seen[$0]++' |
-    while read -r dir; do
+    while IFS= read -r dir; do
       for f in "$dir"/sessions/*.json; do
         [ -f "$f" ] || continue
         jq -r '[.pid, .name // "-", .tmux // "-", .messagingSocketPath // "-", .cwd // "-"] | @tsv' "$f"
