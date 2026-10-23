@@ -114,7 +114,7 @@ Claude Code refuses rapid bursts of messages to one session. The prompts tell se
 | `fleet new [name] [dir]` | start a fleet and attach, or attach if it exists |
 | `fleet attach [name]` | attach, or switch client when already inside tmux |
 | `fleet ls` | list running fleets |
-| `fleet kill <name>` | kill the tmux session. Worktrees and notes stay on disk. |
+| `fleet kill [name]` | kill the tmux session, by default the fleet that owns the calling pane. Worktrees and notes stay on disk. |
 | `fleet status` | each seat's state, task and todo progress |
 | `fleet task <id> <title>` | create a task note and print its path |
 | `fleet assign <seat> <id>` | point an idle worker at a task note |

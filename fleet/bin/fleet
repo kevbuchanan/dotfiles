@@ -7,7 +7,8 @@
 #   fleet new [name] [dir]       start a fleet and attach to it
 #   fleet attach [name]
 #   fleet ls
-#   fleet kill <name>            worktrees and notes stay on disk
+#   fleet kill [name]            default: the calling pane's fleet; worktrees
+#                                and notes stay on disk
 #   fleet status
 #   fleet task <id> <title>      create a task note and print its path
 #   fleet assign <seat> <id>     point an idle worker at a task note
@@ -256,8 +257,8 @@ case $cmd in
       awk '$2 == 1 { print $1 }'
     ;;
   kill)
-    S=${1:?fleet name}
-    is_fleet $S || die "$S is not a fleet"
+    S=${1:-$S}
+    current
     tmux kill-session -t "=$S:"
     ;;
   status) fleet_status ;;
