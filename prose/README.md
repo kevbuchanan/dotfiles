@@ -39,7 +39,7 @@ prose-start docs/design.md        # from a shell
 3. Inside tmux with no Claude session in the window, or with `--new` (`:Prose!`), a new pane opens right of the caller. It runs `claude -n prose-<file name> "/prose <file>"` from the file's git root, and that session starts the server itself through the skill.
 4. Outside tmux, the server starts with no session. Comments are logged and wait until a session joins the server through the skill.
 
-`PROSE_CLAUDE` sets the command the new pane runs, `claude` by default. The pane runs an interactive shell, so an alias such as `claude-tm` works.
+`PROSE_CLAUDE` sets the command the new pane runs, `claude` by default. The pane runs an interactive shell, so a shell alias works.
 
 ### How comments reach the session
 
@@ -57,7 +57,7 @@ Config dirs searched:
 - `$CLAUDE_CONFIG_DIR`
 - each folder in the colon-separated `$PROSE_CLAUDE_DIRS`
 
-A session started with `CLAUDE_CONFIG_DIR` set registers under that folder, so add it to `PROSE_CLAUDE_DIRS`. `zshrc` does this for `claude-tm`.
+A session started with `CLAUDE_CONFIG_DIR` set registers under that folder, so add it to `PROSE_CLAUDE_DIRS`.
 
 ## Commands
 

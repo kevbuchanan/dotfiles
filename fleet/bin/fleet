@@ -26,6 +26,7 @@
 # FLEET_HOME          notes root, default ~/agents
 # FLEET_WORKERS       worker count for `new`, default 6
 # FLEET_WORKER_MODE   worker --permission-mode for `new`, default auto
+# CLAUDE_CONFIG_DIR   if set for `new`, every seat runs claude with it
 
 set -euo pipefail
 
@@ -131,7 +132,14 @@ fleet_new() {
     $rundir/settings.json > $rundir/orch-settings.json
 
   local base="claude --add-dir ${(q)notes}"
-  local pane=$(tmux new-session -d -s $S -n orch -c $dir -P -F '#{pane_id}')
+  # Sessions find each other only within one config dir, so every seat gets
+  # the same one. It is part of each pane's @agent_cmd, so restart keeps it.
+  if [[ -n ${CLAUDE_CONFIG_DIR:-} ]]; then
+    base="CLAUDE_CONFIG_DIR=${(q)${CLAUDE_CONFIG_DIR:A}} $base"
+  fi
+  # If this call starts the tmux server, the server's environment would carry
+  # CLAUDE_CONFIG_DIR into every later pane, fleet or not
+  local pane=$(env -u CLAUDE_CONFIG_DIR tmux new-session -d -s $S -n orch -c $dir -P -F '#{pane_id}')
   tmux set -t "=$S:" @fleet 1
   tmux set -t "=$S:" @fleet_notes $notes
   borders "=$S:orch"

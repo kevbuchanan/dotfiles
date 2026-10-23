@@ -132,6 +132,20 @@ Seat commands act on the fleet that owns the calling pane, or on the fleet named
 | `FLEET_HOME` | `~/agents` | notes root |
 | `FLEET_WORKERS` | `6` | `fleet new` worker count |
 | `FLEET_WORKER_MODE` | `auto` | `fleet new` worker `--permission-mode` |
+| `CLAUDE_CONFIG_DIR` | unset | `fleet new` runs every seat's `claude` with it |
+
+### Claude config folder
+
+When `CLAUDE_CONFIG_DIR` is set for `fleet new`, every seat's launch line starts with `CLAUDE_CONFIG_DIR=<dir>`. `fleet restart` reuses the pane's launch line, so a restarted seat keeps the folder. An alias makes a second config folder one command:
+
+```sh
+alias fleet-work="CLAUDE_CONFIG_DIR=~/work/.claude fleet"
+fleet-work new demo
+```
+
+All seats in a fleet use one config folder. `ListAgents` in a session lists only sessions under its own config folder, so a seat on a different folder could not message the rest of the fleet. Claude Code's docs don't state this. It is what `ListAgents` showed on this machine, which had sessions running under two config folders.
+
+Fleet's `--settings` file adds to the config folder's own settings. If that folder's settings set `crossSessionInbound` to `refuse`, deny `SendMessage`, or block auto mode, seats can't message each other or workers can't run unattended. Check them before the first run.
 
 ## Permissions and typed input
 
