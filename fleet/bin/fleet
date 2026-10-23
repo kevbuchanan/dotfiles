@@ -6,7 +6,8 @@
 #
 #   fleet new [name] [dir]       start a fleet and attach to it
 #   fleet attach [name]
-#   fleet ls
+#   fleet ls                     running fleets, and stopped fleets that
+#                                `fleet clean` has not removed
 #   fleet kill [name]            default: the calling pane's fleet; worktrees
 #                                and notes stay on disk
 #   fleet clean <name> [--branches]
@@ -119,6 +120,7 @@ fleet_new() {
   local rundir=$statedir/$S orch=$S-orch
   notes=$home/$S
   mkdir -p $rundir $notes/tasks
+  print $notes > $rundir/notes
   if [[ ! -d $notes/.git ]]; then
     git -C $notes init -q
     git -C $notes commit -q --allow-empty -m "fleet $S"
@@ -257,6 +259,40 @@ fleet_restart() {
   tmux send-keys -t $pane $line Enter
 }
 
+# A fleet is running while its tmux session exists, and stopped while only its
+# state folder does. Fleets from before the state folder have no repo record,
+# so their repo and worktrees show as -.
+fleet_ls() {
+  local -A running
+  local name
+  for name in ${(f)"$(tmux list-sessions -F '#{session_name} #{@fleet}' 2> /dev/null | awk '$2 == 1 { print $1 }')"}; do
+    [[ -n $name ]] && running[$name]=1
+  done
+  local -a names
+  names=(${(ou)${(k)running}} $statedir/*(N/:t))
+  names=(${(ou)names})
+  (( $#names )) || return 0
+
+  local st repo notes count
+  local -a wts
+  printf '%-20s %-8s %-9s %-40s %s\n' FLEET STATE WORKTREES REPO NOTES
+  for name in $names; do
+    st=stopped repo=- notes=$home/$name count=-
+    (( ${+running[$name]} )) && st=running
+    [[ -f $statedir/$name/repo ]] && repo=$(< $statedir/$name/repo)
+    if [[ -f $statedir/$name/notes ]]; then
+      notes=$(< $statedir/$name/notes)
+    elif [[ $st == running ]]; then
+      notes=$(tmux show -qv -t "=$name:" @fleet_notes)
+    fi
+    if [[ $repo != - ]]; then
+      wts=($repo/.claude/worktrees/$name-w<->(N/))
+      count=$#wts
+    fi
+    printf '%-20s %-8s %-9s %-40s %s\n' $name $st $count ${repo/#$HOME/~} ${notes/#$HOME/~}
+  done
+}
+
 fleet_clean() {
   S=${1:?usage: fleet clean <name> [--branches]}
   local branches=0
@@ -299,10 +335,7 @@ case $cmd in
     is_fleet $S || die "$S is not a fleet"
     attach
     ;;
-  ls)
-    tmux list-sessions -F '#{session_name} #{@fleet} #{session_windows}' 2> /dev/null |
-      awk '$2 == 1 { print $1 }'
-    ;;
+  ls) fleet_ls ;;
   kill)
     S=${1:-$S}
     current

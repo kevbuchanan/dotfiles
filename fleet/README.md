@@ -18,7 +18,7 @@ fleet kill demo
 
 ## Concepts
 
-**Fleet.** One tmux session marked with the `@fleet` session option. Window `orch` holds nvim on the fleet's notes folder on the left and the orchestrator on the right. Window `workers` holds the worker panes, tiled. Several fleets can run at once. `fleet ls` lists them.
+**Fleet.** One tmux session marked with the `@fleet` session option. Window `orch` holds nvim on the fleet's notes folder on the left and the orchestrator on the right. Window `workers` holds the worker panes, tiled. Several fleets can run at once. `fleet ls` lists them, along with stopped fleets that still have files on disk.
 
 **Seat.** One pane running one Claude Code session. Seats are named `orch`, `w1`, `w2` and so on. The Claude Code session in seat `w3` of fleet `demo` is named `demo-w3`. That name is the session's [cross-session messaging](https://code.claude.com/docs/en/cross-session-messaging) address, so the fleet prefix keeps two fleets' orchestrators from claiming each other's workers. The pane title shows the same name.
 
@@ -113,7 +113,7 @@ Claude Code refuses rapid bursts of messages to one session. The prompts tell se
 | --- | --- |
 | `fleet new [name] [dir]` | start a fleet and attach, or attach if it exists |
 | `fleet attach [name]` | attach, or switch client when already inside tmux |
-| `fleet ls` | list running fleets |
+| `fleet ls` | list running fleets, and stopped fleets `fleet clean` hasn't removed, with each one's repo, notes folder and worktree count |
 | `fleet kill [name]` | kill the tmux session, by default the fleet that owns the calling pane. Worktrees and notes stay on disk. |
 | `fleet clean <name> [--branches]` | remove a stopped fleet's worktrees and state. `--branches` also deletes merged worker branches. |
 | `fleet status` | each seat's state, task and todo progress |
@@ -184,6 +184,16 @@ Run state lives outside this folder:
 2. It runs `git worktree remove` on each worker worktree. Git refuses a worktree with uncommitted or untracked changes, and `clean` keeps it and reports it.
 3. With `--branches`, it runs `git branch -d` on the branch of each removed worktree. Git refuses a branch that is not merged, so unmerged commits stay on their branch.
 4. It deletes `~/.local/state/fleet/<fleet>/`, unless it kept a worktree. The recorded repo root lets a rerun find the kept worktrees.
+
+`fleet ls` shows what is left to clean. A stopped fleet stays in the list until `fleet clean` removes its state folder. The WORKTREES column counts the worker worktrees still in the repo:
+
+```
+FLEET                STATE    WORKTREES REPO                                     NOTES
+api                  running  6         ~/code/api                               ~/agents/api
+docs                 stopped  2         ~/code/docs                              ~/agents/docs
+```
+
+A fleet started before fleet kept a repo record shows `-` for its repo and worktrees, and `fleet clean` can't find its worktrees. Remove them with `git worktree remove`.
 
 `clean` never touches the notes folder. It is the task record and a git repo of its own, so archive or delete it yourself.
 
