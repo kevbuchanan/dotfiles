@@ -1,0 +1,54 @@
+#!/bin/sh
+# Prints the inbox socket of a running Claude Code session. Sessions are read
+# from the registry files <config dir>/sessions/<pid>.json, a Claude Code
+# internal format with no documented contract, so a Claude Code update can
+# break this lookup. Config dirs: ~/.claude, $CLAUDE_CONFIG_DIR, and the
+# colon-separated $PROSE_CLAUDE_DIRS.
+#
+#   prose-session --name <name>      the session with that name
+#   prose-session --window [pane]    the session in the same tmux window as
+#                                    pane, default $TMUX_PANE; exit 2 if none
+#   prose-session --list             name, tmux location and cwd of each
+set -eu
+
+sessions() {
+  printf '%s\n' "$HOME/.claude" "${CLAUDE_CONFIG_DIR:-}" $(printf '%s' "${PROSE_CLAUDE_DIRS:-}" | tr ':' ' ') |
+    awk 'NF && !seen[$0]++' |
+    while read -r dir; do
+      for f in "$dir"/sessions/*.json; do
+        [ -f "$f" ] || continue
+        jq -r '[.pid, .name // "-", .tmux // "-", .messagingSocketPath // "-", .cwd // "-"] | @tsv' "$f"
+      done
+    done |
+    while IFS="$(printf '\t')" read -r pid name tmux sock cwd; do
+      kill -0 "$pid" 2>/dev/null && [ "$sock" != - ] && printf '%s\t%s\t%s\t%s\n' "$name" "$tmux" "$sock" "$cwd"
+    done
+  return 0
+}
+
+one() {
+  n=$(printf '%s' "$1" | grep -c . || true)
+  if [ "$n" -eq 1 ]; then
+    printf '%s\n' "$1" | cut -f3
+  elif [ "$n" -gt 1 ]; then
+    echo "prose-session: $n sessions match $2, pick one with --to: $(printf '%s\n' "$1" | cut -f1 | tr '\n' ' ')" >&2
+    exit 1
+  else
+    echo "prose-session: no running Claude session $2" >&2
+    exit 2
+  fi
+}
+
+case "${1:-}" in
+  --name)
+    name="${2:?session name}"
+    one "$(sessions | awk -F '\t' -v n="$name" '$1 == n')" "named $name"
+    ;;
+  --window)
+    pane="${2:-${TMUX_PANE:?not in tmux}}"
+    win=$(tmux display -p -t "$pane" '#{session_name}:#{window_id}')
+    one "$(sessions | awk -F '\t' -v w="$win." 'index($2, w) == 1')" "in tmux window $win"
+    ;;
+  --list) sessions | cut -f1,2,4 ;;
+  *) sed -n '2,/^set/s/^# \{0,1\}//p' "$0" | sed '$d' >&2; exit 1 ;;
+esac

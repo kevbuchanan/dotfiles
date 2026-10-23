@@ -1,0 +1,68 @@
+#!/bin/sh
+# Opens a prose review of a markdown file, connected to a Claude Code session:
+#
+#   prose-start <file> [--to NAME | --new] [--no-open] [--port N]
+#
+#   --to NAME          the server posts comments to that running session
+#   --new              open a new Claude pane even when the window has one
+#   inside tmux        the server posts to the Claude session in the same
+#                      window; with none there, a new pane right of the caller
+#                      runs claude with `/prose <file>`, and that session starts
+#                      the server itself through the skill
+#   outside tmux       the server starts with no session; comments wait until
+#                      a session joins it through the /prose skill
+#
+# PROSE_CLAUDE   command typed into the new pane, default `claude`. The pane
+#                runs an interactive shell, so a shell alias works here.
+set -eu
+here=$(cd "$(dirname "$(realpath "$0")")" && pwd)
+
+file=""
+to=""
+new=0
+n=$#
+i=0
+while [ $i -lt $n ]; do
+  a="$1"
+  shift
+  i=$((i + 1))
+  case "$a" in
+    --to) to="$1"; shift; i=$((i + 1)) ;;
+    --new) new=1 ;;
+    -p|--port|--socket) set -- "$@" "$a" "$1"; shift; i=$((i + 1)) ;;
+    -*) set -- "$@" "$a" ;;
+    *) file="$a" ;;
+  esac
+done
+[ -n "$file" ] || { echo "usage: prose-start <file> [--to NAME | --new] [--no-open] [--port N]" >&2; exit 1; }
+[ -f "$file" ] || { echo "prose-start: no such file: $file" >&2; exit 1; }
+file=$(realpath "$file")
+
+if [ -n "$to" ]; then
+  exec "$here/prose-bg" "$file" --to "$to" "$@"
+fi
+
+if [ -z "${TMUX_PANE:-}" ]; then
+  [ $new -eq 0 ] || { echo "prose-start: --new opens a tmux pane, and this is not tmux" >&2; exit 1; }
+  echo "not in tmux: starting prose with no Claude session; comments wait until one joins with /prose"
+  exec "$here/prose-bg" "$file" "$@"
+fi
+
+rc=2
+[ $new -eq 1 ] || { rc=0; sock=$("$here/prose-session" --window "$TMUX_PANE" 2>/dev/null) || rc=$?; }
+if [ $rc -eq 0 ]; then
+  exec "$here/prose-bg" "$file" --socket "$sock" "$@"
+elif [ $rc -ne 2 ]; then
+  # several sessions in this window; prose-session explains which
+  "$here/prose-session" --window "$TMUX_PANE"
+  exit 1
+fi
+
+# No Claude session in this window. Start one beside the caller and let the
+# skill start the server, so comments reach that session's own socket.
+quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+dir=$(git -C "$(dirname "$file")" rev-parse --show-toplevel 2>/dev/null || dirname "$file")
+name="prose-$(basename "$file" .md | tr -c 'A-Za-z0-9_-' '-' | sed 's/-*$//')"
+pane=$(tmux split-window -h -t "$TMUX_PANE" -c "$dir" -P -F '#{pane_id}')
+tmux send-keys -t "$pane" "${PROSE_CLAUDE:-claude} -n $name $(quote "/prose $file")" Enter
+echo "opened Claude session $name in pane $pane; it starts the prose server"

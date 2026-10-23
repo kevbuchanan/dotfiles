@@ -1,0 +1,13 @@
+#!/bin/sh
+# Talks to a running prose server's /activity endpoint.
+#
+#   prose-post <port> < event.json   POST one activity event
+#   prose-post <port> --get          print history and request states
+set -eu
+port="$1"
+url="http://localhost:$port/activity"
+if [ "${2:-}" = "--get" ]; then
+  exec curl --fail-with-body --silent --show-error "$url"
+fi
+exec curl --fail-with-body --silent --show-error \
+  --header 'Content-Type: application/json' --data-binary @- "$url"

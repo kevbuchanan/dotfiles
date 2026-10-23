@@ -20,7 +20,15 @@ LINKS = [
   ["fish", ".config/fish"],
   ["rspec", ".rspec"],
   # fleet
-  ["fleet/bin/fleet", ".local/bin/fleet"]
+  ["fleet/bin/fleet", ".local/bin/fleet"],
+  # prose
+  ["prose/bin/prose", ".local/bin/prose"],
+  ["prose/bin/prose-bg", ".local/bin/prose-bg"],
+  ["prose/bin/prose-post", ".local/bin/prose-post"],
+  ["prose/bin/prose-start", ".local/bin/prose-start"],
+  ["prose/bin/prose-session", ".local/bin/prose-session"],
+  ["prose/skill", ".claude/skills/prose"],
+  ["prose/nvim/plugin/prose.lua", ".config/nvim/plugin/prose.lua"]
 ]
 
 working_dir = File.expand_path(File.dirname(__FILE__))
