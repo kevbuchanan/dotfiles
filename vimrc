@@ -1,6 +1,12 @@
 set nocompatible
 filetype plugin indent on
 
+" nvim-tree opens directories, so netrw must not load first
+if has('nvim')
+  let g:loaded_netrw = 1
+  let g:loaded_netrwPlugin = 1
+endif
+
 call plug#begin('~/.vim/plugged')
 
 Plug 'jelera/vim-javascript-syntax'
@@ -11,7 +17,12 @@ Plug 'vim-scripts/ruby-matchit'
 Plug 'tpope/vim-bundler'
 Plug 'mattn/emmet-vim'
 Plug 'vim-scripts/VimClojure'
-Plug 'scrooloose/nerdtree'
+if has('nvim')
+  Plug 'nvim-tree/nvim-tree.lua'
+  Plug 'lewis6991/gitsigns.nvim', { 'branch': 'main' }
+else
+  Plug 'scrooloose/nerdtree'
+endif
 Plug 'tpope/vim-fugitive'
 Plug 'tpope/vim-fireplace'
 Plug 'pangloss/vim-javascript'
@@ -83,6 +94,31 @@ let python_highlight_all=1
 let NERDTreeShowHidden=1
 let NERDTreeCascadeSingleChildDir=0
 
+if has('nvim')
+lua << EOF
+-- agents edit files while this pane is unfocused, so autoread never gets a
+-- focus event to act on; checktime reloads every unmodified buffer whose file
+-- changed on disk
+vim.uv.new_timer():start(1000, 1000, vim.schedule_wrap(function()
+  if vim.fn.mode() ~= 'c' then vim.cmd('silent! checktime') end
+end))
+
+-- pcall keeps startup clean before :PlugInstall has fetched the plugins
+local ok, tree = pcall(require, 'nvim-tree')
+if ok then
+  -- show dotfiles and ignored files and never fold single-child folders,
+  -- matching the NERDTree settings above
+  tree.setup({
+    filters = { dotfiles = false, git_ignored = false },
+    renderer = { group_empty = false },
+  })
+end
+
+local ok_gs, gitsigns = pcall(require, 'gitsigns')
+if ok_gs then gitsigns.setup() end
+EOF
+endif
+
 let g:haskell_conceal=0
 set nofoldenable
 
@@ -150,6 +186,10 @@ nmap <Leader>a :Ag<CR>
 vmap <Enter> <Plug>(EasyAlign)
 nmap ga <Plug>(EasyAlign)
 
+" toggle the first markdown checkbox on the line, for answering fleet questions
+nnoremap <silent> <Leader>x :s/\[\([ xX]\)\]/\=submatch(1) == ' ' ? '[x]' : '[ ]'/e<CR>:noh<CR>
+nnoremap <Leader>s :!fleet status<CR>
+
 nmap <silent> t<C-n> :TestNearest<CR>
 nmap <silent> t<C-f> :TestFile<CR>
 nmap <silent> t<C-s> :TestSuite<CR>
@@ -160,7 +200,11 @@ map <C-H> <C-W>h
 map <C-L> <C-W>l
 map <C-J> <C-W>j
 map <C-K> <C-W>k
-map <C-n> :NERDTreeToggle<CR>
+if has('nvim')
+  map <C-n> :NvimTreeToggle<CR>
+else
+  map <C-n> :NERDTreeToggle<CR>
+endif
 
 :command W w
 
