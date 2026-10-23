@@ -21,6 +21,9 @@
 #   fleet interrupt <seat>       send Escape to the seat
 #   fleet restart <seat>         kill the seat's process and relaunch claude
 #   fleet rename <seat> <title>
+#   fleet path <seat>            print a worker's worktree path
+#   fleet shell <seat> [cmd]     open a window in a worker's worktree, running
+#                                cmd or a shell
 #
 # Seat commands act on the fleet named by -s <fleet>, or else on the fleet
 # that owns the calling pane.
@@ -66,10 +69,23 @@ current() {
   notes=$(tmux show -qv -t "=$S:" @fleet_notes)
 }
 
+# Sets $pane rather than printing it. Called in a command substitution, die
+# would exit only the subshell and leave the caller with an empty pane id,
+# and tmux reads an empty -t as the calling pane.
 pane_of() {
-  local p=$(tmux list-panes -s -t "=$S:" -F '#{pane_id} #{@agent_seat}' | awk -v s=$1 '$2 == s { print $1 }')
-  [[ -n $p ]] || die "no seat $1 in $S"
-  print $p
+  pane=$(tmux list-panes -s -t "=$S:" -F '#{pane_id} #{@agent_seat}' | awk -v s=$1 '$2 == s { print $1 }')
+  [[ -n $pane ]] || die "no seat $1 in $S"
+}
+
+# Sets $worktree to a worker seat's checkout, which Claude Code creates from
+# the -w name on the seat's launch line.
+worktree_of() {
+  [[ $1 == w<-> ]] || die "only worker seats have worktrees: $1"
+  pane_of $1
+  local record=$statedir/$S/repo
+  [[ -f $record ]] || die "$S has no repo record, so its workers have no worktrees"
+  worktree=$(< $record)/.claude/worktrees/$S-$1
+  [[ -d $worktree ]] || die "no worktree yet at $worktree"
 }
 
 opt() { tmux display -p -t $1 "#{$2}" }
@@ -140,7 +156,7 @@ fleet_new() {
   sed "s|{{ROOT}}|$root|g" $root/settings.json > $rundir/settings.json
   jq --arg e $edit '.permissions.allow = [$e]' $rundir/settings.json > $rundir/worker-settings.json
   jq --arg e $edit '.permissions.allow = [$e] + ([
-      "status", "task", "assign", "clear", "interrupt", "rename"
+      "status", "task", "assign", "clear", "interrupt", "rename", "path"
     ] | map("Bash(fleet \(.))", "Bash(fleet \(.) *)"))' \
     $rundir/settings.json > $rundir/orch-settings.json
 
@@ -226,7 +242,8 @@ fleet_assign() {
   local seat=${1:?seat} id=${2:?task id}
   [[ $seat == w<-> ]] || die "only worker seats take tasks: $seat"
   need_id $id
-  local note=$notes/tasks/$id.md pane=$(pane_of $seat)
+  local note=$notes/tasks/$id.md pane
+  pane_of $seat
   [[ -f $note ]] || die "no task note $note"
   need_idle $pane $seat
 
@@ -242,7 +259,8 @@ fleet_assign() {
 
 fleet_clear() {
   current
-  local seat=${1:?seat} pane=$(pane_of ${1:?seat})
+  local seat=${1:?seat} pane
+  pane_of $seat
   need_idle $pane $seat
   tmux set -p -u -t $pane @agent_task
   tmux send-keys -t $pane -l /clear
@@ -251,7 +269,8 @@ fleet_clear() {
 
 fleet_restart() {
   current
-  local seat=${1:?seat} pane=$(pane_of ${1:?seat})
+  local seat=${1:?seat} pane
+  pane_of $seat
   local line=$(opt $pane @agent_cmd)
   tmux set -p -u -t $pane @agent_task
   tmux set -p -u -t $pane @agent_state
@@ -291,6 +310,30 @@ fleet_ls() {
     fi
     printf '%-20s %-8s %-9s %-40s %s\n' $name $st $count ${repo/#$HOME/~} ${notes/#$HOME/~}
   done
+}
+
+# A window per worker shell: the tiled workers window has no room for more
+# panes. It has no @agent_seat, so seat commands and `fleet status` skip it.
+fleet_shell() {
+  current
+  local seat=${1:?seat} worktree pane
+  shift
+  worktree_of $seat
+  local win=$seat-shell
+  if tmux list-windows -t "=$S:" -F '#{window_name}' | grep -qx -- $win; then
+    (( $# )) && print -u2 "fleet: $win is already open; run the command there"
+  else
+    pane=$(tmux new-window -d -t "=$S:" -n $win -c $worktree -P -F '#{pane_id}')
+    borders "=$S:$win"
+    tmux set -p -t $pane allow-set-title off
+    tmux select-pane -t $pane -T $S-$win
+    (( $# )) && tmux send-keys -t $pane "$*" Enter
+  fi
+  if [[ -n ${TMUX:-} ]]; then
+    tmux switch-client -t "=$S:$win"
+  else
+    print "opened $S:$win; fleet attach $S to use it"
+  fi
 }
 
 fleet_clean() {
@@ -346,8 +389,10 @@ case $cmd in
   task) fleet_task "$@" ;;
   assign) fleet_assign "$@" ;;
   clear) fleet_clear "$@" ;;
-  interrupt) current; tmux send-keys -t $(pane_of ${1:?seat}) Escape ;;
+  interrupt) current; pane_of ${1:?seat}; tmux send-keys -t $pane Escape ;;
   restart) fleet_restart "$@" ;;
-  rename) current; tmux select-pane -t $(pane_of ${1:?seat}) -T ${2:?title} ;;
+  rename) current; pane_of ${1:?seat}; tmux select-pane -t $pane -T ${2:?title} ;;
+  path) current; worktree_of ${1:?seat}; print $worktree ;;
+  shell) fleet_shell "$@" ;;
   *) sed -n '2,/^$/s/^# \{0,1\}//p' $0; [[ $cmd == help ]] ;;
 esac

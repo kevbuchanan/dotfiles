@@ -97,6 +97,18 @@ A worker that needs a decision writes it in the note and stops:
 
 Answer by checking an option and then the question line. Then tell the worker it can continue, by typing in its pane or by asking the orchestrator to message it. Nothing notifies the worker when you edit the note.
 
+### Working in a worker's checkout
+
+Each worker's Claude session runs in its worktree, `<repo>/.claude/worktrees/<fleet>-w<n>`. The pane's shell does not: it starts in the repo root, because `-w` moves only Claude's own working folder.
+
+- `fleet path w2` prints the worktree path, such as `cd "$(fleet path w2)"` in a shell or ``:e `fleet path w2`/docs/design.md`` in nvim.
+- `fleet shell w2` opens a tmux window named `w2-shell` in the worktree and switches to it. `fleet shell w2 nvim .` opens an editor there, and any other command works the same way. The window is not a seat, so `fleet status` and the seat commands skip it. Running `fleet shell w2` again switches to the open window.
+- `:Prose <fleet>-w2` in nvim, on a file in that worktree, opens a [prose](../prose/README.md) review whose comments go to that worker.
+
+Typing `! <command>` in a worker's Claude pane also runs a command in its worktree, but the output becomes part of that worker's conversation and uses context it needs for its task. `fleet shell` keeps your inspection out of the worker's context.
+
+Both commands need the repo record that `fleet new` writes for a fleet started in a git repo, and the worktree must exist. Claude Code creates it when the worker's session starts.
+
 ### Reviewing progress
 
 The notes folder is a git repo, and `fleet assign` commits it before each task starts. `git -C ~/agents/<fleet> diff` shows everything agents have written in the notes since the last assignment. Worker code lives on each worker's branch, so `git log worktree-<fleet>-w2` shows what that worker committed.
@@ -123,6 +135,8 @@ Claude Code refuses rapid bursts of messages to one session. The prompts tell se
 | `fleet interrupt <seat>` | send Escape |
 | `fleet restart <seat>` | kill the seat's process and relaunch its `claude` command |
 | `fleet rename <seat> <title>` | change the pane title |
+| `fleet path <seat>` | print a worker's worktree path |
+| `fleet shell <seat> [cmd]` | open window `<seat>-shell` in a worker's worktree, running `cmd` or a shell |
 
 Seat commands act on the fleet that owns the calling pane, or on the fleet named with `-s <fleet>` placed before the command, such as `fleet -s demo status`.
 
@@ -152,7 +166,7 @@ Fleet's `--settings` file adds to the config folder's own settings. If that fold
 
 - **Messages:** a message from another session never counts as your approval and cannot answer a permission prompt ([how a session treats an incoming message](https://code.claude.com/docs/en/cross-session-messaging#how-a-session-treats-an-incoming-message)).
 - **Typed input:** `fleet` types into panes with `tmux send-keys`, and Claude Code treats typed input as yours. That is why `fleet` sends only fixed text: `Task <id>: read <path>`, `/clear`, and Escape. Task ids must be letters, digits, `-` and `_`. No `fleet` command passes free text to a pane, so the orchestrator can't use it to answer a worker's permission prompt.
-- **Orchestrator allow rules:** its settings allow `fleet status`, `task`, `assign`, `clear`, `interrupt` and `rename`. `fleet new`, `kill` and `restart` still prompt you. See [permissions](https://code.claude.com/docs/en/permissions).
+- **Orchestrator allow rules:** its settings allow `fleet status`, `task`, `assign`, `clear`, `interrupt`, `rename` and `path`. `fleet new`, `kill`, `restart`, `clean` and `shell` still prompt you, so the orchestrator can't open windows on its own. See [permissions](https://code.claude.com/docs/en/permissions).
 - **Workers:** each worker runs in auto mode, so Claude Code's classifier approves routine actions and you review work through notes and branches.
 - **Notes:** every seat may edit files under the fleet's notes folder through an `Edit` allow rule.
 

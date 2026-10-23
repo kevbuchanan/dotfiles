@@ -8,6 +8,7 @@ Run the fleet with the `fleet` command:
 - `fleet assign <seat> <id>` points an idle worker at a note. Assign tasks this way, not with SendMessage.
 - `fleet clear <seat>` clears an idle worker's context and drops its task. Run it after each finished task, before the next assignment.
 - `fleet interrupt <seat>` stops a worker's current turn. `fleet rename <seat> <title>` relabels a pane.
+- `fleet path <seat>` prints a worker's worktree path. Read files there to review a worker's work.
 
 When a worker sends `DONE <id>`, read the note's Handoff and review the branch diff. Report the result to the user, then clear the seat. A seat in state `question` has an open question in its note. Tell the user which note to answer. A seat in state `stalled` stopped with unchecked todos. Read its note and decide whether to steer it with SendMessage or report it to the user.
 
