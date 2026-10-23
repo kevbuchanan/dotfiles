@@ -56,7 +56,7 @@ Decisions go into the note, not chat. That keeps a task's history in one file yo
 `fleet new [name] [dir]` does the following:
 
 1. Creates `$FLEET_HOME/<name>/` as a git repo for task notes, if it does not exist yet.
-2. Renders each seat's prompt from `prompts/` into `$TMPDIR/fleet/<name>/`, filling in the names of the fleet, the seat, the orchestrator and the workers.
+2. Renders each seat's prompt from `prompts/` into `~/.local/state/fleet/<name>/`, filling in the names of the fleet, the seat, the orchestrator and the workers. In a git repo, it also records the repo's root there for `fleet clean`.
 3. Renders two settings files from `settings.json`. Both enable the hooks and allow edits under the notes folder. The orchestrator's file also allows the per-seat `fleet` commands.
 4. Creates the tmux session and its two windows. In each seat pane it types a `claude` command with `--name`, `--settings`, `--append-system-prompt-file` and `--add-dir <notes folder>`. Workers also get `--permission-mode` and `-w <seat name>`. See the [CLI reference](https://code.claude.com/docs/en/cli-reference).
 5. Opens `nvim .` in the notes folder, in a pane left of the orchestrator. That pane is not a seat, so seat commands and `fleet status` skip it.
@@ -115,6 +115,7 @@ Claude Code refuses rapid bursts of messages to one session. The prompts tell se
 | `fleet attach [name]` | attach, or switch client when already inside tmux |
 | `fleet ls` | list running fleets |
 | `fleet kill [name]` | kill the tmux session, by default the fleet that owns the calling pane. Worktrees and notes stay on disk. |
+| `fleet clean <name> [--branches]` | remove a stopped fleet's worktrees and state. `--branches` also deletes merged worker branches. |
 | `fleet status` | each seat's state, task and todo progress |
 | `fleet task <id> <title>` | create a task note and print its path |
 | `fleet assign <seat> <id>` | point an idle worker at a task note |
@@ -171,9 +172,20 @@ hooks/task-progress       counts done todos, total todos and open questions
 
 Run state lives outside this folder:
 
-- `$TMPDIR/fleet/<fleet>/`: rendered prompts and settings
+- `~/.local/state/fleet/<fleet>/`: rendered prompts and settings, and the repo root. `XDG_STATE_HOME` moves it. Seats read these files at every launch, including `fleet restart`, so they don't go in `$TMPDIR`, where macOS deletes files nobody has opened for a few days.
 - `$FLEET_HOME/<fleet>/`: task notes
 - `<repo>/.claude/worktrees/<fleet>-w<n>/`: worker checkouts
+
+### Cleaning up
+
+`fleet kill` stops the tmux session and leaves everything on disk, so a stuck fleet can be killed without losing work. `fleet clean <name>` removes what a stopped fleet left behind:
+
+1. It refuses while a tmux session with that name exists.
+2. It runs `git worktree remove` on each worker worktree. Git refuses a worktree with uncommitted or untracked changes, and `clean` keeps it and reports it.
+3. With `--branches`, it runs `git branch -d` on the branch of each removed worktree. Git refuses a branch that is not merged, so unmerged commits stay on their branch.
+4. It deletes `~/.local/state/fleet/<fleet>/`, unless it kept a worktree. The recorded repo root lets a rerun find the kept worktrees.
+
+`clean` never touches the notes folder. It is the task record and a git repo of its own, so archive or delete it yourself.
 
 ## Limits
 

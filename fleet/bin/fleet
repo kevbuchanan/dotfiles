@@ -9,6 +9,10 @@
 #   fleet ls
 #   fleet kill [name]            default: the calling pane's fleet; worktrees
 #                                and notes stay on disk
+#   fleet clean <name> [--branches]
+#                                remove a stopped fleet's clean worktrees and
+#                                its state; --branches also deletes merged
+#                                worker branches
 #   fleet status
 #   fleet task <id> <title>      create a task note and print its path
 #   fleet assign <seat> <id>     point an idle worker at a task note
@@ -25,6 +29,8 @@
 # permission prompt or send a free-form instruction through fleet.
 #
 # FLEET_HOME          notes root, default ~/agents
+# XDG_STATE_HOME      fleet state goes in $XDG_STATE_HOME/fleet/<fleet>,
+#                     default ~/.local/state/fleet/<fleet>
 # FLEET_WORKERS       worker count for `new`, default 6
 # FLEET_WORKER_MODE   worker --permission-mode for `new`, default auto
 # CLAUDE_CONFIG_DIR   if set for `new`, every seat runs claude with it
@@ -33,6 +39,10 @@ set -euo pipefail
 
 root=${0:A:h:h}
 home=${FLEET_HOME:-$HOME/agents}
+# Rendered prompts and settings, and the repo path for `clean`. Seats read
+# them at every launch, including `restart`, so they live outside $TMPDIR,
+# which macOS empties of files nobody has opened for a few days.
+statedir=${XDG_STATE_HOME:-$HOME/.local/state}/fleet
 
 die() { print -u2 "fleet: $*"; exit 1 }
 
@@ -106,7 +116,7 @@ fleet_new() {
   fi
 
   local count=${FLEET_WORKERS:-6} mode=${FLEET_WORKER_MODE:-auto}
-  local rundir=${${TMPDIR:-/tmp}%/}/fleet/$S orch=$S-orch
+  local rundir=$statedir/$S orch=$S-orch
   notes=$home/$S
   mkdir -p $rundir $notes/tasks
   if [[ ! -d $notes/.git ]]; then
@@ -164,7 +174,10 @@ fleet_new() {
 
   # each worker gets its own worktree so workers never share a checkout
   local worktree=0
-  git -C $dir rev-parse --is-inside-work-tree > /dev/null 2>&1 && worktree=1
+  if git -C $dir rev-parse --is-inside-work-tree > /dev/null 2>&1; then
+    worktree=1
+    git -C $dir rev-parse --show-toplevel > $rundir/repo
+  fi
 
   local name line
   for i in {1..$count}; do
@@ -244,6 +257,40 @@ fleet_restart() {
   tmux send-keys -t $pane $line Enter
 }
 
+fleet_clean() {
+  S=${1:?usage: fleet clean <name> [--branches]}
+  local branches=0
+  [[ ${2:-} == --branches ]] && branches=1
+  tmux has-session -t "=$S:" 2> /dev/null && die "$S is running; fleet kill $S first"
+  local rundir=$statedir/$S
+  [[ -d $rundir ]] || die "no state for $S in $rundir"
+
+  local repo wt branch kept=0
+  [[ -f $rundir/repo ]] && repo=$(< $rundir/repo)
+  if [[ -n $repo ]]; then
+    for wt in $repo/.claude/worktrees/$S-w<->(N/); do
+      # read the branch before removal; it is the one Claude Code created
+      branch=$(git -C $wt symbolic-ref -q --short HEAD || true)
+      # git refuses to remove a worktree with uncommitted or untracked changes
+      if ! git -C $repo worktree remove $wt; then
+        print -u2 "fleet: kept $wt"
+        kept=1
+        continue
+      fi
+      print "removed $wt"
+      # git branch -d refuses a branch that is not merged, so unmerged work stays
+      if (( branches )) && [[ -n $branch ]] && ! git -C $repo branch -d $branch; then
+        print -u2 "fleet: kept unmerged branch $branch"
+      fi
+    done
+  fi
+
+  # the repo path is how a later clean finds a worktree that was kept
+  (( kept )) && die "kept worktrees with changes; commit or discard them, then rerun fleet clean $S"
+  rm -rf $rundir
+  print "removed $rundir. Notes stay in $home/$S"
+}
+
 case $cmd in
   new) fleet_new "$@" ;;
   attach)
@@ -261,6 +308,7 @@ case $cmd in
     current
     tmux kill-session -t "=$S:"
     ;;
+  clean) fleet_clean "$@" ;;
   status) fleet_status ;;
   task) fleet_task "$@" ;;
   assign) fleet_assign "$@" ;;
