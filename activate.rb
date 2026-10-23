@@ -18,7 +18,9 @@ LINKS = [
   ["tmux.conf", ".tmux.conf"],
   ["gitconfig", ".gitconfig"],
   ["fish", ".config/fish"],
-  ["rspec", ".rspec"]
+  ["rspec", ".rspec"],
+  # fleet
+  ["fleet/bin/fleet", ".local/bin/fleet"]
 ]
 
 working_dir = File.expand_path(File.dirname(__FILE__))

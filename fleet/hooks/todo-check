@@ -1,0 +1,33 @@
+#!/bin/sh
+# Claude Code Stop hook for fleet seats. While the pane's task note has
+# unchecked todos and no open question, it blocks the first stop and sends
+# Claude back to the list. A second stop in a row is let through and marked
+# "stalled" so `fleet status` shows it. Sets @agent_state for every outcome.
+
+input=$(cat)
+[ -n "$TMUX_PANE" ] || exit 0
+here=$(dirname "$0")
+
+task=$(tmux display -p -t "$TMUX_PANE" '#{@agent_task}')
+note=$(tmux display -p -t "$TMUX_PANE" '#{@fleet_notes}')/tasks/$task.md
+if [ -z "$task" ] || [ ! -f "$note" ]; then
+  "$here/agent-state" idle
+  exit 0
+fi
+
+set -- $("$here/task-progress" "$note")
+done=$1 total=$2 open=$3
+
+if [ "$open" -gt 0 ]; then
+  "$here/agent-state" question
+elif [ "$done" -lt "$total" ]; then
+  if [ "$(printf '%s' "$input" | jq -r '.stop_hook_active // false')" = true ]; then
+    "$here/agent-state" stalled
+  else
+    "$here/agent-state" busy
+    reason="$task has $((total - done)) unchecked todos in $note. Re-read the note and continue with the next item. If you are blocked, add a question under ## Questions and stop."
+    jq -cn --arg r "$reason" '{decision: "block", reason: $r}'
+  fi
+else
+  "$here/agent-state" idle
+fi

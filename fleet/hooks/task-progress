@@ -1,0 +1,10 @@
+#!/bin/sh
+# Prints "<done> <total> <open questions>" for a fleet task note. Only
+# top-level checkbox lines count, so nested question options are ignored.
+
+awk '
+/^## / { sec = $0; next }
+sec == "## Todo" && /^- \[[ xX]\]/ { total++; if ($0 ~ /^- \[[xX]\]/) done++ }
+sec == "## Questions" && /^- \[ \]/ { open++ }
+END { print done + 0, total + 0, open + 0 }
+' "$1"

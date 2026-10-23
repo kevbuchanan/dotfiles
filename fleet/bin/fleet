@@ -1,0 +1,256 @@
+#!/usr/bin/env zsh
+# fleet: Claude Code fleets in tmux. Each fleet is one tmux session with an
+# orchestrator seat in window `orch` and worker seats w1..wN in window
+# `workers`. Seats share task notes in $FLEET_HOME/<fleet>/tasks, a git repo,
+# so `git diff` there shows what agents wrote since the last assignment.
+#
+#   fleet new [name] [dir]       start a fleet and attach to it
+#   fleet attach [name]
+#   fleet ls
+#   fleet kill <name>            worktrees and notes stay on disk
+#   fleet status
+#   fleet task <id> <title>      create a task note and print its path
+#   fleet assign <seat> <id>     point an idle worker at a task note
+#   fleet clear <seat>           /clear an idle seat and drop its task
+#   fleet interrupt <seat>       send Escape to the seat
+#   fleet restart <seat>         kill the seat's process and relaunch claude
+#   fleet rename <seat> <title>
+#
+# Seat commands act on the fleet named by -s <fleet>, or else on the fleet
+# that owns the calling pane.
+#
+# Seat commands type into panes with send-keys, and typed input counts as the
+# user's. Each command sends only fixed text, so a caller can never answer a
+# permission prompt or send a free-form instruction through fleet.
+#
+# FLEET_HOME          notes root, default ~/agents
+# FLEET_WORKERS       worker count for `new`, default 6
+# FLEET_WORKER_MODE   worker --permission-mode for `new`, default auto
+
+set -euo pipefail
+
+root=${0:A:h:h}
+home=${FLEET_HOME:-$HOME/agents}
+
+die() { print -u2 "fleet: $*"; exit 1 }
+
+S=
+if [[ ${1:-} == -s ]]; then
+  S=${2:?fleet name}
+  shift 2
+fi
+cmd=${1:-help}
+(( $# )) && shift
+
+is_fleet() { [[ $(tmux show -qv -t "=$1:" @fleet 2> /dev/null) == 1 ]] }
+
+current() {
+  if [[ -z $S ]]; then
+    [[ -n ${TMUX_PANE:-} ]] || die "not in a fleet pane, pass -s <fleet>"
+    S=$(tmux display -p -t $TMUX_PANE '#S')
+  fi
+  is_fleet $S || die "$S is not a fleet"
+  notes=$(tmux show -qv -t "=$S:" @fleet_notes)
+}
+
+pane_of() {
+  local p=$(tmux list-panes -s -t "=$S:" -F '#{pane_id} #{@agent_seat}' | awk -v s=$1 '$2 == s { print $1 }')
+  [[ -n $p ]] || die "no seat $1 in $S"
+  print $p
+}
+
+opt() { tmux display -p -t $1 "#{$2}" }
+
+need_idle() {
+  local st=$(opt $1 @agent_state)
+  [[ $st == idle ]] || die "$2 is ${st:-starting}, not idle"
+}
+
+need_id() { [[ $1 =~ '^[A-Za-z0-9_-]+$' ]] || die "task ids use letters, digits, - and _: $1" }
+
+attach() {
+  if [[ -n ${TMUX:-} ]]; then
+    tmux switch-client -t "=$S:orch"
+  else
+    tmux attach -t "=$S:orch"
+  fi
+}
+
+# Claude's own terminal-title updates would overwrite the pane title, so each
+# pane keeps the title set here. @agent_cmd is what `restart` relaunches.
+launch() {
+  local pane=$1 seat=$2 line=$3
+  tmux set -p -t $pane @agent_seat $seat
+  tmux set -p -t $pane @agent_cmd $line
+  tmux set -p -t $pane allow-set-title off
+  tmux select-pane -t $pane -T $S-$seat
+  tmux send-keys -t $pane $line Enter
+}
+
+# pane borders show the seat name and the @agent_state the hooks set
+borders() {
+  tmux set -w -t $1 pane-border-status top
+  tmux set -w -t $1 pane-border-format ' #{pane_title} #{@agent_state} '
+}
+
+fleet_new() {
+  S=${1:-${PWD:t}}
+  S=${S//[.:]/-}
+  local dir=${${2:-$PWD}:A}
+  if tmux has-session -t "=$S:" 2> /dev/null; then
+    is_fleet $S || die "$S is a tmux session but not a fleet"
+    attach
+    return
+  fi
+
+  local count=${FLEET_WORKERS:-6} mode=${FLEET_WORKER_MODE:-auto}
+  local rundir=${${TMPDIR:-/tmp}%/}/fleet/$S orch=$S-orch
+  notes=$home/$S
+  mkdir -p $rundir $notes/tasks
+  if [[ ! -d $notes/.git ]]; then
+    git -C $notes init -q
+    git -C $notes commit -q --allow-empty -m "fleet $S"
+  fi
+
+  local -a workers
+  for i in {1..$count}; do workers+=($S-w$i); done
+
+  render() {
+    sed -e "s|{{NAME}}|$2|g" -e "s|{{SESSION}}|$S|g" -e "s|{{ORCHESTRATOR}}|$orch|g" \
+        -e "s|{{WORKERS}}|${(j:, :)workers}|g" -e "s|{{COUNT}}|$count|g" -e "s|{{NOTES}}|$notes|g" \
+        $root/prompts/$1 > $rundir/$2.md
+  }
+
+  # every seat may edit the notes; the orchestrator may also run seat commands
+  local edit="Edit(/$notes/**)"
+  sed "s|{{ROOT}}|$root|g" $root/settings.json > $rundir/settings.json
+  jq --arg e $edit '.permissions.allow = [$e]' $rundir/settings.json > $rundir/worker-settings.json
+  jq --arg e $edit '.permissions.allow = [$e] + ([
+      "status", "task", "assign", "clear", "interrupt", "rename"
+    ] | map("Bash(fleet \(.))", "Bash(fleet \(.) *)"))' \
+    $rundir/settings.json > $rundir/orch-settings.json
+
+  local base="claude --add-dir ${(q)notes}"
+  local pane=$(tmux new-session -d -s $S -n orch -c $dir -P -F '#{pane_id}')
+  tmux set -t "=$S:" @fleet 1
+  tmux set -t "=$S:" @fleet_notes $notes
+  borders "=$S:orch"
+  render orchestrator.md $orch
+  launch $pane orch "$base -n $orch --settings ${(q)rundir}/orch-settings.json --append-system-prompt-file ${(q)rundir}/$orch.md"
+
+  local -a panes
+  panes=($(tmux new-window -d -t "=$S:" -n workers -c $dir -P -F '#{pane_id}'))
+  for i in {2..$count}; do
+    panes+=($(tmux split-window -d -t $panes[-1] -c $dir -P -F '#{pane_id}'))
+    tmux select-layout -t "=$S:workers" tiled > /dev/null
+  done
+  borders "=$S:workers"
+
+  # each worker gets its own worktree so workers never share a checkout
+  local worktree=0
+  git -C $dir rev-parse --is-inside-work-tree > /dev/null 2>&1 && worktree=1
+
+  local name line
+  for i in {1..$count}; do
+    name=$S-w$i
+    render worker.md $name
+    line="$base -n $name --settings ${(q)rundir}/worker-settings.json --append-system-prompt-file ${(q)rundir}/$name.md --permission-mode $mode"
+    (( worktree )) && line+=" -w $name"
+    launch $panes[$i] w$i $line
+  done
+
+  attach
+}
+
+fleet_status() {
+  current
+  local pane seat st task progress
+  printf '%-8s %-10s %-12s %s\n' SEAT STATE TASK TODOS
+  tmux list-panes -s -t "=$S:" -F '#{pane_id} #{@agent_seat}' | while read pane seat; do
+    [[ -n $seat ]] || continue
+    st=$(opt $pane @agent_state)
+    task=$(opt $pane @agent_task)
+    progress=
+    if [[ -n $task && -f $notes/tasks/$task.md ]]; then
+      progress=$($root/hooks/task-progress $notes/tasks/$task.md | awk '{ printf "%d/%d", $1, $2; if ($3) printf ", %d open questions", $3 }')
+    fi
+    printf '%-8s %-10s %-12s %s\n' $seat ${st:--} ${task:--} $progress
+  done
+}
+
+fleet_task() {
+  current
+  local id=${1:?task id}
+  shift
+  need_id $id
+  local note=$notes/tasks/$id.md
+  [[ -e $note ]] && die "$note exists"
+  sed -e "s|{{ID}}|$id|" -e "s|{{TITLE}}|${*:-untitled}|" -e "s|{{GUIDANCE}}|$root/guidance/default.md|" \
+    $root/templates/task.md > $note
+  print $note
+}
+
+fleet_assign() {
+  current
+  local seat=${1:?seat} id=${2:?task id}
+  [[ $seat == w<-> ]] || die "only worker seats take tasks: $seat"
+  need_id $id
+  local note=$notes/tasks/$id.md pane=$(pane_of $seat)
+  [[ -f $note ]] || die "no task note $note"
+  need_idle $pane $seat
+
+  # the commit is the baseline that `git diff` in the notes repo compares against
+  sed -i '' -e "s|^Worker:.*|Worker: $S-$seat|" -e "s|^Branch:.*|Branch: worktree-$S-$seat|" $note
+  git -C $notes add -A
+  git -C $notes commit -q --allow-empty -m "assign $id to $seat"
+
+  tmux set -p -t $pane @agent_task $id
+  tmux send-keys -t $pane -l "Task $id: read $note"
+  tmux send-keys -t $pane Enter
+}
+
+fleet_clear() {
+  current
+  local seat=${1:?seat} pane=$(pane_of ${1:?seat})
+  need_idle $pane $seat
+  tmux set -p -u -t $pane @agent_task
+  tmux send-keys -t $pane -l /clear
+  tmux send-keys -t $pane Enter
+}
+
+fleet_restart() {
+  current
+  local seat=${1:?seat} pane=$(pane_of ${1:?seat})
+  local line=$(opt $pane @agent_cmd)
+  tmux set -p -u -t $pane @agent_task
+  tmux set -p -u -t $pane @agent_state
+  tmux respawn-pane -k -t $pane
+  tmux send-keys -t $pane $line Enter
+}
+
+case $cmd in
+  new) fleet_new "$@" ;;
+  attach)
+    S=${1:-$S}
+    [[ -n $S ]] || die "usage: fleet attach <name>"
+    is_fleet $S || die "$S is not a fleet"
+    attach
+    ;;
+  ls)
+    tmux list-sessions -F '#{session_name} #{@fleet} #{session_windows}' 2> /dev/null |
+      awk '$2 == 1 { print $1 }'
+    ;;
+  kill)
+    S=${1:?fleet name}
+    is_fleet $S || die "$S is not a fleet"
+    tmux kill-session -t "=$S:"
+    ;;
+  status) fleet_status ;;
+  task) fleet_task "$@" ;;
+  assign) fleet_assign "$@" ;;
+  clear) fleet_clear "$@" ;;
+  interrupt) current; tmux send-keys -t $(pane_of ${1:?seat}) Escape ;;
+  restart) fleet_restart "$@" ;;
+  rename) current; tmux select-pane -t $(pane_of ${1:?seat}) -T ${2:?title} ;;
+  *) sed -n '2,/^$/s/^# \{0,1\}//p' $0; [[ $cmd == help ]] ;;
+esac
