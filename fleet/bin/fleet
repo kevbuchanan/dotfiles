@@ -138,6 +138,13 @@ fleet_new() {
   render orchestrator.md $orch
   launch $pane orch "$base -n $orch --settings ${(q)rundir}/orch-settings.json --append-system-prompt-file ${(q)rundir}/$orch.md"
 
+  # nvim on the notes folder, left of the orchestrator. It has no @agent_seat,
+  # so seat commands and `fleet status` skip it.
+  local editor=$(tmux split-window -hb -d -t $pane -c $notes -P -F '#{pane_id}')
+  tmux set -p -t $editor allow-set-title off
+  tmux select-pane -t $editor -T $S-notes
+  tmux send-keys -t $editor 'nvim .' Enter
+
   local -a panes
   panes=($(tmux new-window -d -t "=$S:" -n workers -c $dir -P -F '#{pane_id}'))
   for i in {2..$count}; do
