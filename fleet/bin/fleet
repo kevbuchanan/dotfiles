@@ -41,6 +41,11 @@
 # FLEET_WORKERS       worker count for `new`, default 6
 # FLEET_WORKER_MODE   worker --permission-mode for `new`, default auto
 # CLAUDE_CONFIG_DIR   if set for `new`, every seat runs claude with it
+# FLEET_ORCH_MODEL, FLEET_WORKER_MODEL
+#                     --model for the orchestrator and for every worker
+# FLEET_ORCH_EFFORT, FLEET_WORKER_EFFORT
+#                     --effort for each role: low, medium, high, xhigh or max
+#                     Unset leaves the config dir's default model and effort.
 
 set -euo pipefail
 
@@ -151,6 +156,19 @@ borders() {
   tmux set -w -t $1 pane-border-format ' #{pane_title} #{@agent_state} '
 }
 
+# Sets $flags to --model and --effort for one role from FLEET_<role>_MODEL and
+# _EFFORT. Not printed, so that die stops fleet. They become part of each
+# seat's launch line, so `restart` keeps them.
+role_flags() {
+  local model=${(P)${:-FLEET_$1_MODEL}:-} effort=${(P)${:-FLEET_$1_EFFORT}:-}
+  flags=
+  [[ -n $model ]] && flags+=" --model ${(q)model}"
+  if [[ -n $effort ]]; then
+    [[ $effort == (low|medium|high|xhigh|max) ]] || die "FLEET_$1_EFFORT must be low, medium, high, xhigh or max: $effort"
+    flags+=" --effort $effort"
+  fi
+}
+
 fleet_new() {
   S=${1:-${PWD:t}}
   S=${S//[.:]/-}
@@ -162,6 +180,9 @@ fleet_new() {
   fi
 
   local count=${FLEET_WORKERS:-6} mode=${FLEET_WORKER_MODE:-auto}
+  local flags orch_flags worker_flags
+  role_flags ORCH; orch_flags=$flags
+  role_flags WORKER; worker_flags=$flags
   local rundir=$statedir/$S orch=$S-orch
   notes=$home/$S
   mkdir -p $rundir $notes/tasks
@@ -202,7 +223,7 @@ fleet_new() {
   tmux set -t "=$S:" @fleet_notes $notes
   borders "=$S:orch"
   render orchestrator.md $orch
-  launch $pane orch "$base -n $orch --settings ${(q)rundir}/orch-settings.json --append-system-prompt-file ${(q)rundir}/$orch.md"
+  launch $pane orch "$base -n $orch --settings ${(q)rundir}/orch-settings.json --append-system-prompt-file ${(q)rundir}/$orch.md$orch_flags"
 
   # nvim on the notes folder, left of the orchestrator. It has no @agent_seat,
   # so seat commands and `fleet status` skip it.
@@ -230,7 +251,7 @@ fleet_new() {
   for i in {1..$count}; do
     name=$S-w$i
     render worker.md $name
-    line="$base -n $name --settings ${(q)rundir}/worker-settings.json --append-system-prompt-file ${(q)rundir}/$name.md --permission-mode $mode"
+    line="$base -n $name --settings ${(q)rundir}/worker-settings.json --append-system-prompt-file ${(q)rundir}/$name.md --permission-mode $mode$worker_flags"
     (( worktree )) && line+=" -w $name"
     launch $panes[$i] w$i $line
   done

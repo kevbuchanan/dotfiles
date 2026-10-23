@@ -159,6 +159,20 @@ Seat commands act on the fleet that owns the calling pane, or on the fleet named
 | `FLEET_WORKERS` | `6` | `fleet new` worker count |
 | `FLEET_WORKER_MODE` | `auto` | `fleet new` worker `--permission-mode` |
 | `CLAUDE_CONFIG_DIR` | unset | `fleet new` runs every seat's `claude` with it |
+| `FLEET_ORCH_MODEL` | unset | `fleet new` orchestrator `--model` |
+| `FLEET_WORKER_MODEL` | unset | `fleet new` worker `--model` |
+| `FLEET_ORCH_EFFORT` | unset | `fleet new` orchestrator `--effort`: `low`, `medium`, `high`, `xhigh` or `max` |
+| `FLEET_WORKER_EFFORT` | unset | `fleet new` worker `--effort` |
+
+### Models and effort
+
+Unset, every seat uses its config folder's default model: `ANTHROPIC_MODEL` if that is set, otherwise the `model` setting. The four variables above set the orchestrator and the workers separately. The orchestrator plans and reviews, and the workers carry out narrower tasks, so a strong model for one seat and a cheaper one for the rest is a common split:
+
+```sh
+FLEET_ORCH_MODEL=opus FLEET_WORKER_MODEL=sonnet FLEET_WORKER_EFFORT=medium fleet new demo
+```
+
+An alias such as `opus` or `sonnet` resolves through the config folder's `ANTHROPIC_DEFAULT_OPUS_MODEL` and `ANTHROPIC_DEFAULT_SONNET_MODEL` when they are set, so the same command works under any config folder. A full model id works too. The flags are part of each seat's launch line, so `fleet restart` keeps them. `/model` in a seat's pane changes that session only, until it restarts.
 
 ### Claude config folder
 
