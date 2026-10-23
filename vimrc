@@ -9,14 +9,11 @@ endif
 
 call plug#begin('~/.vim/plugged')
 
-Plug 'jelera/vim-javascript-syntax'
 Plug 'mustache/vim-mustache-handlebars'
 Plug 'tpope/vim-markdown'
 Plug 'vim-ruby/vim-ruby'
-Plug 'vim-scripts/ruby-matchit'
 Plug 'tpope/vim-bundler'
 Plug 'mattn/emmet-vim'
-Plug 'vim-scripts/VimClojure'
 if has('nvim')
   Plug 'nvim-tree/nvim-tree.lua'
   Plug 'lewis6991/gitsigns.nvim', { 'branch': 'main' }
@@ -33,7 +30,6 @@ Plug 'nelstrom/vim-visual-star-search'
 Plug 'Keithbsmiley/swift.vim'
 Plug 'dag/vim2hs'
 Plug 'jimenezrick/vimerl'
-Plug 'hdima/python-syntax'
 Plug 'junegunn/vim-easy-align'
 Plug 'elixir-lang/vim-elixir'
 Plug 'rust-lang/rust.vim'
@@ -82,10 +78,6 @@ autocmd BufRead,BufNewFile Capfile setlocal filetype=ruby
 
 autocmd BufRead,BufNewFile *.fodt.eex setlocal filetype=xml
 
-let vimclojure#HightlightBuiltins=1
-let vimclojure#ParenRainbow=1
-let g:paredit_matchlines=200
-let g:paredit_mode=0
 runtime macros/matchit.vim
 
 autocmd FileType python setlocal tabstop=8 expandtab shiftwidth=4 softtabstop=4
@@ -127,7 +119,6 @@ let g:terraform_fmt_on_save=1
 let g:mkdp_theme = 'light'
 
 set backspace=indent,eol,start
-set nocompatible
 set visualbell
 set ruler
 set wildmenu
@@ -175,14 +166,16 @@ autocmd FileType swift setlocal tabstop=2
 autocmd FileType swift setlocal softtabstop=2
 autocmd FileType swift setlocal shiftwidth=2
 
-set t_Co=256
+if !has('nvim')
+  set t_Co=256
+endif
 colorscheme tomorrow-night
 
 let mapleader = "\\"
 
 nmap <Leader>v :set paste!<CR>
 nmap <Leader>t :Files<CR>
-nmap <Leader>a :Ag<CR>
+nmap <Leader>g :Rg<CR>
 vmap <Enter> <Plug>(EasyAlign)
 nmap ga <Plug>(EasyAlign)
 

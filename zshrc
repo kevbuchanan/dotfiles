@@ -10,7 +10,7 @@ export INFOPATH="/opt/homebrew/share/info:${INFOPATH:-}";
 
 autoload -U compinit && compinit
 
-export EDITOR="vim"
+export EDITOR="nvim"
 bindkey -e
 
 HISTFILE=~/.zsh_history
