@@ -13,7 +13,6 @@ LINKS = [
   ["vimrc", ".config/nvim/init.vim"],
   ["vimrc.coc", ".config/nvim/coc.vim"],
   # zsh
-  ["zsh", ".zsh"],
   ["zshrc", ".zshrc"],
   # etc
   ["tmux.conf", ".tmux.conf"],
