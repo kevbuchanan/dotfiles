@@ -78,14 +78,9 @@ add-zsh-hook precmd vcs_info
 local ret_status="%(?:%{$fg_bold[green]%}❯❯:%{$fg_bold[red]%}❯❯)"
 PROMPT='%{$fg_bold[blue]%}${SSH_CONNECTION:+❯❯ %n@%m }%(1j.❯❯ %j& .)%{$fg[cyan]%}❯❯ %1d%{$fg_bold[blue]%}${vcs_info_msg_0_}%{$fg_bold[blue]%} ${ret_status} %{$reset_color%}'
 # end prompt
-# mise reads the existing ~/.tool-versions. asdf stays as the fallback until
-# mise is installed and the java version resolves under it.
-if (( $+commands[mise] )); then
-  eval "$(mise activate zsh)"
-else
-  source /opt/homebrew/opt/asdf/libexec/asdf.sh
-  . ~/.asdf/plugins/java/set-java-home.zsh
-fi
+# Global versions live in ~/.config/mise/config.toml, linked from mise/ here.
+# mise's java sets JAVA_HOME.
+eval "$(mise activate zsh)"
 
 function mkcd() {
   mkdir -p $1

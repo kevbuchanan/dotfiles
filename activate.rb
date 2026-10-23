@@ -22,6 +22,8 @@ LINKS = [
   # fleet
   ["fleet/bin/fleet", ".local/bin/fleet"],
   ["fleet/nvim/plugin/fleet.lua", ".config/nvim/plugin/fleet.lua"],
+  # mise
+  ["mise/config.toml", ".config/mise/config.toml"],
   # prose
   ["prose/bin/prose", ".local/bin/prose"],
   ["prose/bin/prose-bg", ".local/bin/prose-bg"],
