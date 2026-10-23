@@ -7,7 +7,7 @@ ruby = "3.3.5"
 python = "3.13.12"
 erlang = "28.0.1"
 elixir = "1.18.4"
-# mise lists no Java 14 build for macOS arm64. This version is the asdf
-# install, registered with:
-#   mise link java@adoptopenjdk-14.0.2+12 ~/.asdf/installs/java/adoptopenjdk-14.0.2+12
+# mise lists no Java 14 build for macOS arm64, so `mise install` can't
+# recreate this one. The install in ~/.local/share/mise/installs/java is an
+# x86_64 JDK copied in from an earlier asdf install, and runs under Rosetta.
 java = "adoptopenjdk-14.0.2+12"
