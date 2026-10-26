@@ -97,7 +97,12 @@ A worker that needs a decision writes it in the note and stops:
   - [ ] Postgres
 ```
 
-Answer by checking an option and then the question line. Then tell the worker it can continue, by typing in its pane or by asking the orchestrator to message it. Nothing notifies the worker when you edit the note.
+Answer by checking an option and then the question line. The worker has stopped and gets no new turn until something types into its pane, so tell it:
+
+- `fleet answer T3` types `Questions in T3 are answered: re-read <path>` into the worker's pane. It refuses unless the worker is still on T3, its seat is in state `question`, and no question in the note is left open.
+- In nvim, saving a task note runs `fleet answer` for it. Answering in the notes pane and saving is enough. A save that doesn't meet those conditions does nothing and shows nothing, so ordinary edits are unaffected.
+
+The orchestrator may run `fleet answer` too. Edits made outside nvim need `fleet answer` by hand.
 
 ### Working in a worker's checkout
 
@@ -146,6 +151,7 @@ Claude Code refuses rapid bursts of messages to one session. The prompts tell se
 | `fleet restart <seat>` | kill the seat's process and relaunch its `claude` command |
 | `fleet rename <seat> <title>` | change the pane title |
 | `fleet path <seat>` | print a worker's worktree path |
+| `fleet answer <id>` | tell a worker waiting on a question that the task's questions are answered |
 | `fleet diff [--rev] <id> [git diff args]` | show one task's changes. `--rev` prints the folder and revision `:FleetDiff` uses. |
 | `fleet shell <seat> [cmd]` | open window `<seat>-shell` in a worker's worktree, running `cmd` or a shell |
 
@@ -191,7 +197,7 @@ Fleet's `--settings` file adds to the config folder's own settings. If that fold
 
 - **Messages:** a message from another session never counts as your approval and cannot answer a permission prompt ([how a session treats an incoming message](https://code.claude.com/docs/en/cross-session-messaging#how-a-session-treats-an-incoming-message)).
 - **Typed input:** `fleet` types into panes with `tmux send-keys`, and Claude Code treats typed input as yours. That is why `fleet` sends only fixed text: `Task <id>: read <path>`, `/clear`, and Escape. Task ids must be letters, digits, `-` and `_`. No `fleet` command passes free text to a pane, so the orchestrator can't use it to answer a worker's permission prompt.
-- **Orchestrator allow rules:** its settings allow `fleet status`, `task`, `assign`, `clear`, `interrupt`, `rename`, `path` and `diff`. `fleet new`, `kill`, `restart`, `clean` and `shell` still prompt you, so the orchestrator can't open windows on its own. See [permissions](https://code.claude.com/docs/en/permissions).
+- **Orchestrator allow rules:** its settings allow `fleet status`, `task`, `assign`, `clear`, `interrupt`, `rename`, `path`, `diff` and `answer`. `fleet new`, `kill`, `restart`, `clean` and `shell` still prompt you, so the orchestrator can't open windows on its own. See [permissions](https://code.claude.com/docs/en/permissions).
 - **Workers:** each worker runs in auto mode, so Claude Code's classifier approves routine actions and you review work through notes and branches.
 - **Notes:** every seat may edit files under the fleet's notes folder through an `Edit` allow rule.
 

@@ -22,6 +22,8 @@
 #   fleet restart <seat>         kill the seat's process and relaunch claude
 #   fleet rename <seat> <title>
 #   fleet path <seat>            print a worker's worktree path
+#   fleet answer <id>            tell a worker waiting in state `question`
+#                                that its task's questions are answered
 #   fleet diff [--rev] <id> [git diff args]
 #                                one task's changes; --rev prints the folder
 #                                and revision instead, for :FleetDiff
@@ -206,7 +208,7 @@ fleet_new() {
   sed "s|{{ROOT}}|$root|g" $root/settings.json > $rundir/settings.json
   jq --arg e $edit '.permissions.allow = [$e]' $rundir/settings.json > $rundir/worker-settings.json
   jq --arg e $edit '.permissions.allow = [$e] + ([
-      "status", "task", "assign", "clear", "interrupt", "rename", "path", "diff"
+      "status", "task", "assign", "clear", "interrupt", "rename", "path", "diff", "answer"
     ] | map("Bash(fleet \(.))", "Bash(fleet \(.) *)"))' \
     $rundir/settings.json > $rundir/orch-settings.json
 
@@ -442,6 +444,27 @@ fleet_diff() {
   fi
 }
 
+# The worker stopped after writing a question and has no turn until something
+# types into its pane. Like assign, it sends only fixed text.
+fleet_answer() {
+  current
+  local id=${1:?usage: fleet answer <task id>}
+  need_id $id
+  local note=$notes/tasks/$id.md pane
+  [[ -f $note ]] || die "no task note $note"
+  local seat=${$(note_get $note Worker)#$S-}
+  [[ -n $seat ]] || die "$id is not assigned"
+  pane_of $seat
+  [[ $(opt $pane @agent_task) == $id ]] || die "$seat is no longer on $id"
+  local st=$(opt $pane @agent_state)
+  [[ $st == question ]] || die "$seat is ${st:-starting}, not waiting on a question"
+  local open=$($root/hooks/task-progress $note | awk '{ print $3 }')
+  (( open == 0 )) || die "$id still has $open open questions"
+  tmux send-keys -t $pane -l "Questions in $id are answered: re-read $note"
+  tmux send-keys -t $pane Enter
+  print "told $seat that $id's questions are answered"
+}
+
 fleet_clean() {
   S=${1:?usage: fleet clean <name> [--branches]}
   local branches=0
@@ -500,6 +523,7 @@ case $cmd in
   rename) current; pane_of ${1:?seat}; tmux select-pane -t $pane -T ${2:?title} ;;
   path) current; worktree_of ${1:?seat}; print $worktree ;;
   diff) fleet_diff "$@" ;;
+  answer) fleet_answer "$@" ;;
   shell) fleet_shell "$@" ;;
   *) sed -n '2,/^$/s/^# \{0,1\}//p' $0; [[ $cmd == help ]] ;;
 esac

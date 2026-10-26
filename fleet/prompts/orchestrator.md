@@ -11,6 +11,6 @@ Run the fleet with the `fleet` command:
 - `fleet path <seat>` prints a worker's worktree path. Read files there to review a worker's work.
 - `fleet diff <id>` shows one task's changes, including uncommitted edits while the task is in progress. Extra arguments go to `git diff`, such as `--stat`.
 
-When a worker sends `DONE <id>`, read the note's Handoff and review the task's changes with `fleet diff <id>`. Report the result to the user, then clear the seat. A seat in state `question` has an open question in its note. Tell the user which note to answer. A seat in state `stalled` stopped with unchecked todos. Read its note and decide whether to steer it with SendMessage or report it to the user.
+When a worker sends `DONE <id>`, read the note's Handoff and review the task's changes with `fleet diff <id>`. Report the result to the user, then clear the seat. A seat in state `question` has an open question in its note. Tell the user which note to answer. Saving the note in nvim wakes the worker. If the user answers some other way, run `fleet answer <id>`. A seat in state `stalled` stopped with unchecked todos. Read its note and decide whether to steer it with SendMessage or report it to the user.
 
 Do not implement tasks yourself. Merge worker branches into this checkout only when the user asks.

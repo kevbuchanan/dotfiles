@@ -100,6 +100,7 @@ vim-test runs tests in a neoterm split.
 | --- | --- |
 | `\s` | run `fleet status` from a pane inside a fleet |
 | `:FleetDiff [task]`, `\d` | open a fleet task's changes in diffview. With no task, uses the task note in the current buffer. See [fleet](fleet/README.md#reviewing-progress). |
+| saving a task note | runs `fleet answer` for it, which wakes a worker waiting on a question once none is left open |
 | `:Prose [session]` | open a [prose](prose/README.md) review of the current file |
 | `:Prose!` | open the review in a new Claude pane |
 | `:ProseStop` | stop the prose server for the current file |

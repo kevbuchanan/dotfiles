@@ -4,6 +4,10 @@
 --                       uses the task note in the current buffer.
 --   <Leader>d           :FleetDiff
 --
+-- Saving a task note runs `fleet answer` for it. fleet answers only when the
+-- note's worker is waiting in state `question` and no question is left open,
+-- so most saves do nothing, and those are silent.
+--
 -- `fleet diff --rev` picks the folder and revision: the worker's worktree
 -- from Base while the task is in progress, or the repo with Base..End once
 -- `fleet clear` has recorded End.
@@ -55,3 +59,19 @@ end, {
 })
 
 vim.keymap.set("n", "<Leader>d", "<cmd>FleetDiff<cr>", { desc = "fleet diff for this task note" })
+
+-- A note lives in <notes root>/<fleet>/tasks/<id>.md, so the path names both
+-- the fleet and the task, and this works from any nvim, inside a fleet or not.
+vim.api.nvim_create_autocmd("BufWritePost", {
+  pattern = "*/tasks/*.md",
+  callback = function(ev)
+    local path = vim.fn.fnamemodify(ev.file, ":p")
+    local fleet, id = path:match("/([^/]+)/tasks/([%w_-]+)%.md$")
+    if not fleet or vim.fn.executable("fleet") == 0 then return end
+    vim.system({ "fleet", "-s", fleet, "answer", id }, { text = true }, function(r)
+      if r.code == 0 then
+        vim.schedule(function() vim.notify(vim.trim(r.stdout)) end)
+      end
+    end)
+  end,
+})
