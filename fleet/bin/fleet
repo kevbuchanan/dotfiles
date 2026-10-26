@@ -15,7 +15,9 @@
 #                                its state; --branches also deletes merged
 #                                worker branches
 #   fleet status
-#   fleet task <id> <title>      create a task note and print its path
+#   fleet task <id> [--from <id>] <title>
+#                                create a task note and print its path;
+#                                --from starts a follow-up to a closed task
 #   fleet assign <seat> <id>     point an idle worker at a task note
 #   fleet clear <seat>           /clear an idle seat and drop its task
 #   fleet interrupt <seat>       send Escape to the seat
@@ -119,7 +121,7 @@ note_set() {
     # notes made from an older template lack the field; add it after the
     # last header field, so fields added in turn keep their order
     awk -v line="$key: $value" '
-      NR == FNR { if (/^(Guidance|Worker|Branch|Base|End):/) last = FNR; next }
+      NR == FNR { if (/^(Guidance|Follows|Worker|Branch|Base|End):/) last = FNR; next }
       { print } FNR == last { print line }
     ' $note $note > $note.tmp
     mv $note.tmp $note
@@ -279,15 +281,59 @@ fleet_status() {
   done
 }
 
+# The body of section "## $2" in note $1, up to the next "## " heading.
+note_section() { awk -v h="## $2" '$0 == h { on = 1; next } on && /^## / { exit } on' $1 }
+
+# Replaces the body of section "## $2" in note $1 with the contents of file $3.
+note_section_set() {
+  awk -v h="## $2" -v body=$3 '
+    $0 == h { print; while ((getline line < body) > 0) print line; skip = 1; next }
+    skip && /^## / { skip = 0 }
+    !skip
+  ' $1 > $1.tmp
+  mv $1.tmp $1
+}
+
 fleet_task() {
   current
-  local id=${1:?task id}
+  local id=${1:?usage: fleet task <id> [--from <id>] <title>} from=
   shift
+  local -a words
+  while (( $# )); do
+    if [[ $1 == --from ]]; then
+      from=${2:?--from needs a task id}
+      shift 2
+    else
+      words+=($1)
+      shift
+    fi
+  done
   need_id $id
-  local note=$notes/tasks/$id.md
+  local note=$notes/tasks/$id.md prev
   [[ -e $note ]] && die "$note exists"
-  sed -e "s|{{ID}}|$id|" -e "s|{{TITLE}}|${*:-untitled}|" -e "s|{{GUIDANCE}}|$root/guidance/default.md|" \
+  if [[ -n $from ]]; then
+    need_id $from
+    prev=$notes/tasks/$from.md
+    [[ -f $prev ]] || die "no task note $prev"
+    (( $#words )) || words=(follow-up to $from)
+  fi
+  local title=${(j: :)words}
+  sed -e "s|{{ID}}|$id|" -e "s|{{TITLE}}|${title:-untitled}|" -e "s|{{GUIDANCE}}|$root/guidance/default.md|" \
     $root/templates/task.md > $note
+
+  # A follow-up starts from the earlier task's handoff, with its scope and
+  # checks, so the new worker needs none of the earlier conversation
+  if [[ -n $from ]]; then
+    note_set $note Follows $from
+    local body=$(mktemp) sec
+    for sec in Scope Verify; do
+      note_section $prev $sec > $body
+      note_section_set $note $sec $body
+    done
+    printf '\nFollow-up to [%s](%s.md). Read its Handoff first: it says what %s did and what is left.\n\n' $from $from $from > $body
+    note_section_set $note Goal $body
+    rm $body
+  fi
   print $note
 }
 
@@ -312,6 +358,20 @@ fleet_assign() {
     branch=$(git -C $worktree symbolic-ref -q --short HEAD || print $branch)
     base=$(git -C $worktree rev-parse HEAD)
   fi
+
+  # A follow-up builds on the earlier task's code, so the worker's branch must
+  # already contain that task's End commit
+  local follows=$(note_get $note Follows)
+  if [[ -n $follows ]]; then
+    local prev=$notes/tasks/$follows.md prev_end
+    [[ -f $prev ]] || die "$id follows $follows, which has no note"
+    prev_end=$(note_get $prev End)
+    [[ -n $prev_end ]] || die "$follows is still open; add the work to its note and fleet bump $follows"
+    if [[ -n $worktree && $prev_end != - ]] && ! git -C $worktree merge-base --is-ancestor $prev_end HEAD 2> /dev/null; then
+      die "$seat's branch doesn't contain $follows's work (${prev_end[1,12]}); assign $id to ${$(note_get $prev Worker)#$S-} or merge $(note_get $prev Branch) into $branch first"
+    fi
+  fi
+
   note_set $note Worker $S-$seat
   note_set $note Branch $branch
   note_set $note Base $base

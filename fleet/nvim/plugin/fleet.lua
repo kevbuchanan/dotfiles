@@ -6,6 +6,10 @@
 --   :FleetBump [task]   tell the task's worker its note has new work. With
 --                       no task, uses the task note in the current buffer.
 --   <Leader>b           :FleetBump
+--   :FleetFollowUp [id] [title]
+--                       from a task note, create a follow-up task with
+--                       `fleet task --from` and open it. The id defaults to
+--                       the next free letter, such as T3b after T3.
 --
 -- Saving a task note runs `fleet answer` for it. fleet answers only when the
 -- note's worker is waiting in state `question` and no question is left open,
@@ -86,6 +90,38 @@ vim.api.nvim_create_user_command("FleetBump", function(o)
 end, { nargs = "?", desc = "Tell a fleet task's worker its note has new work" })
 
 vim.keymap.set("n", "<Leader>b", "<cmd>FleetBump<cr>", { desc = "fleet bump for this task note" })
+
+vim.api.nvim_create_user_command("FleetFollowUp", function(o)
+  local path = vim.fn.expand("%:p")
+  local fleet, from = path:match("/([^/]+)/tasks/([%w_-]+)%.md$")
+  if not from then
+    vim.notify("FleetFollowUp: run it from a task note", vim.log.levels.ERROR)
+    return
+  end
+  local dir = vim.fn.fnamemodify(path, ":h")
+  local id, title = o.fargs[1], table.concat(vim.list_slice(o.fargs, 2), " ")
+  if not id then
+    -- T3b's follow-up is T3c, not T3bb, when T3 exists
+    local root = from
+    local stem = from:match("^(.-)%l$")
+    if stem and stem ~= "" and vim.fn.filereadable(dir .. "/" .. stem .. ".md") == 1 then root = stem end
+    for c = string.byte("b"), string.byte("z") do
+      local candidate = root .. string.char(c)
+      if vim.fn.filereadable(dir .. "/" .. candidate .. ".md") == 0 then
+        id = candidate
+        break
+      end
+    end
+  end
+  local args = { "fleet", "-s", fleet, "task", id, "--from", from }
+  if title ~= "" then table.insert(args, title) end
+  local r = vim.system(args, { text = true }):wait()
+  if r.code ~= 0 then
+    vim.notify(vim.trim(r.stderr), vim.log.levels.ERROR)
+    return
+  end
+  vim.cmd.edit(vim.fn.fnameescape(vim.trim(r.stdout)))
+end, { nargs = "*", desc = "Create a follow-up to this fleet task and open it" })
 
 -- A note lives in <notes root>/<fleet>/tasks/<id>.md, so the path names both
 -- the fleet and the task, and this works from any nvim, inside a fleet or not.

@@ -29,7 +29,7 @@ fleet kill demo
 
 **Task note.** One markdown file per task under `$FLEET_HOME/<fleet>/tasks/<id>.md`, made from `templates/task.md`. The note is the record of the task, with these sections:
 
-- header fields: Guidance, Worker, Branch, and the Base and End commits that bound this task's changes on the worker's branch
+- header fields: Guidance, Follows for a follow-up task, Worker, Branch, and the Base and End commits that bound this task's changes on the worker's branch
 - Goal, Scope and Verify: what to do, which files the worker may edit, and how to check the result
 - Todo: a checkbox list the worker checks off as it goes
 - Questions: decisions the worker needs from you
@@ -115,7 +115,17 @@ Where follow-up goes depends on whether the worker has been cleared from the tas
 
 The worker works the new items, updates Handoff and sends `DONE` again. Saving a note does not bump the worker, because a save often comes mid-edit. Bump once the follow-up is written.
 
-**After `fleet clear`:** the task is closed. Its End is recorded and its worker's context is gone. Put follow-up in a new task, such as `fleet task T3b "follow-up to T3"`, whose Goal links T3's Handoff, and assign it. It starts with a fresh context and its own Base and End. `fleet assign` refuses a task that already has an End: reassigning it would overwrite Base, and `fleet diff T3` would lose the closed work.
+**After `fleet clear`:** the task is closed. Its End is recorded and its worker's context is gone. Put follow-up in a new task that starts from the closed one:
+
+- `fleet task T3b --from T3` creates T3b with `Follows: T3` in its header, T3's Scope and Verify sections, and a Goal that links T3's note and says to read its Handoff first. A title after the id replaces the default `follow-up to T3`.
+- `:FleetFollowUp` in nvim, run from T3's note, does the same and opens the new note. It picks the next free id, T3b, then T3c, and takes an id and title as arguments too.
+- Fill in the new Todo list and assign it. The follow-up gets a fresh context and its own Base and End, so `fleet diff T3` and `fleet diff T3b` each show one round, and the `Follows:` lines chain the rounds.
+
+A follow-up builds on the earlier task's code, so `fleet assign` checks that the worker's branch already contains the earlier task's End commit. If it doesn't, assign refuses and names the two ways out: assign to the earlier task's worker, or merge the earlier task's branch into this worker's branch first. It also refuses a follow-up to a task that is still open; add the work to that task and bump it.
+
+`fleet assign` refuses a task that already has an End: reassigning it would overwrite Base, and `fleet diff T3` would lose the closed work.
+
+fleet has no command that reopens a closed task with its old conversation. The handoff carries what the follow-up needs.
 
 The orchestrator owns follow-up. Tell it what's needed, and it writes the items into the note and bumps the worker, so the decision lands in the note and not only in chat.
 
@@ -159,7 +169,7 @@ Claude Code refuses rapid bursts of messages to one session. The prompts tell se
 | `fleet kill [name]` | kill the tmux session, by default the fleet that owns the calling pane. Worktrees and notes stay on disk. |
 | `fleet clean <name> [--branches]` | remove a stopped fleet's worktrees and state. `--branches` also deletes merged worker branches. |
 | `fleet status` | each seat's state, task and todo progress |
-| `fleet task <id> <title>` | create a task note and print its path |
+| `fleet task <id> [--from <id>] <title>` | create a task note and print its path. `--from` starts a follow-up to a closed task. |
 | `fleet assign <seat> <id>` | point an idle worker at a task note |
 | `fleet clear <seat>` | type `/clear` into an idle seat and drop its task |
 | `fleet interrupt <seat>` | send Escape |
