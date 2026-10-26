@@ -37,7 +37,7 @@ nvim +PlugInstall +qall
 
 nvim only:
 
-- nvim-tree replaces NERDTree, and gitsigns marks changed lines in the sign column. diffview.nvim shows a whole diff in one tab.
+- nvim-tree replaces NERDTree, and gitsigns marks changed lines in the sign column. diffview.nvim shows a whole diff in one tab. render-markdown.nvim draws markdown in the buffer: headings, checkboxes, tables and code blocks. The cursor line and insert mode show the raw text.
 - Every second, nvim reloads any unmodified buffer whose file changed on disk, so edits from Claude Code or other tools show up without a focus change. A buffer with unsaved edits gets nvim's normal conflict prompt.
 - The prose commands below.
 
@@ -58,6 +58,7 @@ nvim only:
 | `\x` | toggle the first markdown checkbox on the line between `[ ]` and `[x]` |
 | `ga` (normal), `<Enter>` (visual) | align with vim-easy-align |
 | `:W` | same as `:w` |
+| `:RenderMarkdown toggle` | switch a markdown buffer between rendered and raw |
 
 ### Tests
 

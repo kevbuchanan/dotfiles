@@ -18,6 +18,7 @@ if has('nvim')
   Plug 'nvim-tree/nvim-tree.lua'
   Plug 'lewis6991/gitsigns.nvim', { 'branch': 'main' }
   Plug 'sindrets/diffview.nvim', { 'branch': 'main' }
+  Plug 'MeanderingProgrammer/render-markdown.nvim', { 'branch': 'main' }
 else
   Plug 'scrooloose/nerdtree'
 endif
@@ -113,6 +114,13 @@ if ok_gs then gitsigns.setup() end
 -- file icons need nvim-web-devicons, which is not installed
 local ok_dv, diffview = pcall(require, 'diffview')
 if ok_dv then diffview.setup({ use_icons = false }) end
+
+-- treesitter highlighting for markdown, which render-markdown.nvim builds on;
+-- nvim ships the markdown parsers, so this needs no parser plugin
+vim.api.nvim_create_autocmd('FileType', {
+  pattern = 'markdown',
+  callback = function() pcall(vim.treesitter.start) end,
+})
 EOF
 endif
 
