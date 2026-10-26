@@ -24,6 +24,8 @@
 #   fleet path <seat>            print a worker's worktree path
 #   fleet answer <id>            tell a worker waiting in state `question`
 #                                that its task's questions are answered
+#   fleet bump <id>              tell a stopped worker still on a task that
+#                                its note has new work
 #   fleet diff [--rev] <id> [git diff args]
 #                                one task's changes; --rev prints the folder
 #                                and revision instead, for :FleetDiff
@@ -208,7 +210,7 @@ fleet_new() {
   sed "s|{{ROOT}}|$root|g" $root/settings.json > $rundir/settings.json
   jq --arg e $edit '.permissions.allow = [$e]' $rundir/settings.json > $rundir/worker-settings.json
   jq --arg e $edit '.permissions.allow = [$e] + ([
-      "status", "task", "assign", "clear", "interrupt", "rename", "path", "diff", "answer"
+      "status", "task", "assign", "clear", "interrupt", "rename", "path", "diff", "answer", "bump"
     ] | map("Bash(fleet \(.))", "Bash(fleet \(.) *)"))' \
     $rundir/settings.json > $rundir/orch-settings.json
 
@@ -298,6 +300,8 @@ fleet_assign() {
   pane_of $seat
   [[ -f $note ]] || die "no task note $note"
   need_idle $pane $seat
+  # reassigning would overwrite Base, and `fleet diff` would lose the closed work
+  [[ -z $(note_get $note End) ]] || die "$id is closed; put follow-up work in a new task that links it, such as fleet task ${id}b"
 
   # Base is the worker branch's commit when the task starts, and End is set by
   # `fleet clear`, so `fleet diff` can show this task apart from the branch's
@@ -444,19 +448,36 @@ fleet_diff() {
   fi
 }
 
-# The worker stopped after writing a question and has no turn until something
-# types into its pane. Like assign, it sends only fixed text.
+# Sets $note, $seat, $pane and $st for the worker still on task $1, or stops
+# fleet when no worker is.
+worker_on_task() {
+  need_id $1
+  note=$notes/tasks/$1.md
+  [[ -f $note ]] || die "no task note $note"
+  seat=${$(note_get $note Worker)#$S-}
+  [[ -n $seat ]] || die "$1 is not assigned"
+  pane_of $seat
+  [[ $(opt $pane @agent_task) == $1 ]] || die "$seat is no longer on $1; start a follow-up task with fleet task"
+  st=$(opt $pane @agent_state)
+}
+
+# A worker that stopped, after DONE, a question or a stall, gets no turn
+# until something types into its pane. Both commands send only fixed text.
+# `waiting` is refused: typed input would answer a permission prompt.
+fleet_bump() {
+  current
+  local id=${1:?usage: fleet bump <task id>} note seat pane st
+  worker_on_task $id
+  [[ $st == (idle|question|stalled) ]] || die "$seat is ${st:-starting}; bump a worker that is idle, question or stalled"
+  tmux send-keys -t $pane -l "Task $id was updated: re-read $note"
+  tmux send-keys -t $pane Enter
+  print "told $seat that $id was updated"
+}
+
 fleet_answer() {
   current
-  local id=${1:?usage: fleet answer <task id>}
-  need_id $id
-  local note=$notes/tasks/$id.md pane
-  [[ -f $note ]] || die "no task note $note"
-  local seat=${$(note_get $note Worker)#$S-}
-  [[ -n $seat ]] || die "$id is not assigned"
-  pane_of $seat
-  [[ $(opt $pane @agent_task) == $id ]] || die "$seat is no longer on $id"
-  local st=$(opt $pane @agent_state)
+  local id=${1:?usage: fleet answer <task id>} note seat pane st
+  worker_on_task $id
   [[ $st == question ]] || die "$seat is ${st:-starting}, not waiting on a question"
   local open=$($root/hooks/task-progress $note | awk '{ print $3 }')
   (( open == 0 )) || die "$id still has $open open questions"
@@ -524,6 +545,7 @@ case $cmd in
   path) current; worktree_of ${1:?seat}; print $worktree ;;
   diff) fleet_diff "$@" ;;
   answer) fleet_answer "$@" ;;
+  bump) fleet_bump "$@" ;;
   shell) fleet_shell "$@" ;;
   *) sed -n '2,/^$/s/^# \{0,1\}//p' $0; [[ $cmd == help ]] ;;
 esac

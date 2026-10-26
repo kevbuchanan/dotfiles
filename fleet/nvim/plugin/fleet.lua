@@ -3,6 +3,9 @@
 --   :FleetDiff [task]   open one task's changes in diffview. With no task,
 --                       uses the task note in the current buffer.
 --   <Leader>d           :FleetDiff
+--   :FleetBump [task]   tell the task's worker its note has new work. With
+--                       no task, uses the task note in the current buffer.
+--   <Leader>b           :FleetBump
 --
 -- Saving a task note runs `fleet answer` for it. fleet answers only when the
 -- note's worker is waiting in state `question` and no question is left open,
@@ -59,6 +62,30 @@ end, {
 })
 
 vim.keymap.set("n", "<Leader>d", "<cmd>FleetDiff<cr>", { desc = "fleet diff for this task note" })
+
+-- The fleet comes from the note's path, as in the save hook below, so this
+-- works from any nvim. It saves first: the worker reads the note from disk.
+vim.api.nvim_create_user_command("FleetBump", function(o)
+  local fleet, id
+  if o.args ~= "" then
+    id = o.args
+  else
+    fleet, id = vim.fn.expand("%:p"):match("/([^/]+)/tasks/([%w_-]+)%.md$")
+    if id then vim.cmd("silent update") end
+  end
+  if not id then
+    vim.notify("FleetBump: name a task, or run it from a task note", vim.log.levels.ERROR)
+    return
+  end
+  local args = fleet and { "fleet", "-s", fleet, "bump", id } or { "fleet", "bump", id }
+  vim.system(args, { text = true }, function(r)
+    vim.schedule(function()
+      vim.notify(vim.trim(r.stdout .. r.stderr), r.code == 0 and vim.log.levels.INFO or vim.log.levels.ERROR)
+    end)
+  end)
+end, { nargs = "?", desc = "Tell a fleet task's worker its note has new work" })
+
+vim.keymap.set("n", "<Leader>b", "<cmd>FleetBump<cr>", { desc = "fleet bump for this task note" })
 
 -- A note lives in <notes root>/<fleet>/tasks/<id>.md, so the path names both
 -- the fleet and the task, and this works from any nvim, inside a fleet or not.

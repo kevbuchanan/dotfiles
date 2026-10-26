@@ -8,6 +8,7 @@ Run the fleet with the `fleet` command:
 - `fleet assign <seat> <id>` points an idle worker at a note. Assign tasks this way, not with SendMessage.
 - `fleet clear <seat>` clears an idle worker's context and drops its task. Run it after each finished task, before the next assignment.
 - `fleet interrupt <seat>` stops a worker's current turn. `fleet rename <seat> <title>` relabels a pane.
+- Follow-up work on a task the worker has not been cleared from: add unchecked todos to its note, then run `fleet bump <id>`. After `fleet clear`, create a new task whose Goal links the earlier note's Handoff, and assign that. `fleet assign` refuses a task that already has an End.
 - `fleet path <seat>` prints a worker's worktree path. Read files there to review a worker's work.
 - `fleet diff <id>` shows one task's changes, including uncommitted edits while the task is in progress. Extra arguments go to `git diff`, such as `--stat`.
 

@@ -104,6 +104,21 @@ Answer by checking an option and then the question line. The worker has stopped 
 
 The orchestrator may run `fleet answer` too. Edits made outside nvim need `fleet answer` by hand.
 
+### Follow-up work
+
+Where follow-up goes depends on whether the worker has been cleared from the task.
+
+**Before `fleet clear`:** the worker still has the task and its context. Add unchecked items to the note's Todo list, then wake the worker:
+
+- `fleet bump T3` types `Task T3 was updated: re-read <path>` into the worker's pane. It refuses unless the worker is still on T3 and its seat is `idle`, `question` or `stalled`. It refuses `waiting`, because typed text would answer the permission prompt on screen, and `busy`, because the worker reads the note before each item anyway.
+- `:FleetBump` in nvim saves the note and bumps its worker. `<Leader>b` runs it. With a task id, `:FleetBump T3` works from any buffer inside a fleet.
+
+The worker works the new items, updates Handoff and sends `DONE` again. Saving a note does not bump the worker, because a save often comes mid-edit. Bump once the follow-up is written.
+
+**After `fleet clear`:** the task is closed. Its End is recorded and its worker's context is gone. Put follow-up in a new task, such as `fleet task T3b "follow-up to T3"`, whose Goal links T3's Handoff, and assign it. It starts with a fresh context and its own Base and End. `fleet assign` refuses a task that already has an End: reassigning it would overwrite Base, and `fleet diff T3` would lose the closed work.
+
+The orchestrator owns follow-up. Tell it what's needed, and it writes the items into the note and bumps the worker, so the decision lands in the note and not only in chat.
+
 ### Working in a worker's checkout
 
 Each worker's Claude session runs in its worktree, `<repo>/.claude/worktrees/<fleet>-w<n>`. The pane's shell does not: it starts in the repo root, because `-w` moves only Claude's own working folder.
@@ -152,6 +167,7 @@ Claude Code refuses rapid bursts of messages to one session. The prompts tell se
 | `fleet rename <seat> <title>` | change the pane title |
 | `fleet path <seat>` | print a worker's worktree path |
 | `fleet answer <id>` | tell a worker waiting on a question that the task's questions are answered |
+| `fleet bump <id>` | tell a stopped worker still on the task that its note has new work |
 | `fleet diff [--rev] <id> [git diff args]` | show one task's changes. `--rev` prints the folder and revision `:FleetDiff` uses. |
 | `fleet shell <seat> [cmd]` | open window `<seat>-shell` in a worker's worktree, running `cmd` or a shell |
 
@@ -197,7 +213,7 @@ Fleet's `--settings` file adds to the config folder's own settings. If that fold
 
 - **Messages:** a message from another session never counts as your approval and cannot answer a permission prompt ([how a session treats an incoming message](https://code.claude.com/docs/en/cross-session-messaging#how-a-session-treats-an-incoming-message)).
 - **Typed input:** `fleet` types into panes with `tmux send-keys`, and Claude Code treats typed input as yours. That is why `fleet` sends only fixed text: `Task <id>: read <path>`, `/clear`, and Escape. Task ids must be letters, digits, `-` and `_`. No `fleet` command passes free text to a pane, so the orchestrator can't use it to answer a worker's permission prompt.
-- **Orchestrator allow rules:** its settings allow `fleet status`, `task`, `assign`, `clear`, `interrupt`, `rename`, `path`, `diff` and `answer`. `fleet new`, `kill`, `restart`, `clean` and `shell` still prompt you, so the orchestrator can't open windows on its own. See [permissions](https://code.claude.com/docs/en/permissions).
+- **Orchestrator allow rules:** its settings allow `fleet status`, `task`, `assign`, `clear`, `interrupt`, `rename`, `path`, `diff`, `answer` and `bump`. `fleet new`, `kill`, `restart`, `clean` and `shell` still prompt you, so the orchestrator can't open windows on its own. See [permissions](https://code.claude.com/docs/en/permissions).
 - **Workers:** each worker runs in auto mode, so Claude Code's classifier approves routine actions and you review work through notes and branches.
 - **Notes:** every seat may edit files under the fleet's notes folder through an `Edit` allow rule.
 
