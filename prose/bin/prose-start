@@ -1,7 +1,7 @@
 #!/bin/sh
 # Opens a prose review of a markdown file, connected to a Claude Code session:
 #
-#   prose-start <file> [--to NAME | --new] [--no-open] [--port N]
+#   prose start <file> [--to NAME | --new] [--no-open] [--port N]
 #
 #   --to NAME          the server posts comments to that running session
 #   --new              open a new Claude pane even when the window has one
@@ -34,8 +34,8 @@ while [ $i -lt $n ]; do
     *) file="$a" ;;
   esac
 done
-[ -n "$file" ] || { echo "usage: prose-start <file> [--to NAME | --new] [--no-open] [--port N]" >&2; exit 1; }
-[ -f "$file" ] || { echo "prose-start: no such file: $file" >&2; exit 1; }
+[ -n "$file" ] || { echo "usage: prose start <file> [--to NAME | --new] [--no-open] [--port N]" >&2; exit 1; }
+[ -f "$file" ] || { echo "prose start: no such file: $file" >&2; exit 1; }
 file=$(realpath "$file")
 
 if [ -n "$to" ]; then
@@ -43,7 +43,7 @@ if [ -n "$to" ]; then
 fi
 
 if [ -z "${TMUX_PANE:-}" ]; then
-  [ $new -eq 0 ] || { echo "prose-start: --new opens a tmux pane, and this is not tmux" >&2; exit 1; }
+  [ $new -eq 0 ] || { echo "prose start: --new opens a tmux pane, and this is not tmux" >&2; exit 1; }
   echo "not in tmux: starting prose with no Claude session; comments wait until one joins with /prose"
   exec "$here/prose-bg" "$file" "$@"
 fi
@@ -53,7 +53,7 @@ rc=2
 if [ $rc -eq 0 ]; then
   exec "$here/prose-bg" "$file" --socket "$sock" "$@"
 elif [ $rc -ne 2 ]; then
-  # several sessions in this window; prose-session explains which
+  # several sessions in this window; prose sessions explains which
   "$here/prose-session" --window "$TMUX_PANE"
   exit 1
 fi

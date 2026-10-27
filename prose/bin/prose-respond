@@ -1,7 +1,7 @@
 #!/bin/sh
 # Posts an agent reply to a prose page.
 #
-#   prose-respond <file|port> <phase> [request ids...] [--text T | --text-file F] [--work W]
+#   prose respond <file|port> <phase> [request ids...] [--text T | --text-file F] [--work W]
 #
 # phase is start, progress, reply, done, needs-reply or error. The work id
 # defaults to w-<first request id>. For progress, done, needs-reply and error,
@@ -10,14 +10,14 @@
 # standalone message.
 set -eu
 here=$(cd "$(dirname "$(realpath "$0")")" && pwd)
-usage="usage: prose-respond <file|port> <phase> [request ids...] [--text T | --text-file F] [--work W]"
+usage="usage: prose respond <file|port> <phase> [request ids...] [--text T | --text-file F] [--work W]"
 [ $# -ge 2 ] || { echo "$usage" >&2; exit 1; }
 port=$("$here/prose-port" "$1")
 phase="$2"
 shift 2
 case "$phase" in
   start|progress|reply|done|needs-reply|error) ;;
-  *) echo "prose-respond: unknown phase: $phase" >&2; exit 1 ;;
+  *) echo "prose respond: unknown phase: $phase" >&2; exit 1 ;;
 esac
 
 ids=""

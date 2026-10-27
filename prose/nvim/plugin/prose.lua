@@ -1,5 +1,5 @@
--- Commands for the prose markdown review server. prose-start decides which
--- Claude Code session gets the comments; see its header.
+-- Commands for the prose markdown review server. `prose start` decides which
+-- Claude Code session gets the comments; see bin/prose-start.
 --
 --   :Prose [session]   review the current file; the optional session name
 --                      completes from running Claude sessions
@@ -35,7 +35,7 @@ end
 vim.api.nvim_create_user_command("Prose", function(o)
   local file = current_file()
   if not file then return end
-  local args = { "prose-start", file }
+  local args = { "prose", "start", file }
   if o.bang then
     table.insert(args, "--new")
   elseif o.args ~= "" then
@@ -48,7 +48,7 @@ end, {
   desc = "Review the current file in prose",
   complete = function(lead)
     local names = {}
-    for line in vim.gsplit(vim.fn.system({ "prose-session", "--list" }), "\n", { trimempty = true }) do
+    for line in vim.gsplit(vim.fn.system({ "prose", "sessions", "--list" }), "\n", { trimempty = true }) do
       local name = line:match("^[^\t]+")
       if name and vim.startswith(name, lead) then table.insert(names, name) end
     end
@@ -59,19 +59,12 @@ end, {
 vim.api.nvim_create_user_command("ProseStop", function()
   local file = current_file()
   if not file then return end
-  -- prose-bg records the resolved path, such as /private/tmp for /tmp
-  file = vim.uv.fs_realpath(file) or file
-  run({ "prose-bg", "--list" }, function(_, out)
-    for line in vim.gsplit(out, "\n", { trimempty = true }) do
-      local port, _, served = unpack(vim.split(line, "\t"))
-      if served == file then return run({ "prose-bg", "--stop", port }) end
-    end
-    vim.notify("prose: no server for " .. file, vim.log.levels.WARN)
-  end)
+  -- prose stop finds the file's server itself
+  run({ "prose", "stop", file })
 end, { desc = "Stop the prose server for the current file" })
 
 vim.api.nvim_create_user_command("ProseList", function()
-  run({ "prose-bg", "--list" }, function(_, out)
+  run({ "prose", "ls" }, function(_, out)
     vim.notify(out ~= "" and out or "prose: no servers running")
   end)
 end, { desc = "List running prose servers" })

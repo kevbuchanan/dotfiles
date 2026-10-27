@@ -3,7 +3,7 @@
 `prose` serves a live, GitHub-style preview of one markdown file in the browser. You select text, write a comment, and the server delivers the comment to a Claude Code session. Claude edits the file on disk and posts a reply back to the page. The file on disk is the only copy of the draft. The page re-renders on every disk change and flashes the blocks that changed.
 
 ```sh
-prose-start docs/design.md        # from a shell
+prose start docs/design.md        # from a shell
 :Prose                            # from nvim, on the current file
 /prose docs/design.md             # from inside a Claude Code session
 ```
@@ -11,28 +11,28 @@ prose-start docs/design.md        # from a shell
 ## Requirements
 
 - `deno` to run the server
-- `nc` and `perl`, which macOS ships with. The server posts to a session's socket through `nc`, and `prose-bg` detaches with `perl`.
-- `jq` for `prose-session`
+- `nc` and `perl`, which macOS ships with. The server posts to a session's socket through `nc`, and `prose serve --bg` detaches with `perl`.
+- `jq` for `prose sessions`, `prose respond` and `prose pending`
 - `hx` (Helix), optional. With it, the page has an editor pane, toggled with Cmd+E. Without it, every page is preview-only.
 - `gh`, optional. With it, GitHub blob permalinks render as code snippets.
-- tmux, for `prose-start` to find or open a Claude pane
+- tmux, for `prose start` to find or open a Claude pane
 - Claude Code 2.1.224 or later on macOS or Linux, for [cross-session messaging](https://code.claude.com/docs/en/cross-session-messaging)
 
 ## Concepts
 
-**Server.** One `prose` process serves one file on one port, from 4917 up. It keeps running after the session or editor that started it exits. `prose-bg --list` shows every running server, and `prose-bg --stop <port>` stops one.
+**Server.** One `prose` process serves one file on one port, from 4917 up. It keeps running after the session or editor that started it exits. `prose ls` shows every running server, and `prose stop <port|file>` stops one.
 
-**Target session.** Each server delivers comments to one Claude Code session's inbox socket, chosen when the server starts. Every session binds a socket and exports its path to its child processes as `CLAUDE_CODE_MESSAGING_SOCKET` ([the session's inbox socket](https://code.claude.com/docs/en/cross-session-messaging#the-sessions-inbox-socket)). A server started from a session's Bash tool picks up that variable with no flag. A server started from nvim or a shell gets the socket path from `prose-start`.
+**Target session.** Each server delivers comments to one Claude Code session's inbox socket, chosen when the server starts. Every session binds a socket and exports its path to its child processes as `CLAUDE_CODE_MESSAGING_SOCKET` ([the session's inbox socket](https://code.claude.com/docs/en/cross-session-messaging#the-sessions-inbox-socket)). A server started from a session's Bash tool picks up that variable with no flag. A server started from nvim or a shell gets the socket path from `prose start`.
 
 **Event.** A comment, a general message, or a de-LLM rewrite request. Each event reaches the session as a message starting with `Prose event for <file> (port <n>; handle per /prose skill):`, followed by JSON. The [skill](skill/SKILL.md) tells Claude how to handle each kind.
 
-**Activity.** Claude's replies and status updates. Claude posts them to the server's `/activity` endpoint with `prose-respond`, which takes the draft's path or the port and sends `start` itself when work hasn't started, so quick work goes straight to `done`. The page shows them as toasts and keeps them in a history panel. Nothing in the page's activity is sent back to the session.
+**Activity.** Claude's replies and status updates. Claude posts them to the server's `/activity` endpoint with `prose respond`, which takes the draft's path or the port and sends `start` itself when work hasn't started, so quick work goes straight to `done`. The page shows them as toasts and keeps them in a history panel. Nothing in the page's activity is sent back to the session.
 
 **Skill.** `skill/SKILL.md` is the `/prose` skill. It covers starting a server, handling each event kind, replying, and joining a server started elsewhere.
 
 ## Starting a review
 
-`prose-start <file>`, and nvim's `:Prose`, choose the target session in this order:
+`prose start <file>`, and nvim's `:Prose`, choose the target session in this order:
 
 1. `--to <name>`, or `:Prose <name>`, targets the running session with that name. Names complete in nvim.
 2. Inside tmux, the server targets the Claude session in the caller's tmux window.
@@ -44,12 +44,12 @@ prose-start docs/design.md        # from a shell
 ### How comments reach the session
 
 - **Own server:** a server the session started posts as one of the session's own child processes, with the token from `CLAUDE_CODE_MESSAGING_TOKEN`. Claude Code delivers those messages with no prompt.
-- **Server started elsewhere:** a server started by `prose-start` for an existing session posts as an ordinary peer message. Claude Code applies the session's [inbound controls](https://code.claude.com/docs/en/cross-session-messaging#control-inbound-messages) to it. With no `crossSessionInbound` setting, a session in bypass-permissions mode holds each such message for your approval, and other sessions get it straight away.
+- **Server started elsewhere:** a server started by `prose start` for an existing session posts as an ordinary peer message. Claude Code applies the session's [inbound controls](https://code.claude.com/docs/en/cross-session-messaging#control-inbound-messages) to it. With no `crossSessionInbound` setting, a session in bypass-permissions mode holds each such message for your approval, and other sessions get it straight away.
 - **Delivery timing:** an idle session starts a turn when an event arrives. A busy session reads it between tool calls.
 
 ### Finding sessions
 
-`prose-session` reads Claude Code's session registry, one `<config dir>/sessions/<pid>.json` file per running session. Each file records the session's name, tmux pane and socket path. Claude Code doesn't document this format, so an update can break the lookup. The server's check that its session is still running reads the same files.
+`prose sessions` reads Claude Code's session registry, one `<config dir>/sessions/<pid>.json` file per running session. Each file records the session's name, tmux pane and socket path. Claude Code doesn't document this format, so an update can break the lookup. The server's check that its session is still running reads the same files.
 
 Config dirs searched:
 
@@ -61,26 +61,28 @@ A session started with `CLAUDE_CONFIG_DIR` set registers under that folder, so a
 
 ## Commands
 
+`prose` is one entrypoint. Each subcommand runs a script in `bin/`, and `prose help` lists them.
+
 | Command | Effect |
 | --- | --- |
-| `prose-start <file> [--to NAME \| --new] [--no-open] [--port N]` | start a review and pick its session, as above |
-| `prose-bg <file> [--port N] [--no-open] [--socket PATH \| --to NAME \| --here]` | start a server detached, with an explicit target |
-| `prose-bg --list` | port, pid and file of each running server |
-| `prose-bg --stop <port>` | stop a server |
-| `prose-respond <file\|port> <phase> [ids...] [--text T \| --text-file F] [--work W]` | post a reply, sending `start` first when needed |
-| `prose-pending <file\|port>` | print unfinished requests with their text and status |
-| `prose-port <file\|port>` | print the port of the server for a file |
-| `prose-post <port> < event.json` | post one raw activity event |
-| `prose-post <port> --get` | print a server's history and request states |
-| `prose-session --name NAME \| --window [PANE] \| --list` | print a session's socket path, or list sessions |
-| `prose <file> [--port N] [--no-open] [--socket PATH]` | run the server in the foreground |
+| `prose start <file> [--to NAME \| --new] [--no-open] [--port N]` | start a review and pick its session, as above |
+| `prose serve <file> --bg [--port N] [--no-open] [--socket PATH \| --to NAME \| --here]` | start a server detached, with an explicit target |
+| `prose serve <file> [--port N] [--no-open] [--socket PATH]` | run the server in the foreground |
+| `prose ls` | port, pid and file of each running server |
+| `prose stop <port\|file>` | stop a server |
+| `prose respond <file\|port> <phase> [ids...] [--text T \| --text-file F] [--work W]` | post a reply, sending `start` first when needed |
+| `prose pending <file\|port>` | print unfinished requests with their text and status |
+| `prose port <file\|port>` | print the port of the server for a file |
+| `prose post <port> < event.json` | post one raw activity event |
+| `prose post <port> --get` | print a server's history and request states |
+| `prose sessions --name NAME \| --window [PANE] \| --list` | print a session's socket path, or list sessions |
 
 In nvim:
 
 | Command | Effect |
 | --- | --- |
-| `:Prose [session]` | `prose-start` on the current file, with `--to` when a session is named |
-| `:Prose!` | `prose-start --new` on the current file |
+| `:Prose [session]` | `prose start` on the current file, with `--to` when a session is named |
+| `:Prose!` | `prose start --new` on the current file |
 | `:ProseStop` | stop the server for the current file |
 | `:ProseList` | list running servers |
 
@@ -99,14 +101,15 @@ In nvim:
 ## Files
 
 ```
-bin/prose            wrapper: runs bin/prose.ts with deno.jsonc and its permission flags
-bin/prose-bg         starts the server detached
-bin/prose-start      picks a session, then calls prose-bg or opens a Claude pane
-bin/prose-session    reads the session registry
-bin/prose-post       posts to and reads /activity
-bin/prose-respond    replies to a page by file or port
-bin/prose-pending    lists unfinished requests
-bin/prose-port       finds the port of a file's server
+bin/prose            the entrypoint: dispatches each subcommand to a script below
+bin/prose-serve      `serve`: runs bin/prose.ts with deno.jsonc and its permission flags
+bin/prose-bg         `serve --bg`, `stop` and `ls`: the detached server and its state files
+bin/prose-start      `start`: picks a session, then starts a server or opens a Claude pane
+bin/prose-session    `sessions`: reads the session registry
+bin/prose-post       `post`: posts to and reads /activity
+bin/prose-respond    `respond`: replies to a page by file or port
+bin/prose-pending    `pending`: lists unfinished requests
+bin/prose-port       `port`: finds the port of a file's server
 bin/prose.ts         the server
 bin/prose-client.ts  the page script, bundled by the server at startup
 bin/prose-pty.py     runs hx in a pty for the editor pane
@@ -119,9 +122,9 @@ LICENSE              MIT license of the upstream code
 SOURCE               upstream repo and commit
 ```
 
-The `prose` wrapper resolves its own folder through the `~/.local/bin` symlink. Deno looks for `deno.jsonc` next to the script it runs, so a bare symlink to `prose.ts` fails with `Import "@std/path" not a dependency`.
+`bin/prose` and each script resolve their own folder through the `~/.local/bin/prose` symlink. Deno looks for `deno.jsonc` next to the script it runs, so a bare symlink to `prose.ts` fails with `Import "@std/path" not a dependency`.
 
-The server reads its CSS and bundles the client once at startup. After editing anything under `bin/`, restart a server with `prose-bg --stop <port>` and start it again. A restart marks in-progress requests `interrupted`.
+The server reads its CSS and bundles the client once at startup. After editing anything under `bin/`, restart a server with `prose stop <port>` and start it again. A restart marks in-progress requests `interrupted`.
 
 ## Upstream
 
@@ -131,7 +134,7 @@ The server comes from `david-crespo/dotfiles` at the commit in `SOURCE`, under i
 - **Mermaid:** `prose-client.ts` renders `mermaid` fenced blocks as diagrams.
 - **Liveness across config dirs:** `sessionAlive` in `bin/lib/prose/session.ts` checks every config dir listed under "Finding sessions" above. Upstream checks only `~/.claude`.
 
-The wrappers and the `prose-start` and `prose-session` scripts exist only here. To update from upstream, diff the upstream files at a new commit against the ones at `SOURCE`, apply that diff here, and update `SOURCE`.
+The entrypoint and every `bin/prose-*` shell script exist only here. To update from upstream, diff the upstream files at a new commit against the ones at `SOURCE`, apply that diff here, and update `SOURCE`.
 
 ## Related Claude Code docs
 

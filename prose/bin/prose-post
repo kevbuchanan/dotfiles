@@ -1,8 +1,8 @@
 #!/bin/sh
 # Talks to a running prose server's /activity endpoint.
 #
-#   prose-post <port> < event.json   POST one activity event
-#   prose-post <port> --get          print history and request states
+#   prose post <port> < event.json   POST one activity event
+#   prose post <port> --get          print history and request states
 set -eu
 port="$1"
 url="http://localhost:$port/activity"

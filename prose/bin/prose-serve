@@ -1,0 +1,8 @@
+#!/bin/sh
+# Runs the prose server with its import map. Deno looks for deno.jsonc next to
+# the script it runs, and this wrapper is reached through a ~/.local/bin
+# symlink, so it resolves its own folder and passes --config explicitly.
+D=$(cd "$(dirname "$(realpath "$0")")/.." && pwd)
+exec deno run --config "$D/deno.jsonc" --allow-env --allow-read --allow-write \
+  --allow-net=127.0.0.1,localhost,github.com,raw.githubusercontent.com,private-user-images.githubusercontent.com \
+  --allow-run=open,deno,gh,python3,hx,nc "$D/bin/prose.ts" "$@"

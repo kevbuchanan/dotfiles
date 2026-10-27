@@ -5,10 +5,10 @@
 # break this lookup. Config dirs: ~/.claude, $CLAUDE_CONFIG_DIR, and the
 # colon-separated $PROSE_CLAUDE_DIRS.
 #
-#   prose-session --name <name>      the session with that name
-#   prose-session --window [pane]    the session in the same tmux window as
+#   prose sessions --name <name>      the session with that name
+#   prose sessions --window [pane]    the session in the same tmux window as
 #                                    pane, default $TMUX_PANE; exit 2 if none
-#   prose-session --list             name, tmux location and cwd of each
+#   prose sessions --list             name, tmux location and cwd of each
 set -eu
 
 sessions() {
@@ -34,10 +34,10 @@ one() {
   if [ "$n" -eq 1 ]; then
     printf '%s\n' "$1" | cut -f3
   elif [ "$n" -gt 1 ]; then
-    echo "prose-session: $n sessions match $2, pick one with --to: $(printf '%s\n' "$1" | cut -f1 | tr '\n' ' ')" >&2
+    echo "prose sessions: $n sessions match $2, pick one with --to: $(printf '%s\n' "$1" | cut -f1 | tr '\n' ' ')" >&2
     exit 1
   else
-    echo "prose-session: no running Claude session $2" >&2
+    echo "prose sessions: no running Claude session $2" >&2
     exit 2
   fi
 }

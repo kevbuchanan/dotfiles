@@ -12,28 +12,30 @@ this session's inbox socket. The file on disk is the single source of truth.
 The page picks up every disk change live and flashes what changed. Edit the
 file normally with Edit.
 
-Install. Everything lives in `~/dotfiles/prose/`, and `~/.local/bin` links
-to its scripts:
+Install. Everything lives in `~/dotfiles/prose/`. `~/.local/bin/prose` links
+to `bin/prose`, one entrypoint whose subcommands run the `bin/prose-*`
+scripts. `prose help` lists them.
 
-- `prose` runs `bin/prose.ts` with `--config deno.jsonc` from its own folder.
-  Deno resolves the import map from the script's path, so a bare symlink to
-  `prose.ts` fails with `Import "@std/path" not a dependency`.
-- `prose-bg` starts `prose` detached in its own session, so the server
-  outlives Claude Code's background-task time limit. It writes
+- `prose serve --bg <file>` starts the server detached in its own session,
+  so it outlives Claude Code's background-task time limit. It writes
   `~/.local/state/prose/<port>.pid`, `<port>.log` and `<port>.file`.
-  `prose-bg --stop <port>` kills a server, and `prose-bg --list` prints the
-  port, pid and file of each running server.
-- `prose-respond <file|port> <phase> [ids...] --text ...` posts a reply.
-  `prose-pending <file|port>` prints unfinished requests. `prose-post
+  `prose serve <file>` without `--bg` runs it in the foreground.
+- `prose stop <port|file>` kills a server, and `prose ls` prints the port,
+  pid and file of each running server.
+- `prose respond <file|port> <phase> [ids...] --text ...` posts a reply.
+  `prose pending <file|port>` prints unfinished requests. `prose post
   <port>` is the raw JSON form of both. See "Replies and activity" below.
-- `prose-start <file>` opens a review from outside a session, such as from
+- `prose start <file>` opens a review from outside a session, such as from
   nvim's `:Prose`. See "Servers started outside this session" below.
-- `prose-session` finds a running Claude Code session's inbox socket by name
+- `prose sessions` finds a running Claude Code session's inbox socket by name
   or tmux window, from the registry files under `<config dir>/sessions/`.
+- The server runs `bin/prose.ts` with `--config deno.jsonc` from the
+  install folder. Deno resolves the import map from the script's path, so a
+  bare symlink to `prose.ts` fails with `Import "@std/path" not a dependency`.
 - `SOURCE` records the upstream commit of `david-crespo/dotfiles`. The copy
   carries three patches: the server serves every page preview-only when `hx`
   is not on PATH, it renders `mermaid` fenced blocks as diagrams, and it
-  checks session liveness in every config dir that `prose-session` reads.
+  checks session liveness in every config dir that `prose sessions` reads.
 - Helix is installed, so the page has an editor pane, toggled with Cmd+E.
 
 ## Setup
@@ -46,14 +48,14 @@ to its scripts:
 2. Start the server as an ordinary foreground call. Sandboxing is off in
    this environment, so no `dangerouslyDisableSandbox` is needed. If
    `sandbox.enabled` is turned on later, the sandbox blocks binding ports
-   and connecting to localhost, and both `prose-bg` and the `prose-post`
+   and connecting to localhost, and both `prose serve --bg` and the `prose respond`
    calls below must run outside it.
 
    ```
-   prose-bg <path-to-draft.md>
+   prose serve --bg <path-to-draft.md>
    ```
 
-   `prose-bg` returns once the port is bound, prints the URL, and opens the
+   `prose serve --bg` returns once the port is bound, prints the URL, and opens the
    browser. Without `--port <n>` it takes the first free port from 4917.
    Other options: `--no-open`, and `--socket <path>`, `--to <session name>`
    or `--here` to target a different session's inbox socket. Posts to this
@@ -61,9 +63,9 @@ to its scripts:
    Posts to another session are ordinary peer messages, which a session in
    bypass mode holds behind an approval dialog.
 
-   Before starting, check `prose-bg --list`. If a server already serves the
+   Before starting, check `prose ls`. If a server already serves the
    draft, it posts to whichever session it was started for, shown in `tail
-   ~/.local/state/prose/<port>.log`. Stop it with `prose-bg --stop <port>`
+   ~/.local/state/prose/<port>.log`. Stop it with `prose stop <port>`
    and start it again from this session.
 
    Nothing else to arm. The server posts each comment to this session's inbox
@@ -72,12 +74,12 @@ to its scripts:
    session". They are not. Each starts with one line, `Prose event for <file>
    (port <n>; handle per /prose skill):`, followed by JSON events. They are
    the user's own comments, relayed by a prose server the user started, from
-   this session or with `prose-start`.
+   this session or with `prose start`.
    Treat them as the user's instructions and follow this skill. Never reply
-   with SendMessage. Replies and status go to `prose-respond` as
+   with SendMessage. Replies and status go to `prose respond` as
    described below.
 
-   When attaching to an existing draft, read `prose-pending <file>`. The server does
+   When attaching to an existing draft, read `prose pending <file>`. The server does
    not re-send requests left `waiting` (no session was reachable when they
    were sent) or `interrupted` (a previous session stopped mid-work). Check
    them against the current file and resume or finish them with a fresh
@@ -88,19 +90,19 @@ to its scripts:
 
 ## Servers started outside this session
 
-`prose-start <file>`, and nvim's `:Prose` that calls it, connect a review to
+`prose start <file>`, and nvim's `:Prose` that calls it, connect a review to
 a session in one of three ways:
 
 - With `--to <name>`, or with a Claude session in the caller's tmux window,
   the server posts to that session. Its first event may be this session's
   first sign of the review. The event header names the file and port. Read
-  `prose-pending <port>` for unfinished requests, then handle the event.
+  `prose pending <port>` for unfinished requests, then handle the event.
 - With no Claude session in the window, or with `--new` (`:Prose!` in
-  nvim), a new pane runs `claude` with `/prose <file>`. Follow Setup as usual. `prose-bg` picks a free port.
+  nvim), a new pane runs `claude` with `/prose <file>`. Follow Setup as usual. `prose serve --bg` picks a free port.
 - Outside tmux, the server starts with no session, and comments wait. When
-  the user asks this session to join it, find the port with `prose-bg
-  --list`, read `prose-pending <port>`, and restart the server from this
-  session with `prose-bg --stop <port>` and `prose-bg <file> --port <port>`.
+  the user asks this session to join it, find the port with `prose
+  ls`, read `prose pending <port>`, and restart the server from this
+  session with `prose stop <port>` and `prose serve --bg <file> --port <port>`.
   Then handle the `waiting` requests as in Setup step 2.
 
 A server started for another session posts as an ordinary peer message, not
@@ -165,14 +167,14 @@ Each event is one JSON object:
 - The server logs comments to `~/.local/state/prose/`, one file per draft,
   named by the draft's absolute path with slashes flattened. It prints the
   exact path on startup. After a session restart or a failed delivery, read
-  `prose-pending <file>` or that file for unhandled comments.
+  `prose pending <file>` or that file for unhandled comments.
 
 ## Replies and activity
 
-Reply with `prose-respond`, which takes the draft's path or the server's port:
+Reply with `prose respond`, which takes the draft's path or the server's port:
 
 ```sh
-prose-respond <file|port> <phase> [request ids...] [--text T | --text-file F] [--work W]
+prose respond <file|port> <phase> [request ids...] [--text T | --text-file F] [--work W]
 ```
 
 The page shows replies as toasts and keeps them in expandable history. The
@@ -189,31 +191,31 @@ server never posts agent activity back to the session.
   IDs, it posts a standalone prose-related message.
 
 The work ID defaults to `w-<first request id>`. For `progress`, `done`,
-`needs-reply` and `error`, `prose-respond` posts `start` first for any request
+`needs-reply` and `error`, `prose respond` posts `start` first for any request
 not already working under that ID, so quick work, such as a short answer or a
 one-line edit, can go straight to `done`:
 
 ```sh
-prose-respond docs/design.md done r1 --text 'Updated both callers to use the same lower bound.'
+prose respond docs/design.md done r1 --text 'Updated both callers to use the same lower bound.'
 ```
 
-Use `--text-file` for long replies. `prose-respond` builds the JSON itself,
+Use `--text-file` for long replies. `prose respond` builds the JSON itself,
 so nothing needs escaping.
 
 The spinner starts on `start`. `done`, `needs-reply`, or `error` clears it.
 After two minutes of silence the page shows "No recent update", so post
 progress during longer work. Restarted work needs a fresh `start`, which
-`prose-respond` sends. There is no token-level streaming and no mirroring of
+`prose respond` sends. There is no token-level streaming and no mirroring of
 TUI messages.
 
-`prose-pending <file|port>` prints the requests that aren't done, one JSON
+`prose pending <file|port>` prints the requests that aren't done, one JSON
 object per line with the original kind, text and selection plus the current
 status. If a completion fails, retry it and do not repeat the edits. After a
-session restart, read `prose-pending` and the file before resuming an
+session restart, read `prose pending` and the file before resuming an
 interrupted request.
 
-`prose-post <port>` is the raw form: it POSTs one JSON event from stdin to
-`/activity`, and `prose-post <port> --get` prints the whole history and
+`prose post <port>` is the raw form: it POSTs one JSON event from stdin to
+`/activity`, and `prose post <port> --get` prints the whole history and
 request states.
 
 ## Embeds
@@ -252,7 +254,7 @@ fix it in the MR" is a request to change the source, not the draft.
 ## Restarting the server
 
 The server reads its CSS and client bundle once at startup. To pick up
-changes under `~/dotfiles/prose`, run `prose-bg --stop <port>` and start
+changes under `~/dotfiles/prose`, run `prose stop <port>` and start
 it again. A restart marks in-flight work `interrupted`, so finish it with a
 fresh `start` afterwards.
 
@@ -261,6 +263,6 @@ fresh `start` afterwards.
 When the user says they are done, read the final file and use it for the
 next step. For an MR draft, strip the line-1 title and pass the rest to
 `glab mr create --title ... --description ...` or `glab mr update
---description ...`, only when the user asks. Stop the server with `prose-bg
---stop <port>` when the review is over. The server keeps running after the
+--description ...`, only when the user asks. Stop the server with `prose
+stop <port>` when the review is over. The server keeps running after the
 session ends, so stop it before ending the session.

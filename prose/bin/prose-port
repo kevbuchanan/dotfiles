@@ -1,8 +1,8 @@
 #!/bin/sh
 # Prints the port of the prose server for a file, or the argument itself when
-# it is already a port. prose-respond and prose-pending take either.
+# it is already a port. prose respond, pending and stop take either.
 set -eu
-arg="${1:?usage: prose-port <file|port>}"
+arg="${1:?usage: prose port <file|port>}"
 case "$arg" in
   *[!0-9]*) ;;
   *) echo "$arg"; exit 0 ;;

@@ -1,8 +1,47 @@
 #!/bin/sh
-# Runs the prose server with its import map. Deno looks for deno.jsonc next to
-# the script it runs, and this wrapper is reached through a ~/.local/bin
-# symlink, so it resolves its own folder and passes --config explicitly.
-D=$(cd "$(dirname "$(realpath "$0")")/.." && pwd)
-exec deno run --config "$D/deno.jsonc" --allow-env --allow-read --allow-write \
-  --allow-net=127.0.0.1,localhost,github.com,raw.githubusercontent.com,private-user-images.githubusercontent.com \
-  --allow-run=open,deno,gh,python3,hx,nc "$D/bin/prose.ts" "$@"
+# prose: a live markdown review page whose comments go to a Claude Code
+# session. One entrypoint; each subcommand runs a bin/prose-<command> script.
+#
+#   prose start <file> [--to NAME | --new] [--no-open] [--port N]
+#                               open a review and pick its session
+#   prose serve <file> [--bg] [--port N] [--no-open] [--socket P | --to NAME | --here]
+#                               run the server; --bg detaches it
+#   prose stop <port|file>      stop a server
+#   prose ls                    port, pid and file of each running server
+#   prose respond <file|port> <phase> [ids...] [--text T | --text-file F] [--work W]
+#                               post an agent reply to a page
+#   prose pending <file|port>   unfinished requests, one JSON object per line
+#   prose post <port> [--get]   post one raw activity event, or print history
+#   prose port <file|port>      the port of a file's server
+#   prose sessions [--name N | --window [PANE] | --list]
+#                               find running Claude Code sessions
+set -eu
+here=$(cd "$(dirname "$(realpath "$0")")" && pwd)
+
+usage() { sed -n '2,/^set/s/^# \{0,1\}//p' "$0" | sed '$d'; }
+
+cmd="${1:-help}"
+[ $# -gt 0 ] && shift
+case "$cmd" in
+  start) exec "$here/prose-start" "$@" ;;
+  serve)
+    # --bg anywhere in the arguments picks the detached runner
+    bg=0
+    n=$#
+    i=0
+    while [ $i -lt $n ]; do
+      a="$1"
+      shift
+      i=$((i + 1))
+      if [ "$a" = --bg ]; then bg=1; else set -- "$@" "$a"; fi
+    done
+    if [ $bg -eq 1 ]; then exec "$here/prose-bg" "$@"; fi
+    exec "$here/prose-serve" "$@"
+    ;;
+  stop) exec "$here/prose-bg" --stop "$("$here/prose-port" "${1:?usage: prose stop <port|file>}")" ;;
+  ls) exec "$here/prose-bg" --list ;;
+  respond | pending | post | port) exec "$here/prose-$cmd" "$@" ;;
+  sessions) exec "$here/prose-session" "$@" ;;
+  help | -h | --help) usage ;;
+  *) echo "prose: unknown command: $cmd" >&2; usage >&2; exit 1 ;;
+esac

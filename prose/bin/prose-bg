@@ -4,9 +4,9 @@
 # server per port; the pid, log and served file live in
 # ~/.local/state/prose/<port>.{pid,log,file}.
 #
-#   prose-bg <file> [--port N] [--no-open] [--socket PATH | --to NAME | --here]
-#   prose-bg --stop <port>
-#   prose-bg --list
+#   prose serve --bg <file> [--port N] [--no-open] [--socket PATH | --to NAME | --here]
+#   prose stop <port|file>
+#   prose ls
 #
 # Comments go to the session inbox socket given by --socket, by --to (a
 # running session's name), or by --here (the Claude session in this tmux
@@ -24,7 +24,7 @@ case "${1:-}" in
   --stop)
     # no default port: servers take ports in order, so a default would stop
     # whichever server happens to hold 4917
-    port="${2:?usage: prose-bg --stop <port>}"
+    port="${2:?usage: prose stop <port|file>}"
     pidfile="$state/$port.pid"
     if alive "$pidfile"; then
       kill "$(cat "$pidfile")"
@@ -84,14 +84,14 @@ pidfile="$state/$port.pid"
 log="$state/$port.log"
 
 if alive "$pidfile"; then
-  echo "prose already running on port $port (pid $(cat "$pidfile")); run prose-bg --stop $port first" >&2
+  echo "prose already running on port $port (pid $(cat "$pidfile")); run prose stop $port first" >&2
   exit 1
 fi
 
 # setsid puts the server in its own session, so the harness killing the
 # calling shell's process group does not take the server with it.
 nohup perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die "exec: $!"' \
-  "$here/prose" "$@" </dev/null >"$log" 2>&1 &
+  "$here/prose-serve" "$@" </dev/null >"$log" 2>&1 &
 echo $! >"$pidfile"
 if [ -n "$file" ]; then
   realpath "$file" >"$state/$port.file" 2>/dev/null || true
