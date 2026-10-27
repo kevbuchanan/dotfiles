@@ -347,7 +347,7 @@ fleet_assign() {
   [[ -f $note ]] || die "no task note $note"
   need_idle $pane $seat
   # reassigning would overwrite Base, and `fleet diff` would lose the closed work
-  [[ -z $(note_get $note End) ]] || die "$id is closed; put follow-up work in a new task that links it, such as fleet task ${id}b"
+  [[ -z $(note_get $note End) ]] || die "$id is closed; put follow-up work in a new task, such as fleet task ${id}-2 --from $id"
 
   # Base is the worker branch's commit when the task starts, and End is set by
   # `fleet clear`, so `fleet diff` can show this task apart from the branch's

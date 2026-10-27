@@ -9,7 +9,8 @@
 --   :FleetFollowUp [id] [title]
 --                       from a task note, create a follow-up task with
 --                       `fleet task --from` and open it. The id defaults to
---                       the next free letter, such as T3b after T3.
+--                       the next free number, such as T3-2 after T3 and
+--                       T3-3 after T3-2.
 --
 -- Saving a task note runs `fleet answer` for it. fleet answers only when the
 -- note's worker is waiting in state `question` and no question is left open,
@@ -101,17 +102,13 @@ vim.api.nvim_create_user_command("FleetFollowUp", function(o)
   local dir = vim.fn.fnamemodify(path, ":h")
   local id, title = o.fargs[1], table.concat(vim.list_slice(o.fargs, 2), " ")
   if not id then
-    -- T3b's follow-up is T3c, not T3bb, when T3 exists
-    local root = from
-    local stem = from:match("^(.-)%l$")
-    if stem and stem ~= "" and vim.fn.filereadable(dir .. "/" .. stem .. ".md") == 1 then root = stem end
-    for c = string.byte("b"), string.byte("z") do
-      local candidate = root .. string.char(c)
-      if vim.fn.filereadable(dir .. "/" .. candidate .. ".md") == 0 then
-        id = candidate
-        break
-      end
-    end
+    -- a follow-up to T3-2 is T3-3, not T3-2-2, when T3 exists; a numbered
+    -- suffix reads the same on short ids like T3 and slugs like fix-login
+    local root, n = from, 2
+    local stem, num = from:match("^(.+)%-(%d+)$")
+    if stem and vim.fn.filereadable(dir .. "/" .. stem .. ".md") == 1 then root, n = stem, tonumber(num) + 1 end
+    while vim.fn.filereadable(dir .. "/" .. root .. "-" .. n .. ".md") == 1 do n = n + 1 end
+    id = root .. "-" .. n
   end
   local args = { "fleet", "-s", fleet, "task", id, "--from", from }
   if title ~= "" then table.insert(args, title) end

@@ -117,9 +117,9 @@ The worker works the new items, updates Handoff and sends `DONE` again. Saving a
 
 **After `fleet clear`:** the task is closed. Its End is recorded and its worker's context is gone. Put follow-up in a new task that starts from the closed one:
 
-- `fleet task T3b --from T3` creates T3b with `Follows: T3` in its header, T3's Scope and Verify sections, and a Goal that links T3's note and says to read its Handoff first. A title after the id replaces the default `follow-up to T3`.
-- `:FleetFollowUp` in nvim, run from T3's note, does the same and opens the new note. It picks the next free id, T3b, then T3c, and takes an id and title as arguments too.
-- Fill in the new Todo list and assign it. The follow-up gets a fresh context and its own Base and End, so `fleet diff T3` and `fleet diff T3b` each show one round, and the `Follows:` lines chain the rounds.
+- `fleet task T3-2 --from T3` creates T3-2 with `Follows: T3` in its header, T3's Scope and Verify sections, and a Goal that links T3's note and says to read its Handoff first. A title after the id replaces the default `follow-up to T3`.
+- `:FleetFollowUp` in nvim, run from T3's note, does the same and opens the new note. It picks the next free numbered id, `T3-2` after `T3` and `T3-3` after `T3-2`, and takes an id and title as arguments too.
+- Fill in the new Todo list and assign it. The follow-up gets a fresh context and its own Base and End, so `fleet diff T3` and `fleet diff T3-2` each show one round, and the `Follows:` lines chain the rounds.
 
 A follow-up builds on the earlier task's code, so `fleet assign` checks that the worker's branch already contains the earlier task's End commit. If it doesn't, assign refuses and names the two ways out: assign to the earlier task's worker, or merge the earlier task's branch into this worker's branch first. It also refuses a follow-up to a task that is still open; add the work to that task and bump it.
 
