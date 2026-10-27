@@ -1,7 +1,11 @@
 -- nvim commands for fleet task review.
 --
---   :FleetDiff [task]   open one task's changes in diffview. With no task,
---                       uses the task note in the current buffer.
+--   :FleetDiff [task | seat]
+--                       open changes in diffview: a task's, or a worker's
+--                       whole branch through its working tree. With no
+--                       argument, the branch of the worker the current buffer
+--                       belongs to: a file in its worktree, or a task note
+--                       naming it as Worker.
 --   <Leader>d           :FleetDiff
 --   :FleetBump [task]   tell the task's worker its note has new work. With
 --                       no task, uses the task note in the current buffer.
@@ -27,21 +31,36 @@ local function fleet_notes()
   return out ~= "" and out or nil
 end
 
-local function note_task()
-  return vim.fn.expand("%:p"):match("/tasks/([%w_-]+)%.md$")
+-- The fleet and worker seat the current buffer belongs to, if any: a file in
+-- a worktree named <fleet>-w<n>, or a task note whose Worker line names one.
+local function buffer_worker()
+  local path = vim.fn.expand("%:p")
+  local fleet, seat = path:match("/%.claude/worktrees/([^/]+)%-(w%d+)/")
+  if fleet then return fleet, seat end
+  fleet = path:match("/([^/]+)/tasks/[%w_-]+%.md$")
+  if not fleet then return nil end
+  for _, line in ipairs(vim.api.nvim_buf_get_lines(0, 0, 20, false)) do
+    local worker = line:match("^Worker:%s*(%S+)")
+    if worker then return fleet, worker:match("%-(w%d+)$") end
+  end
+  return fleet, nil
 end
 
 vim.api.nvim_create_user_command("FleetDiff", function(o)
-  local id = o.args ~= "" and o.args or note_task()
-  if not id then
-    vim.notify("FleetDiff: name a task, or run it from a task note", vim.log.levels.ERROR)
-    return
+  local target, fleet = o.args, nil
+  if target == "" then
+    fleet, target = buffer_worker()
+    if not target then
+      vim.notify("FleetDiff: name a task or seat, or run it from a worker's file or an assigned task note", vim.log.levels.ERROR)
+      return
+    end
   end
   if vim.fn.exists(":DiffviewOpen") ~= 2 then
     vim.notify("FleetDiff: diffview.nvim is not installed", vim.log.levels.ERROR)
     return
   end
-  local r = vim.system({ "fleet", "diff", "--rev", id }, { text = true }):wait()
+  local args = fleet and { "fleet", "-s", fleet, "diff", "--rev", target } or { "fleet", "diff", "--rev", target }
+  local r = vim.system(args, { text = true }):wait()
   if r.code ~= 0 then
     vim.notify(vim.trim(r.stderr), vim.log.levels.ERROR)
     return
@@ -53,11 +72,15 @@ vim.api.nvim_create_user_command("FleetDiff", function(o)
   vim.cmd("DiffviewOpen -C" .. vim.fn.fnameescape(dir) .. " " .. rev)
 end, {
   nargs = "?",
-  desc = "Open a fleet task's changes in diffview",
+  desc = "Open a fleet task's or worker branch's changes in diffview",
   complete = function(lead)
     local notes = fleet_notes()
     if not notes then return {} end
     local ids = {}
+    local seats = vim.fn.system({ "tmux", "list-panes", "-s", "-F", "#{@agent_seat}" })
+    for seat in seats:gmatch("(w%d+)") do
+      if vim.startswith(seat, lead) then table.insert(ids, seat) end
+    end
     for _, f in ipairs(vim.fn.glob(notes .. "/tasks/*.md", false, true)) do
       local id = vim.fn.fnamemodify(f, ":t:r")
       if vim.startswith(id, lead) then table.insert(ids, id) end

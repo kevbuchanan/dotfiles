@@ -17,7 +17,7 @@ Task notes live in the fleet's `tasks/` folder, one markdown file per task. The 
 - `fleet clear <seat>`: clear an idle worker's context and close its task. Run it after each finished task, before the next assignment.
 - `fleet bump <id>`: tell the task's worker its note has new items.
 - `fleet answer <id>`: tell the task's worker its questions are answered.
-- `fleet diff <id>`: one task's changes, including uncommitted edits while it is in progress. Extra arguments go to `git diff`, such as `--stat`.
+- `fleet diff <id>`: one task's changes, including uncommitted edits while it is in progress. `fleet diff <seat>` shows a worker's whole branch since it left the default branch. Extra arguments go to `git diff`, such as `--stat`.
 - `fleet path <seat>`: a worker's worktree path, for reading its files.
 - `fleet interrupt <seat>` stops a worker's turn. `fleet rename <seat> <title>` relabels a pane.
 

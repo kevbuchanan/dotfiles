@@ -100,7 +100,7 @@ vim-test runs tests in a neoterm split.
 | Command | Action |
 | --- | --- |
 | `\s` | run `fleet status` from a pane inside a fleet |
-| `:FleetDiff [task]`, `\d` | open a fleet task's changes in diffview. With no task, uses the task note in the current buffer. See [fleet](fleet/README.md#reviewing-progress). |
+| `:FleetDiff [task \| seat]`, `\d` | open changes in diffview: a task's, or a worker's whole branch. With no argument, the branch of the worker the current buffer belongs to. See [fleet](fleet/README.md#reviewing-progress). |
 | `:FleetFollowUp [id] [title]` | from a closed task's note, create a follow-up task and open it. See [fleet](fleet/README.md#follow-up-work). |
 | `:FleetBump [task]`, `\b` | save the task note and tell its worker the note has new work. See [fleet](fleet/README.md#follow-up-work). |
 | saving a task note | runs `fleet answer` for it, which wakes a worker waiting on a question once none is left open |

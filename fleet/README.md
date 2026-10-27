@@ -156,8 +156,9 @@ The notes folder is a git repo, and `fleet assign` commits it before each task s
 Worker code lives on each worker's branch. A worker keeps its branch across tasks, so the branch holds every task that worker has done. The note's Base and End fields mark one task's part of it: `fleet assign` records Base, and `fleet clear` records End.
 
 - `fleet diff T3` shows task T3's changes. While T3 is still its seat's current task, the diff runs in the worktree from Base, so it includes edits the worker hasn't committed. Untracked new files don't show until the worker commits them. After `fleet clear`, it is `Base..End`, so later tasks on the same branch stay out of it. Other arguments go to `git diff`, such as `fleet diff T3 --stat`.
-- `:FleetDiff T3` in nvim opens the same diff in [diffview.nvim](https://github.com/sindrets/diffview.nvim), one tab with a file list. Run from a task note, such as in the notes pane, `:FleetDiff` with no argument and `<Leader>d` use that note's task. Task ids complete from the notes folder.
-- `git diff main...worktree-<fleet>-w2` from any checkout shows everything a worker has committed since its branch left `main`. Worktrees share the repo's git database, so worker branches are visible everywhere.
+- `fleet diff w2` shows worker w2's whole branch: everything since it left the default branch, through its working tree, so uncommitted edits show too. The default branch is `origin`'s HEAD when the repo has one, else `main` or `master`. Run in a worker's own pane, `fleet diff` with no argument shows that worker's branch. A task note named like a seat wins, so a task can be called `w2`.
+- `:FleetDiff` in nvim opens either diff in [diffview.nvim](https://github.com/sindrets/diffview.nvim), one tab with a file list. `:FleetDiff T3` shows the task, and `:FleetDiff w2` the branch. With no argument, and with `<Leader>d`, it shows the branch of the worker the current buffer belongs to: a file in that worker's worktree, or a task note whose `Worker:` line names it. Task ids and seats complete.
+- Worktrees share the repo's git database, so `git log` and `git diff` see every worker branch from any checkout.
 
 A task assigned before fleet recorded Base has none, and `fleet diff` says so. A seat restarted with `fleet restart` drops its task without recording End. `fleet diff` then shows the task through the branch's latest commit and prints a warning.
 
@@ -212,7 +213,7 @@ Claude Code refuses rapid bursts of messages to one session. The prompts tell se
 | `fleet answer <id>` | tell a worker waiting on a question that the task's questions are answered |
 | `fleet report <id> <phase> <text>` | a worker's report on its task: `progress`, `done`, `blocked` or `error` |
 | `fleet bump <id>` | tell the worker still on the task that its note has new work |
-| `fleet diff [--rev] <id> [git diff args]` | show one task's changes. `--rev` prints the folder and revision `:FleetDiff` uses. |
+| `fleet diff [--rev] [<id> \| <seat>] [git diff args]` | show one task's changes, or a worker's whole branch. With neither, in a worker's pane, its branch. `--rev` prints the folder and revision `:FleetDiff` uses. |
 | `fleet shell <seat> [cmd]` | open window `<seat>-shell` in a worker's worktree, running `cmd` or a shell |
 
 Seat commands act on the fleet that owns the calling pane, or on the fleet named with `-s <fleet>` placed before the command, such as `fleet -s demo status`.

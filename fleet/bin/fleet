@@ -31,9 +31,11 @@
 #   fleet report <id> <phase> <text>
 #                                a worker's report on its task: progress,
 #                                done, blocked or error
-#   fleet diff [--rev] <id> [git diff args]
-#                                one task's changes; --rev prints the folder
-#                                and revision instead, for :FleetDiff
+#   fleet diff [--rev] [<task id> | <seat>] [git diff args]
+#                                one task's changes, or a worker's whole
+#                                branch; with neither, the calling worker's
+#                                branch. --rev prints the folder and revision
+#                                instead, for :FleetDiff
 #   fleet shell <seat> [cmd]     open a window in a worker's worktree, running
 #                                cmd or a shell
 #
@@ -520,10 +522,21 @@ fleet_diff() {
     rev_only=1
     shift
   fi
-  local id=${1:?usage: fleet diff [--rev] <task id> [git diff args]}
-  shift
+  local id=${1:-}
+  (( $# )) && shift
+  # a seat, or no argument from a worker's own pane, means the whole branch;
+  # a task note by that name wins, so a task can be called w2
+  if [[ -z $id || $id == -* ]]; then
+    [[ -n $id ]] && set -- $id "$@"
+    id=$(opt ${TMUX_PANE:-none} @agent_seat 2> /dev/null)
+    [[ $id == w<-> ]] || die "usage: fleet diff [--rev] [<task id> | <seat>] [git diff args]"
+  fi
   need_id $id
   local note=$notes/tasks/$id.md
+  if [[ ! -f $note && $id == w<-> ]]; then
+    branch_diff $id $rev_only "$@"
+    return
+  fi
   [[ -f $note ]] || die "no task note $note"
   local base=$(note_get $note Base) end=$(note_get $note End) branch=$(note_get $note Branch)
   local seat=${$(note_get $note Worker)#$S-}
@@ -634,6 +647,26 @@ fleet_report() {
   pane=; pane_of orch; orch_pane=$pane
   post $orch_pane orchestrator "Report: $id $phase: $text"
   print "reported $id $phase to the orchestrator"
+}
+
+# A worker's branch since it left the default branch, through its working
+# tree, so uncommitted edits show. The default branch is origin's HEAD when
+# the repo has one, else main or master.
+branch_diff() {
+  local seat=$1 rev_only=$2 worktree pane
+  shift 2
+  worktree_of $seat
+  local base ref
+  for ref in $(git -C $worktree symbolic-ref -q --short refs/remotes/origin/HEAD) main master; do
+    git -C $worktree rev-parse -q --verify $ref^{commit} > /dev/null && { base=$ref; break; }
+  done
+  [[ -n $base ]] || die "can't find the default branch to diff $seat's branch against"
+  local mb=$(git -C $worktree merge-base $base HEAD)
+  if (( rev_only )); then
+    print -l -- $worktree $mb
+  else
+    git -C $worktree diff $mb "$@"
+  fi
 }
 
 fleet_clean() {
