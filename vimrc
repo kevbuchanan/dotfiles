@@ -105,6 +105,28 @@ if ok then
   tree.setup({
     filters = { dotfiles = false, git_ignored = false },
     renderer = { group_empty = false },
+    -- The tree redraws when files change, and agents change files in fleet
+    -- notes folders often. A key pressed mid-redraw can land on a line with
+    -- no node, and nvim-tree 1.19's open actions index that nil. The open
+    -- keys here skip a line with no node; every other key is the default.
+    on_attach = function(bufnr)
+      local api = require('nvim-tree.api')
+      api.map.on_attach.default(bufnr)
+      local open = {
+        ['<CR>'] = api.node.open.edit,
+        ['o'] = api.node.open.edit,
+        ['<2-LeftMouse>'] = api.node.open.edit,
+        ['<Tab>'] = api.node.open.preview,
+        ['<C-t>'] = api.node.open.tab,
+        ['<C-v>'] = api.node.open.vertical,
+        ['<C-x>'] = api.node.open.horizontal,
+      }
+      for key, fn in pairs(open) do
+        vim.keymap.set('n', key, function()
+          if api.tree.get_node_under_cursor() then fn() end
+        end, { buffer = bufnr, noremap = true, silent = true, nowait = true, desc = 'nvim-tree: open' })
+      end
+    end,
   })
 end
 
