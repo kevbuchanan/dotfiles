@@ -1,0 +1,5 @@
+{
+  "name": "fleet",
+  "description": "Protocol skills for fleet orchestrator and worker seats",
+  "version": "1.0.0"
+}

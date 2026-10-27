@@ -26,8 +26,11 @@
 #   fleet path <seat>            print a worker's worktree path
 #   fleet answer <id>            tell a worker waiting in state `question`
 #                                that its task's questions are answered
-#   fleet bump <id>              tell a stopped worker still on a task that
-#                                its note has new work
+#   fleet bump <id>              tell the worker still on a task that its
+#                                note has new work
+#   fleet report <id> <phase> <text>
+#                                a worker's report on its task: progress,
+#                                done, blocked or error
 #   fleet diff [--rev] <id> [git diff args]
 #                                one task's changes; --rev prints the folder
 #                                and revision instead, for :FleetDiff
@@ -37,9 +40,13 @@
 # Seat commands act on the fleet named by -s <fleet>, or else on the fleet
 # that owns the calling pane.
 #
-# Seat commands type into panes with send-keys, and typed input counts as the
-# user's. Each command sends only fixed text, so a caller can never answer a
-# permission prompt or send a free-form instruction through fleet.
+# Task messages (assign, bump, answer, report) go to a seat's Claude Code
+# inbox socket, which the register hook records on its pane. Claude Code
+# treats them as messages from another session: they can't approve a
+# permission prompt, and a busy session reads them between tool calls. Only
+# /clear, Escape and the launch line are typed into panes, because commands
+# that arrive over the socket don't run. Each message starts with a line
+# naming its sender and the skill that handles it.
 #
 # FLEET_HOME          notes root, default ~/agents
 # XDG_STATE_HOME      fleet state goes in $XDG_STATE_HOME/fleet/<fleet>,
@@ -121,7 +128,7 @@ note_set() {
     # notes made from an older template lack the field; add it after the
     # last header field, so fields added in turn keep their order
     awk -v line="$key: $value" '
-      NR == FNR { if (/^(Guidance|Follows|Worker|Branch|Base|End):/) last = FNR; next }
+      NR == FNR { if (/^(Guidance|Follows|Worker|Branch|Base|End|Status):/) last = FNR; next }
       { print } FNR == last { print line }
     ' $note $note > $note.tmp
     mv $note.tmp $note
@@ -210,13 +217,16 @@ fleet_new() {
   # every seat may edit the notes; the orchestrator may also run seat commands
   local edit="Edit(/$notes/**)"
   sed "s|{{ROOT}}|$root|g" $root/settings.json > $rundir/settings.json
-  jq --arg e $edit '.permissions.allow = [$e]' $rundir/settings.json > $rundir/worker-settings.json
+  jq --arg e $edit '.permissions.allow = [$e, "Bash(fleet report *)"]' $rundir/settings.json > $rundir/worker-settings.json
   jq --arg e $edit '.permissions.allow = [$e] + ([
       "status", "task", "assign", "clear", "interrupt", "rename", "path", "diff", "answer", "bump"
     ] | map("Bash(fleet \(.))", "Bash(fleet \(.) *)"))' \
     $rundir/settings.json > $rundir/orch-settings.json
 
-  local base="claude --add-dir ${(q)notes}"
+  # the plugin carries the fleet:orchestrator and fleet:worker skills, which
+  # hold the protocol; seats read a skill when they use it, so edits reach
+  # running seats
+  local base="claude --add-dir ${(q)notes} --plugin-dir ${(q)root}/plugin"
   # Sessions find each other only within one config dir, so every seat gets
   # the same one. It is part of each pane's @agent_cmd, so restart keeps it.
   if [[ -n ${CLAUDE_CONFIG_DIR:-} ]]; then
@@ -267,17 +277,18 @@ fleet_new() {
 
 fleet_status() {
   current
-  local pane seat st task progress
-  printf '%-8s %-10s %-12s %s\n' SEAT STATE TASK TODOS
+  local pane seat st task progress report
+  printf '%-8s %-10s %-28s %-10s %s\n' SEAT STATE TASK REPORT TODOS
   tmux list-panes -s -t "=$S:" -F '#{pane_id} #{@agent_seat}' | while read pane seat; do
     [[ -n $seat ]] || continue
     st=$(opt $pane @agent_state)
     task=$(opt $pane @agent_task)
-    progress=
+    progress= report=
     if [[ -n $task && -f $notes/tasks/$task.md ]]; then
       progress=$($root/hooks/task-progress $notes/tasks/$task.md | awk '{ printf "%d/%d", $1, $2; if ($3) printf ", %d open questions", $3 }')
+      report=$(note_get $notes/tasks/$task.md Status)
     fi
-    printf '%-8s %-10s %-12s %s\n' $seat ${st:--} ${task:--} $progress
+    printf '%-8s %-10s %-28s %-10s %s\n' $seat ${st:--} ${task:--} ${report:--} $progress
   done
 }
 
@@ -346,6 +357,7 @@ fleet_assign() {
   pane_of $seat
   [[ -f $note ]] || die "no task note $note"
   need_idle $pane $seat
+  need_socket $pane
   # reassigning would overwrite Base, and `fleet diff` would lose the closed work
   [[ -z $(note_get $note End) ]] || die "$id is closed; put follow-up work in a new task, such as fleet task ${id}-2 --from $id"
 
@@ -376,14 +388,15 @@ fleet_assign() {
   note_set $note Branch $branch
   note_set $note Base $base
   note_set $note End ""
+  note_set $note Status assigned
 
   # the commit is the baseline that `git diff` in the notes repo compares against
   git -C $notes add -A
   git -C $notes commit -q --allow-empty -m "assign $id to $seat"
 
   tmux set -p -t $pane @agent_task $id
-  tmux send-keys -t $pane -l "Task $id: read $note"
-  tmux send-keys -t $pane Enter
+  tmux select-pane -t $pane -T "$S-$seat: $id"
+  post $pane worker "Task $id: read $note"
 }
 
 fleet_clear() {
@@ -397,6 +410,7 @@ fleet_clear() {
     [[ -n $worktree ]] && note_set $notes/tasks/$task.md End $(git -C $worktree rev-parse HEAD)
   fi
   tmux set -p -u -t $pane @agent_task
+  tmux select-pane -t $pane -T $S-$seat
   tmux send-keys -t $pane -l /clear
   tmux send-keys -t $pane Enter
 }
@@ -408,6 +422,8 @@ fleet_restart() {
   local line=$(opt $pane @agent_cmd)
   tmux set -p -u -t $pane @agent_task
   tmux set -p -u -t $pane @agent_state
+  tmux set -p -u -t $pane @agent_socket
+  tmux select-pane -t $pane -T $S-$seat
   tmux respawn-pane -k -t $pane
   tmux send-keys -t $pane $line Enter
 }
@@ -521,16 +537,13 @@ worker_on_task() {
   st=$(opt $pane @agent_state)
 }
 
-# A worker that stopped, after DONE, a question or a stall, gets no turn
-# until something types into its pane. Both commands send only fixed text.
-# `waiting` is refused: typed input would answer a permission prompt.
+# A stopped worker starts a turn when the message arrives, and a busy one
+# reads it between tool calls, so any state will do.
 fleet_bump() {
   current
   local id=${1:?usage: fleet bump <task id>} note seat pane st
   worker_on_task $id
-  [[ $st == (idle|question|stalled) ]] || die "$seat is ${st:-starting}; bump a worker that is idle, question or stalled"
-  tmux send-keys -t $pane -l "Task $id was updated: re-read $note"
-  tmux send-keys -t $pane Enter
+  post $pane worker "Task $id was updated: re-read $note"
   print "told $seat that $id was updated"
 }
 
@@ -541,9 +554,62 @@ fleet_answer() {
   [[ $st == question ]] || die "$seat is ${st:-starting}, not waiting on a question"
   local open=$($root/hooks/task-progress $note | awk '{ print $3 }')
   (( open == 0 )) || die "$id still has $open open questions"
-  tmux send-keys -t $pane -l "Questions in $id are answered: re-read $note"
-  tmux send-keys -t $pane Enter
+  post $pane worker "Questions in $id are answered: re-read $note"
   print "told $seat that $id's questions are answered"
+}
+
+# Who a message is from: the seat of the calling pane when it belongs to this
+# fleet, otherwise the user.
+sender() {
+  local seat=
+  [[ -n ${TMUX_PANE:-} && $(tmux display -p -t $TMUX_PANE '#S' 2> /dev/null) == $S ]] && seat=$(opt $TMUX_PANE @agent_seat)
+  case $seat in
+    orch) print "the orchestrator $S-orch" ;;
+    w<->) print "worker $S-$seat" ;;
+    *) print "the user" ;;
+  esac
+}
+
+need_socket() {
+  local sock=$(opt $1 @agent_socket)
+  [[ -n $sock && -S $sock ]] ||
+    die "$(opt $1 @agent_seat) has no inbox socket recorded; a seat started before fleet recorded sockets needs fleet restart"
+}
+
+# Writes one message to a seat's inbox socket as a JSON line, the format
+# Claude Code reads there.
+post() {
+  local pane=$1 skill=$2 text=$3
+  need_socket $pane
+  local sock=$(opt $pane @agent_socket) seat=$(opt $pane @agent_seat)
+  local msg="From fleet, sent by $(sender) (handle per /fleet:$skill skill):"$'\n'"$text"
+  jq -cn --arg c $msg '{type: "user", message: {role: "user", content: $c}}' | nc -U -w 2 $sock > /dev/null ||
+    die "could not deliver to $seat at $sock"
+}
+
+# A worker's report: recorded in the note's Status field and Log section, and
+# sent to the orchestrator. Only the task's own worker reports on it.
+fleet_report() {
+  current
+  local id=${1:?usage: fleet report <task id> <progress|done|blocked|error> <text>} phase=${2:-}
+  shift 2 2> /dev/null || die "usage: fleet report <task id> <progress|done|blocked|error> <text>"
+  [[ $phase == (progress|done|blocked|error) ]] || die "phase must be progress, done, blocked or error: $phase"
+  local text=$* note seat pane st
+  [[ -n $text ]] || die "a report needs a line of text"
+  worker_on_task $id
+  [[ -n ${TMUX_PANE:-} && $TMUX_PANE == $pane ]] || die "only $seat, the worker on $id, reports on it"
+  if [[ $phase == done ]]; then
+    local -a counts
+    counts=($($root/hooks/task-progress $note))
+    (( counts[1] == counts[2] )) || die "$id has $(( counts[2] - counts[1] )) unchecked todos; check them or report blocked"
+  fi
+  note_set $note Status $phase
+  grep -q '^## Log$' $note || printf '\n## Log\n\n' >> $note
+  print -r -- "- $(date '+%Y-%m-%d %H:%M') $phase: $text" >> $note
+  local orch_pane
+  pane=; pane_of orch; orch_pane=$pane
+  post $orch_pane orchestrator "Report: $id $phase: $text"
+  print "reported $id $phase to the orchestrator"
 }
 
 fleet_clean() {
@@ -606,6 +672,7 @@ case $cmd in
   diff) fleet_diff "$@" ;;
   answer) fleet_answer "$@" ;;
   bump) fleet_bump "$@" ;;
+  report) fleet_report "$@" ;;
   shell) fleet_shell "$@" ;;
   *) sed -n '2,/^$/s/^# \{0,1\}//p' $0; [[ $cmd == help ]] ;;
 esac

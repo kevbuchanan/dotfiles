@@ -1,6 +1,6 @@
 # fleet
 
-`fleet` runs a group of Claude Code sessions in one tmux session: one orchestrator and a set of workers. The orchestrator plans with you and hands out tasks. Workers each take one task at a time in their own git worktree. Task state lives in markdown notes on disk. Chat carries only short signals such as `Task T3: read <path>` and `DONE T3`.
+`fleet` runs a group of Claude Code sessions in one tmux session: one orchestrator and a set of workers. The orchestrator plans with you and hands out tasks. Workers each take one task at a time in their own git worktree. Task state lives in markdown notes on disk. Messages between seats carry only short signals, such as `Task T3: read <path>` and `Report: T3 done: <summary>`.
 
 ```sh
 cd ~/code/some-repo
@@ -23,9 +23,9 @@ fleet kill demo
 
 **Seat.** One pane running one Claude Code session. Seats are named `orch`, `w1`, `w2` and so on. The Claude Code session in seat `w3` of fleet `demo` is named `demo-w3`. That name is the session's [cross-session messaging](https://code.claude.com/docs/en/cross-session-messaging) address, so the fleet prefix keeps two fleets' orchestrators from claiming each other's workers. The pane title shows the same name.
 
-**Orchestrator.** Plans the work with you, writes task notes, assigns them, and reviews finished work. Its prompt (`prompts/orchestrator.md`) forbids it to implement tasks itself. It drives the workers through the `fleet` command, which its settings allow it to run without prompting.
+**Orchestrator.** Plans the work with you, writes task notes, assigns them, and reviews finished work. Its skill, `fleet:orchestrator`, forbids it to implement tasks itself. It drives the workers through the `fleet` command, which its settings allow it to run without prompting.
 
-**Worker.** Takes one task, works its todo list, and reports `DONE` to the orchestrator with `SendMessage`. Each worker runs in [auto mode](https://code.claude.com/docs/en/permission-modes) in its own [git worktree](https://code.claude.com/docs/en/worktrees), on branch `worktree-<fleet>-w<n>`, so workers never share a checkout.
+**Worker.** Takes one task, works its todo list, and reports to the orchestrator with `fleet report`. Each worker runs in [auto mode](https://code.claude.com/docs/en/permission-modes) in its own [git worktree](https://code.claude.com/docs/en/worktrees), on branch `worktree-<fleet>-w<n>`, so workers never share a checkout.
 
 **Task note.** One markdown file per task under `$FLEET_HOME/<fleet>/tasks/<id>.md`, made from `templates/task.md`. The note is the record of the task, with these sections:
 
@@ -36,6 +36,8 @@ fleet kill demo
 - Handoff: what the worker wrote when it finished
 
 Decisions go into the note, not chat. That keeps a task's history in one file you can read, edit and diff, and it keeps chat between seats short.
+
+**Skills.** The protocol each seat follows lives in two [skills](https://code.claude.com/docs/en/skills), `fleet:orchestrator` and `fleet:worker`, in a plugin under `plugin/` that every seat loads with `--plugin-dir`. Each launch prompt in `prompts/` only names the seat, the fleet and its notes folder, and points at the skill. Every fleet message ends its first line with `(handle per /fleet:worker skill)` or the orchestrator equivalent. A seat reads the skill when it uses it, so an edit to a skill reaches running seats from their next message, without a restart. Loading the plugin with `--plugin-dir` works under any config folder.
 
 **Guidance.** A markdown file of working rules that a task note links on its `Guidance:` line. `guidance/default.md` is the starting set. Workers re-read the note before each todo item, so an edit to the note or its guidance applies from the worker's next item. Write a new guidance file to try a different process on one task without changing the prompts.
 
@@ -60,7 +62,7 @@ Decisions go into the note, not chat. That keeps a task's history in one file yo
 1. Creates `$FLEET_HOME/<name>/` as a git repo for task notes, if it does not exist yet.
 2. Renders each seat's prompt from `prompts/` into `~/.local/state/fleet/<name>/`, filling in the names of the fleet, the seat, the orchestrator and the workers. In a git repo, it also records the repo's root there for `fleet clean`.
 3. Renders two settings files from `settings.json`. Both enable the hooks and allow edits under the notes folder. The orchestrator's file also allows the per-seat `fleet` commands.
-4. Creates the tmux session and its two windows. In each seat pane it types a `claude` command with `--name`, `--settings`, `--append-system-prompt-file` and `--add-dir <notes folder>`. Workers also get `--permission-mode` and `-w <seat name>`. See the [CLI reference](https://code.claude.com/docs/en/cli-reference).
+4. Creates the tmux session and its two windows. In each seat pane it types a `claude` command with `--name`, `--settings`, `--append-system-prompt-file`, `--add-dir <notes folder>` and `--plugin-dir <fleet>/plugin`. Workers also get `--permission-mode` and `-w <seat name>`. See the [CLI reference](https://code.claude.com/docs/en/cli-reference).
 5. Opens `nvim .` in the notes folder, in a pane left of the orchestrator. That pane is not a seat, so seat commands and `fleet status` skip it.
 6. Turns off `allow-set-title` on each pane, so terminal-title updates from Claude Code or nvim do not replace the pane name.
 
@@ -72,7 +74,7 @@ Claude runs inside the pane's shell. When Claude exits, the pane stays open at a
 2. The orchestrator runs `fleet task T3 <title>` and fills in the note.
 3. The orchestrator runs `fleet assign w2 T3`. `fleet` fills in the note's Worker and Branch lines, records the worker branch's current commit as Base, commits the notes repo, records `T3` in the seat's `@agent_task` option, and types `Task T3: read <path>` into the seat.
 4. The worker works the Todo list and checks items off in the note as it finishes them.
-5. When every item is checked, the worker writes Handoff and sends `DONE T3` to the orchestrator.
+5. When every item is checked, the worker writes Handoff and runs `fleet report T3 done "<summary>"`.
 6. The orchestrator reads the handoff, reviews the task with `fleet diff T3`, reports to you, and runs `fleet clear w2`. That records the worker branch's commit as the note's End, types `/clear` and drops the seat's task, so the next task starts with empty context. Anything the next task needs travels in the notes.
 
 ### The todo check
@@ -97,9 +99,9 @@ A worker that needs a decision writes it in the note and stops:
   - [ ] Postgres
 ```
 
-Answer by checking an option and then the question line. The worker has stopped and gets no new turn until something types into its pane, so tell it:
+The worker also runs `fleet report T3 blocked "<the question>"`, so the orchestrator hears about it. Answer by checking an option and then the question line. The worker has stopped and gets no new turn until a message arrives, so tell it:
 
-- `fleet answer T3` types `Questions in T3 are answered: re-read <path>` into the worker's pane. It refuses unless the worker is still on T3, its seat is in state `question`, and no question in the note is left open.
+- `fleet answer T3` sends `Questions in T3 are answered: re-read <path>` to the worker. It refuses unless the worker is still on T3, its seat is in state `question`, and no question in the note is left open.
 - In nvim, saving a task note runs `fleet answer` for it. Answering in the notes pane and saving is enough. A save that doesn't meet those conditions does nothing and shows nothing, so ordinary edits are unaffected.
 
 The orchestrator may run `fleet answer` too. Edits made outside nvim need `fleet answer` by hand.
@@ -110,10 +112,10 @@ Where follow-up goes depends on whether the worker has been cleared from the tas
 
 **Before `fleet clear`:** the worker still has the task and its context. Add unchecked items to the note's Todo list, then wake the worker:
 
-- `fleet bump T3` types `Task T3 was updated: re-read <path>` into the worker's pane. It refuses unless the worker is still on T3 and its seat is `idle`, `question` or `stalled`. It refuses `waiting`, because typed text would answer the permission prompt on screen, and `busy`, because the worker reads the note before each item anyway.
+- `fleet bump T3` sends `Task T3 was updated: re-read <path>` to the worker. It refuses unless the worker is still on T3. A stopped worker starts a turn when the message arrives, and a busy one reads it between tool calls, so the seat's state doesn't matter.
 - `:FleetBump` in nvim saves the note and bumps its worker. `<Leader>b` runs it. With a task id, `:FleetBump T3` works from any buffer inside a fleet.
 
-The worker works the new items, updates Handoff and sends `DONE` again. Saving a note does not bump the worker, because a save often comes mid-edit. Bump once the follow-up is written.
+The worker works the new items, updates Handoff and reports `done` again. Saving a note does not bump the worker, because a save often comes mid-edit. Bump once the follow-up is written.
 
 **After `fleet clear`:** the task is closed. Its End is recorded and its worker's context is gone. Put follow-up in a new task that starts from the closed one:
 
@@ -153,9 +155,34 @@ Worker code lives on each worker's branch. A worker keeps its branch across task
 
 A task assigned before fleet recorded Base has none, and `fleet diff` says so. A seat restarted with `fleet restart` drops its task without recording End. `fleet diff` then shows the task through the branch's latest commit and prints a warning.
 
+### Reports
+
+A worker reports on its task with `fleet report <id> <phase> "<one line>"`, where the phase is `progress`, `done`, `blocked` or `error`. fleet:
+
+1. refuses unless the calling pane is the task's worker, and refuses `done` while the note has unchecked todos
+2. writes the phase to the note's `Status:` field and appends a dated line to a `## Log` section at the end of the note
+3. sends `Report: <id> <phase>: <text>` to the orchestrator, whose skill says what to do for each phase
+
+`fleet status` shows each seat's latest report in its REPORT column. Workers may run `fleet report` without prompting.
+
 ### Messaging between seats
 
-Seats on one machine reach each other with Claude Code's [cross-session messaging](https://code.claude.com/docs/en/cross-session-messaging). Claude uses the `ListAgents` and `SendMessage` tools, and a message to an idle session starts a turn there. `settings.json` sets [`crossSessionInbound`](https://code.claude.com/docs/en/settings-reference#crosssessioninbound) to `accept`, so no seat holds messages for approval. The orchestrator sets `notify_when_idle` when it messages a worker, so it hears when that worker next goes idle.
+fleet sends every task message, `assign`, `bump`, `answer` and `report`, to the receiving seat's Claude Code [inbox socket](https://code.claude.com/docs/en/cross-session-messaging#the-sessions-inbox-socket), the same channel cross-session messaging uses. Claude Code exports each session's socket path to hooks as `CLAUDE_CODE_MESSAGING_SOCKET`, and the `SessionStart` hook `hooks/register` records it on the seat's pane as `@agent_socket`. It runs again after `/clear` and on restart. A message to an idle session starts a turn there, and a busy session reads it between tool calls.
+
+Each message's first line names its sender and the skill that handles it:
+
+```
+From fleet, sent by the orchestrator shop-orch (handle per /fleet:worker skill):
+Task pay-1022-retry-queue: read ~/agents/shop/tasks/pay-1022-retry-queue.md
+```
+
+The sender is the seat of the calling pane, or `the user` from any other shell. `settings.json` sets [`crossSessionInbound`](https://code.claude.com/docs/en/settings-reference#crosssessioninbound) to `accept`, so no seat holds these messages for approval. Seats can still message each other directly with `SendMessage`, but the skills route task traffic through fleet, so it lands in the notes.
+
+A seat started before fleet recorded sockets has no `@agent_socket`, and fleet refuses to message it until `fleet restart` relaunches it. `fleet assign` checks for the socket before it changes anything.
+
+### Pane titles
+
+A worker's pane title is its session name plus its current task, such as `shop-w2: pay-1022-retry-queue`. `fleet assign` sets it, and `fleet clear` and `fleet restart` set it back to the session name.
 
 Claude Code refuses rapid bursts of messages to one session. The prompts tell seats to send one message per event.
 
@@ -177,7 +204,8 @@ Claude Code refuses rapid bursts of messages to one session. The prompts tell se
 | `fleet rename <seat> <title>` | change the pane title |
 | `fleet path <seat>` | print a worker's worktree path |
 | `fleet answer <id>` | tell a worker waiting on a question that the task's questions are answered |
-| `fleet bump <id>` | tell a stopped worker still on the task that its note has new work |
+| `fleet report <id> <phase> <text>` | a worker's report on its task: `progress`, `done`, `blocked` or `error` |
+| `fleet bump <id>` | tell the worker still on the task that its note has new work |
 | `fleet diff [--rev] <id> [git diff args]` | show one task's changes. `--rev` prints the folder and revision `:FleetDiff` uses. |
 | `fleet shell <seat> [cmd]` | open window `<seat>-shell` in a worker's worktree, running `cmd` or a shell |
 
@@ -217,13 +245,13 @@ fleet-work new demo
 
 All seats in a fleet use one config folder. `ListAgents` in a session lists only sessions under its own config folder, so a seat on a different folder could not message the rest of the fleet. Claude Code's docs don't state this. It is what `ListAgents` showed on this machine, which had sessions running under two config folders.
 
-Fleet's `--settings` file adds to the config folder's own settings. If that folder's settings set `crossSessionInbound` to `refuse`, deny `SendMessage`, or block auto mode, seats can't message each other or workers can't run unattended. Check them before the first run.
+Fleet's `--settings` file adds to the config folder's own settings. If that folder's settings set `crossSessionInbound` to `refuse` or block auto mode, seats don't receive fleet's messages or workers can't run unattended. Check them before the first run.
 
 ## Permissions and typed input
 
-- **Messages:** a message from another session never counts as your approval and cannot answer a permission prompt ([how a session treats an incoming message](https://code.claude.com/docs/en/cross-session-messaging#how-a-session-treats-an-incoming-message)).
-- **Typed input:** `fleet` types into panes with `tmux send-keys`, and Claude Code treats typed input as yours. That is why `fleet` sends only fixed text: `Task <id>: read <path>`, `/clear`, and Escape. Task ids must be letters, digits, `-` and `_`. No `fleet` command passes free text to a pane, so the orchestrator can't use it to answer a worker's permission prompt.
-- **Orchestrator allow rules:** its settings allow `fleet status`, `task`, `assign`, `clear`, `interrupt`, `rename`, `path`, `diff`, `answer` and `bump`. `fleet new`, `kill`, `restart`, `clean` and `shell` still prompt you, so the orchestrator can't open windows on its own. See [permissions](https://code.claude.com/docs/en/permissions).
+- **Messages:** task messages arrive over the inbox socket, and Claude Code treats a message from another session as never counting as your approval. It cannot answer a permission prompt ([how a session treats an incoming message](https://code.claude.com/docs/en/cross-session-messaging#how-a-session-treats-an-incoming-message)).
+- **Typed input:** `fleet` still types three things into panes with `tmux send-keys`: the launch line, `/clear` and Escape. Commands sent over the socket arrive as plain text and don't run, so `/clear` has to be typed. Claude Code treats typed input as yours, so `clear` and `interrupt` send only that fixed text, and `clear` acts only on an `idle` seat. Task ids must be letters, digits, `-` and `_`.
+- **Orchestrator allow rules:** its settings allow `fleet status`, `task`, `assign`, `clear`, `interrupt`, `rename`, `path`, `diff`, `answer` and `bump`. Workers' settings allow `fleet report`. `fleet new`, `kill`, `restart`, `clean` and `shell` still prompt you, so the orchestrator can't open windows on its own. See [permissions](https://code.claude.com/docs/en/permissions).
 - **Workers:** each worker runs in auto mode, so Claude Code's classifier approves routine actions and you review work through notes and branches.
 - **Notes:** every seat may edit files under the fleet's notes folder through an `Edit` allow rule.
 
@@ -231,12 +259,14 @@ Fleet's `--settings` file adds to the config folder's own settings. If that fold
 
 ```
 bin/fleet                 the command
-prompts/orchestrator.md   orchestrator prompt, appended to Claude Code's system prompt
-prompts/worker.md         worker prompt, appended to Claude Code's system prompt
+prompts/orchestrator.md   orchestrator identity, appended to Claude Code's system prompt
+prompts/worker.md         worker identity, appended to Claude Code's system prompt
+plugin/                   the fleet plugin: skills/orchestrator and skills/worker
 templates/task.md         task note template
 guidance/default.md       default working rules linked from each note
 settings.json             crossSessionInbound and hooks, with {{ROOT}} for this folder
 hooks/agent-state         sets @agent_state on the calling pane
+hooks/register            SessionStart hook: records the session's inbox socket
 hooks/todo-check          Stop hook
 hooks/task-progress       counts done todos, total todos and open questions
 nvim/plugin/fleet.lua     :FleetDiff and <Leader>d, linked into ~/.config/nvim/plugin
@@ -280,7 +310,7 @@ These have run only against a stub `claude`, not a live Claude Code session:
 
 Other behavior to plan around:
 
-- Claude Code records an appended system prompt when a session starts. Editing `prompts/` affects new seats only. Use guidance files for changes to running work.
+- Claude Code records an appended system prompt when a session starts, so editing `prompts/` affects new seats only. Those files hold only each seat's identity. The protocol is in the skills, which running seats re-read.
 - A seat whose `SessionStart` hook never ran stays out of `idle`, and `fleet assign` refuses it. `fleet restart` relaunches it.
 - Every message between seats counts toward usage like a prompt you type.
 

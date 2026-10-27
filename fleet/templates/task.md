@@ -5,6 +5,7 @@ Worker:
 Branch:
 Base:
 End:
+Status:
 
 ## Goal
 

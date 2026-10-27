@@ -1,0 +1,11 @@
+#!/bin/sh
+# Claude Code SessionStart hook: records the session's inbox socket on its
+# tmux pane as @agent_socket, which fleet posts task messages to. Claude Code
+# exports the socket path to hooks as CLAUDE_CODE_MESSAGING_SOCKET. It runs
+# again after /clear and on restart, so the record follows the session.
+
+[ -n "$TMUX_PANE" ] || exit 0
+cat > /dev/null
+if [ -n "$CLAUDE_CODE_MESSAGING_SOCKET" ]; then
+  tmux set -p -t "$TMUX_PANE" @agent_socket "$CLAUDE_CODE_MESSAGING_SOCKET"
+fi
