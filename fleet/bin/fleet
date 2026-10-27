@@ -160,7 +160,30 @@ launch() {
   tmux set -p -t $pane @agent_cmd $line
   tmux set -p -t $pane allow-set-title off
   tmux select-pane -t $pane -T $S-$seat
-  tmux send-keys -t $pane $line Enter
+  tmux send-keys -t $pane "$(launch_line $pane)" Enter
+}
+
+# The command typed into a seat's pane. A worker in a git fleet gets `-w` the
+# first time, which has Claude Code create its worktree. Once the worktree
+# exists, the worker starts inside it instead: a repo's WorktreeCreate hook may
+# refuse a name that already exists, and `fleet new` on an earlier fleet's
+# name or `fleet restart` would otherwise ask for it again. @agent_cmd holds
+# the line without `-w`; lines saved before this ended in it, so it's dropped.
+launch_line() {
+  local pane=$1 seat=$(opt $1 @agent_seat) cmd=$(opt $1 @agent_cmd)
+  cmd=${cmd% -w $S-$seat}
+  local record=$statedir/$S/repo
+  if [[ $seat != w<-> || ! -f $record ]]; then
+    print -r -- $cmd
+    return
+  fi
+  local repo=$(< $record)
+  local wt=$repo/.claude/worktrees/$S-$seat
+  if git -C $repo worktree list --porcelain | grep -qxF "worktree $wt"; then
+    print -r -- "cd ${(q)wt} && $cmd"
+  else
+    print -r -- "$cmd -w $S-$seat"
+  fi
 }
 
 # pane borders show the seat name and the @agent_state the hooks set
@@ -257,10 +280,13 @@ fleet_new() {
   borders "=$S:workers"
 
   # each worker gets its own worktree so workers never share a checkout
-  local worktree=0
+  # launch_line reads the repo record to decide each worker's worktree; a
+  # record left by an earlier fleet of this name must not outlive a move to a
+  # folder that isn't a repo
   if git -C $dir rev-parse --is-inside-work-tree > /dev/null 2>&1; then
-    worktree=1
     git -C $dir rev-parse --show-toplevel > $rundir/repo
+  else
+    rm -f $rundir/repo
   fi
 
   local name line
@@ -268,7 +294,6 @@ fleet_new() {
     name=$S-w$i
     render worker.md $name
     line="$base -n $name --settings ${(q)rundir}/worker-settings.json --append-system-prompt-file ${(q)rundir}/$name.md --permission-mode $mode$worker_flags"
-    (( worktree )) && line+=" -w $name"
     launch $panes[$i] w$i $line
   done
 
@@ -419,13 +444,12 @@ fleet_restart() {
   current
   local seat=${1:?seat} pane
   pane_of $seat
-  local line=$(opt $pane @agent_cmd)
   tmux set -p -u -t $pane @agent_task
   tmux set -p -u -t $pane @agent_state
   tmux set -p -u -t $pane @agent_socket
   tmux select-pane -t $pane -T $S-$seat
   tmux respawn-pane -k -t $pane
-  tmux send-keys -t $pane $line Enter
+  tmux send-keys -t $pane "$(launch_line $pane)" Enter
 }
 
 # A fleet is running while its tmux session exists, and stopped while only its

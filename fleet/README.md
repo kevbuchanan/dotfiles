@@ -62,11 +62,17 @@ Decisions go into the note, not chat. That keeps a task's history in one file yo
 1. Creates `$FLEET_HOME/<name>/` as a git repo for task notes, if it does not exist yet.
 2. Renders each seat's prompt from `prompts/` into `~/.local/state/fleet/<name>/`, filling in the names of the fleet, the seat, the orchestrator and the workers. In a git repo, it also records the repo's root there for `fleet clean`.
 3. Renders two settings files from `settings.json`. Both enable the hooks and allow edits under the notes folder. The orchestrator's file also allows the per-seat `fleet` commands.
-4. Creates the tmux session and its two windows. In each seat pane it types a `claude` command with `--name`, `--settings`, `--append-system-prompt-file`, `--add-dir <notes folder>` and `--plugin-dir <fleet>/plugin`. Workers also get `--permission-mode` and `-w <seat name>`. See the [CLI reference](https://code.claude.com/docs/en/cli-reference).
+4. Creates the tmux session and its two windows. In each seat pane it types a `claude` command with `--name`, `--settings`, `--append-system-prompt-file`, `--add-dir <notes folder>` and `--plugin-dir <fleet>/plugin`. Workers also get `--permission-mode`, and in a git repo `-w <seat name>` the first time. See "Worker worktrees" below. See the [CLI reference](https://code.claude.com/docs/en/cli-reference).
 5. Opens `nvim .` in the notes folder, in a pane left of the orchestrator. That pane is not a seat, so seat commands and `fleet status` skip it.
 6. Turns off `allow-set-title` on each pane, so terminal-title updates from Claude Code or nvim do not replace the pane name.
 
 Claude runs inside the pane's shell. When Claude exits, the pane stays open at a prompt.
+
+### Worker worktrees
+
+The first time a worker seat launches in a git repo, its launch line ends in `-w <fleet>-w<n>`, and Claude Code creates the worktree under `<repo>/.claude/worktrees/`. If the repo has a [`WorktreeCreate` hook](https://code.claude.com/docs/en/hooks), Claude Code runs that hook in place of its own setup, so the hook also picks the branch name and base commit. `fleet assign` reads the real branch from the worktree.
+
+Once a seat's worktree exists, `fleet new` and `fleet restart` start the worker inside it, with `cd <worktree> && claude ...` and no `-w`. That covers a fleet started again under the name of one whose worktrees were never cleaned, and every restart. Asking for the same worktree again fails under a hook that refuses an existing name, as some repos' hooks do. It reports `WorktreeCreate hook failed: ... already exists`.
 
 ### The task loop
 
@@ -305,7 +311,6 @@ These have run only against a stub `claude`, not a live Claude Code session:
 
 - The `Edit(//absolute/path/**)` rule form for the notes folder.
 - The `stop_hook_active` input field and the `{"decision": "block"}` output in `hooks/todo-check`.
-- `fleet restart` on a worker whose worktree already exists.
 - Six worktrees created at once. `git` may contend on its locks, and each new worktree may show a workspace trust prompt.
 
 Other behavior to plan around:
