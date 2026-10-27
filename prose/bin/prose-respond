@@ -1,0 +1,60 @@
+#!/bin/sh
+# Posts an agent reply to a prose page.
+#
+#   prose-respond <file|port> <phase> [request ids...] [--text T | --text-file F] [--work W]
+#
+# phase is start, progress, reply, done, needs-reply or error. The work id
+# defaults to w-<first request id>. For progress, done, needs-reply and error,
+# requests that aren't already working under that work id get a start first,
+# so quick work can go straight to done. reply with no request ids is a
+# standalone message.
+set -eu
+here=$(cd "$(dirname "$(realpath "$0")")" && pwd)
+usage="usage: prose-respond <file|port> <phase> [request ids...] [--text T | --text-file F] [--work W]"
+[ $# -ge 2 ] || { echo "$usage" >&2; exit 1; }
+port=$("$here/prose-port" "$1")
+phase="$2"
+shift 2
+case "$phase" in
+  start|progress|reply|done|needs-reply|error) ;;
+  *) echo "prose-respond: unknown phase: $phase" >&2; exit 1 ;;
+esac
+
+ids=""
+text=""
+work=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --text) text="${2?--text needs a value}"; shift 2 ;;
+    --text-file) text=$(cat "${2:?--text-file needs a path}"); shift 2 ;;
+    --work) work="${2:?--work needs a value}"; shift 2 ;;
+    -*) echo "$usage" >&2; exit 1 ;;
+    *) ids="$ids $1"; shift ;;
+  esac
+done
+ids=${ids# }
+first=${ids%% *}
+[ -n "$work" ] || work="w-$first"
+
+post() {
+  jq -cn --arg phase "$1" --arg ids "$ids" --arg work "$work" --arg text "$2" '
+    {phase: $phase, requestIds: ($ids | split(" ") | map(select(. != ""))), workId: $work}
+    + (if $text == "" then {} else {text: $text} end)' |
+    "$here/prose-post" "$port" > /dev/null
+}
+
+if [ -n "$ids" ]; then
+  case "$phase" in
+    progress|done|needs-reply|error)
+      # start whatever isn't already working under this work id
+      pending=$("$here/prose-post" "$port" --get |
+        jq -r --arg ids "$ids" --arg work "$work" '
+          ($ids | split(" ")) as $want
+          | [.requests[] | select(.id as $id | $want | index($id))
+             | select(.status != "working" or .workId != $work)] | length')
+      [ "$pending" -eq 0 ] || post start ""
+      ;;
+  esac
+fi
+post "$phase" "$text"
+echo "$phase posted to port $port"

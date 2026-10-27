@@ -1,0 +1,14 @@
+#!/bin/sh
+# Prints the port of the prose server for a file, or the argument itself when
+# it is already a port. prose-respond and prose-pending take either.
+set -eu
+arg="${1:?usage: prose-port <file|port>}"
+case "$arg" in
+  *[!0-9]*) ;;
+  *) echo "$arg"; exit 0 ;;
+esac
+here=$(cd "$(dirname "$(realpath "$0")")" && pwd)
+file=$(realpath "$arg" 2>/dev/null) || { echo "prose: no such file: $arg" >&2; exit 1; }
+port=$("$here/prose-bg" --list | awk -F '\t' -v f="$file" '$3 == f { print $1; exit }')
+[ -n "$port" ] || { echo "prose: no server is serving $file" >&2; exit 1; }
+echo "$port"

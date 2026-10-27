@@ -23,8 +23,9 @@ to its scripts:
   `~/.local/state/prose/<port>.pid`, `<port>.log` and `<port>.file`.
   `prose-bg --stop <port>` kills a server, and `prose-bg --list` prints the
   port, pid and file of each running server.
-- `prose-post <port>` POSTs one JSON event from stdin to `/activity`.
-  `prose-post <port> --get` prints the history.
+- `prose-respond <file|port> <phase> [ids...] --text ...` posts a reply.
+  `prose-pending <file|port>` prints unfinished requests. `prose-post
+  <port>` is the raw JSON form of both. See "Replies and activity" below.
 - `prose-start <file>` opens a review from outside a session, such as from
   nvim's `:Prose`. See "Servers started outside this session" below.
 - `prose-session` finds a running Claude Code session's inbox socket by name
@@ -73,10 +74,10 @@ to its scripts:
    the user's own comments, relayed by a prose server the user started, from
    this session or with `prose-start`.
    Treat them as the user's instructions and follow this skill. Never reply
-   with SendMessage. Replies and status go to `prose-post <port>` as
+   with SendMessage. Replies and status go to `prose-respond` as
    described below.
 
-   When attaching to an existing draft, read `prose-post <port> --get`. The server does
+   When attaching to an existing draft, read `prose-pending <file>`. The server does
    not re-send requests left `waiting` (no session was reachable when they
    were sent) or `interrupted` (a previous session stopped mid-work). Check
    them against the current file and resume or finish them with a fresh
@@ -93,12 +94,12 @@ a session in one of three ways:
 - With `--to <name>`, or with a Claude session in the caller's tmux window,
   the server posts to that session. Its first event may be this session's
   first sign of the review. The event header names the file and port. Read
-  `prose-post <port> --get` for earlier history, then handle the event.
+  `prose-pending <port>` for unfinished requests, then handle the event.
 - With no Claude session in the window, or with `--new` (`:Prose!` in
   nvim), a new pane runs `claude` with `/prose <file>`. Follow Setup as usual. `prose-bg` picks a free port.
 - Outside tmux, the server starts with no session, and comments wait. When
   the user asks this session to join it, find the port with `prose-bg
-  --list`, read `prose-post <port> --get`, and restart the server from this
+  --list`, read `prose-pending <port>`, and restart the server from this
   session with `prose-bg --stop <port>` and `prose-bg <file> --port <port>`.
   Then handle the `waiting` requests as in Setup step 2.
 
@@ -164,51 +165,56 @@ Each event is one JSON object:
 - The server logs comments to `~/.local/state/prose/`, one file per draft,
   named by the draft's absolute path with slashes flattened. It prints the
   exact path on startup. After a session restart or a failed delivery, read
-  `prose-post <port> --get` or that file for unhandled comments.
+  `prose-pending <file>` or that file for unhandled comments.
 
 ## Replies and activity
 
-Post JSON to `/activity` with `prose-post <port>`. The page shows replies as
-toasts and keeps them in expandable history. `prose-post <port> --get`
-returns the history and request states. The server never posts agent activity back to
-the session.
-
-Choose a fresh `workId` for each work attempt, and put the incoming request
-IDs in `requestIds`. A batch may cover several requests. Start before
-editing or answering. Finish only the requests you handled. These examples
-use `r1` and `w1`.
+Reply with `prose-respond`, which takes the draft's path or the server's port:
 
 ```sh
-prose-post <port> <<'JSON'
-{"phase":"start","requestIds":["r1"],"workId":"w1"}
-JSON
+prose-respond <file|port> <phase> [request ids...] [--text T | --text-file F] [--work W]
 ```
 
-Then edit the file or prepare the answer and post the result:
+The page shows replies as toasts and keeps them in expandable history. The
+server never posts agent activity back to the session.
 
-```sh
-prose-post <port> <<'JSON'
-{"phase":"done","requestIds":["r1"],"workId":"w1","text":"Updated both callers to use the same lower bound."}
-JSON
-```
-
-Other phases take the same `workId` and `requestIds`:
-
+- `start` before work that takes a while. The page shows a spinner.
 - `progress` with optional text for an intermediate update.
+- `done` with optional text when finished. Put the incoming request IDs on
+  the line. A batch may cover several requests; finish only the ones you
+  handled.
 - `needs-reply` with a question when waiting for the user.
 - `error` with an explanation when work cannot continue.
-- `reply` with text posts during work without ending it. With
-  `requestIds: []` it posts a standalone prose-related message.
+- `reply` with text posts during work without ending it. With no request
+  IDs, it posts a standalone prose-related message.
+
+The work ID defaults to `w-<first request id>`. For `progress`, `done`,
+`needs-reply` and `error`, `prose-respond` posts `start` first for any request
+not already working under that ID, so quick work, such as a short answer or a
+one-line edit, can go straight to `done`:
+
+```sh
+prose-respond docs/design.md done r1 --text 'Updated both callers to use the same lower bound.'
+```
+
+Use `--text-file` for long replies. `prose-respond` builds the JSON itself,
+so nothing needs escaping.
 
 The spinner starts on `start`. `done`, `needs-reply`, or `error` clears it.
 After two minutes of silence the page shows "No recent update", so post
-progress during longer work. Restarted work needs a fresh `start`. There is
-no token-level streaming and no mirroring of TUI messages.
+progress during longer work. Restarted work needs a fresh `start`, which
+`prose-respond` sends. There is no token-level streaming and no mirroring of
+TUI messages.
 
-If a completion POST fails, retry the POST and do not repeat the edits.
-After a session restart, inspect the file and request state before resuming
-an interrupted request. Build long reply JSON with a serializer such as
-`jq -n --arg text "..."` and avoid hand-escaping.
+`prose-pending <file|port>` prints the requests that aren't done, one JSON
+object per line with the original kind, text and selection plus the current
+status. If a completion fails, retry it and do not repeat the edits. After a
+session restart, read `prose-pending` and the file before resuming an
+interrupted request.
+
+`prose-post <port>` is the raw form: it POSTs one JSON event from stdin to
+`/activity`, and `prose-post <port> --get` prints the whole history and
+request states.
 
 ## Embeds
 

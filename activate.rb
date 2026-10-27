@@ -30,6 +30,9 @@ LINKS = [
   ["prose/bin/prose-post", ".local/bin/prose-post"],
   ["prose/bin/prose-start", ".local/bin/prose-start"],
   ["prose/bin/prose-session", ".local/bin/prose-session"],
+  ["prose/bin/prose-respond", ".local/bin/prose-respond"],
+  ["prose/bin/prose-pending", ".local/bin/prose-pending"],
+  ["prose/bin/prose-port", ".local/bin/prose-port"],
   ["prose/skill", ".claude/skills/prose"],
   ["prose/nvim/plugin/prose.lua", ".config/nvim/plugin/prose.lua"]
 ]

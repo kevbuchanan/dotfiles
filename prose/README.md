@@ -26,7 +26,7 @@ prose-start docs/design.md        # from a shell
 
 **Event.** A comment, a general message, or a de-LLM rewrite request. Each event reaches the session as a message starting with `Prose event for <file> (port <n>; handle per /prose skill):`, followed by JSON. The [skill](skill/SKILL.md) tells Claude how to handle each kind.
 
-**Activity.** Claude's replies and status updates. Claude posts them to the server's `/activity` endpoint with `prose-post`. The page shows them as toasts and keeps them in a history panel. Nothing in the page's activity is sent back to the session.
+**Activity.** Claude's replies and status updates. Claude posts them to the server's `/activity` endpoint with `prose-respond`, which takes the draft's path or the port and sends `start` itself when work hasn't started, so quick work goes straight to `done`. The page shows them as toasts and keeps them in a history panel. Nothing in the page's activity is sent back to the session.
 
 **Skill.** `skill/SKILL.md` is the `/prose` skill. It covers starting a server, handling each event kind, replying, and joining a server started elsewhere.
 
@@ -67,7 +67,10 @@ A session started with `CLAUDE_CONFIG_DIR` set registers under that folder, so a
 | `prose-bg <file> [--port N] [--no-open] [--socket PATH \| --to NAME \| --here]` | start a server detached, with an explicit target |
 | `prose-bg --list` | port, pid and file of each running server |
 | `prose-bg --stop <port>` | stop a server |
-| `prose-post <port> < event.json` | post one activity event |
+| `prose-respond <file\|port> <phase> [ids...] [--text T \| --text-file F] [--work W]` | post a reply, sending `start` first when needed |
+| `prose-pending <file\|port>` | print unfinished requests with their text and status |
+| `prose-port <file\|port>` | print the port of the server for a file |
+| `prose-post <port> < event.json` | post one raw activity event |
 | `prose-post <port> --get` | print a server's history and request states |
 | `prose-session --name NAME \| --window [PANE] \| --list` | print a session's socket path, or list sessions |
 | `prose <file> [--port N] [--no-open] [--socket PATH]` | run the server in the foreground |
@@ -101,6 +104,9 @@ bin/prose-bg         starts the server detached
 bin/prose-start      picks a session, then calls prose-bg or opens a Claude pane
 bin/prose-session    reads the session registry
 bin/prose-post       posts to and reads /activity
+bin/prose-respond    replies to a page by file or port
+bin/prose-pending    lists unfinished requests
+bin/prose-port       finds the port of a file's server
 bin/prose.ts         the server
 bin/prose-client.ts  the page script, bundled by the server at startup
 bin/prose-pty.py     runs hx in a pty for the editor pane

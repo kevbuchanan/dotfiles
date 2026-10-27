@@ -1,0 +1,13 @@
+#!/bin/sh
+# Prints a prose page's unfinished requests, one JSON object per line: the
+# original request with its current status (waiting, working, needs-reply,
+# error or interrupted). A session joining a server runs this to pick up.
+#
+#   prose-pending <file|port>
+set -eu
+here=$(cd "$(dirname "$(realpath "$0")")" && pwd)
+port=$("$here/prose-port" "${1:?usage: prose-pending <file|port>}")
+"$here/prose-post" "$port" --get | jq -c '
+  .events as $events
+  | .requests[] | select(.status != "done") as $r
+  | ($events[] | select(.id == $r.id)) + {status: $r.status}'
