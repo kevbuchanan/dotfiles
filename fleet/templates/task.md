@@ -1,6 +1,7 @@
 # {{ID}}: {{TITLE}}
 
 Guidance: {{GUIDANCE}}
+Ship: no
 Worker:
 Branch:
 Base:
@@ -8,6 +9,9 @@ End:
 Status:
 
 ## Goal
+
+<!-- What to do and why. Link the knowledge pages and decisions this task
+needs, such as [Kafka access](../knowledge/kafka-access.md). -->
 
 ## Scope
 

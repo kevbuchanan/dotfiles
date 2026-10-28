@@ -19,7 +19,7 @@ fleet kill demo
 
 ## Concepts
 
-**Fleet.** One tmux session marked with the `@fleet` session option. Window `orch` holds nvim on the fleet's notes folder on the left and the orchestrator on the right. Window `workers` holds the worker panes, tiled. Several fleets can run at once. `fleet ls` lists them, along with stopped fleets that still have files on disk.
+**Fleet.** One tmux session marked with the `@fleet` session option. Window `orch` holds nvim on the fleet's notes folder on the left and the orchestrator on the right. Window `workers` holds the worker panes, tiled. Several fleets can run at once. `fleet ls` lists them, along with stopped fleets that still have files on disk. A fleet's name becomes its tmux session, notes folder and state folder, so it may use only letters, digits, `-` and `_`. `fleet new` refuses anything else, such as a path.
 
 **Seat.** One pane running one Claude Code session. Seats are named `orch`, `w1`, `w2` and so on. The Claude Code session in seat `w3` of fleet `demo` is named `demo-w3`. That name is the session's [cross-session messaging](https://code.claude.com/docs/en/cross-session-messaging) address, so the fleet prefix keeps two fleets' orchestrators from claiming each other's workers. The pane title shows the same name.
 
@@ -29,7 +29,7 @@ fleet kill demo
 
 **Task note.** One markdown file per task under `$FLEET_HOME/<fleet>/tasks/<id>.md`, made from `templates/task.md`. The note is the record of the task, with these sections:
 
-- header fields: Guidance, Follows for a follow-up task, Worker, Branch, and the Base and End commits that bound this task's changes on the worker's branch
+- header fields: Guidance, Ship (what to do with finished work), PR once one is open, Follows for a follow-up task, Worker, Branch, the Base and End commits that bound this task's changes on the worker's branch, and Status
 - Goal, Scope and Verify: what to do, which files the worker may edit, and how to check the result
 - Todo: a checkbox list the worker checks off as it goes
 - Questions: decisions the worker needs from you
@@ -39,7 +39,7 @@ Decisions go into the note, not chat. That keeps a task's history in one file yo
 
 **Skills.** The protocol each seat follows lives in two [skills](https://code.claude.com/docs/en/skills), `fleet:orchestrator` and `fleet:worker`, in a plugin under `plugin/` that every seat loads with `--plugin-dir`. Each launch prompt in `prompts/` only names the seat, the fleet and its notes folder, and points at the skill. Every fleet message ends its first line with `(handle per /fleet:worker skill)` or the orchestrator equivalent. A seat reads the skill when it uses it, so an edit to a skill reaches running seats from their next message, without a restart. Loading the plugin with `--plugin-dir` works under any config folder.
 
-**Guidance.** A markdown file of working rules that a task note links on its `Guidance:` line. `guidance/default.md` is the starting set. Workers re-read the note before each todo item, so an edit to the note or its guidance applies from the worker's next item. Write a new guidance file to try a different process on one task without changing the prompts.
+**Guidance.** A markdown file of working rules that a task note links on its `Guidance:` line. `guidance/default.md` in this folder is the starting set. A fleet's own `<notes>/guidance/default.md`, when present, replaces it for that fleet's new tasks. Workers re-read the note before each todo item, so an edit to the note or its guidance applies from the worker's next item. Write a new guidance file to try a different process on one task without changing the prompts.
 
 **Seat state.** Hooks set the `@agent_state` pane option. The pane border and `fleet status` show it.
 
@@ -78,7 +78,7 @@ Once a seat's worktree exists, `fleet new` and `fleet restart` start the worker 
 
 1. You agree on work with the orchestrator.
 2. The orchestrator runs `fleet task T3 <title>` and fills in the note.
-3. The orchestrator runs `fleet assign w2 T3`. `fleet` fills in the note's Worker and Branch lines, records the worker branch's current commit as Base, commits the notes repo, records `T3` in the seat's `@agent_task` option, and types `Task T3: read <path>` into the seat.
+3. The orchestrator runs `fleet assign w2 T3`. `fleet` brings the worker's branch up to date with the default branch (see "Starting from the default branch" below), fills in the note's Worker and Branch lines, records the branch's commit as Base, commits the notes repo, records `T3` in the seat's `@agent_task` option, and sends `Task T3: read <path>` to the seat.
 4. The worker works the Todo list and checks items off in the note as it finishes them.
 5. When every item is checked, the worker writes Handoff and runs `fleet report T3 done "<summary>"`.
 6. The orchestrator reads the handoff, reviews the task with `fleet diff T3`, reports to you, and runs `fleet clear w2`. That records the worker branch's commit as the note's End, types `/clear` and drops the seat's task, so the next task starts with empty context. Anything the next task needs travels in the notes.
@@ -111,6 +111,32 @@ The worker also runs `fleet report T3 blocked "<the question>"`, so the orchestr
 - In nvim, saving a task note runs `fleet answer` for it. Answering in the notes pane and saving is enough. A save that doesn't meet those conditions does nothing and shows nothing, so ordinary edits are unaffected.
 
 The orchestrator may run `fleet answer` too. Edits made outside nvim need `fleet answer` by hand.
+
+### Starting from the default branch
+
+`fleet assign` updates the worker's worktree before it records Base, so each task starts from the current default branch and its diff holds only its own work:
+
+1. It fetches `origin`, when the repo has one. A failed fetch prints a warning and the update uses the refs already on disk.
+2. It finds the default branch: `origin`'s HEAD, else `main` or `master`.
+3. A branch with no commits of its own fast-forwards to it. A branch that still carries earlier tasks gets it merged in.
+4. A merge conflict aborts the merge and refuses the assignment, with the note unchanged. Resolve it in `fleet shell <seat>`, or assign with `--no-sync`.
+
+A worktree with uncommitted changes is left as is, with a warning. `fleet assign --no-sync` skips the update. Workers don't pull the default branch in themselves during a task, so Base stays accurate.
+
+### Shipping
+
+The note's `Ship:` field tells the worker what to do with finished work, after the Verify steps pass and Handoff is written:
+
+| Ship | The worker |
+| --- | --- |
+| `no`, the default | doesn't push |
+| `push` | pushes its branch to `origin` |
+| `pr` | pushes and opens a pull request, with `gh pr create` or, for a GitLab remote, `glab mr create` |
+| `draft` | does the same as `pr`, opened as a draft |
+
+The worker follows the repo's own conventions for branch names and PR descriptions, from its CLAUDE.md and skills. With none, it pushes to a branch named after the task id. It records the PR's URL in the note as `PR:` and includes it in its `done` report. It never force-pushes.
+
+The orchestrator sets `Ship:` from your direction when it writes the task, and sets anything other than `no` only when you've asked for it. To ship a task that finished unshipped, change the field and run `fleet bump <id>`. A PR from a worker's branch includes every earlier task on it that the default branch doesn't have yet, and the worker lists those in the PR body.
 
 ### Follow-up work
 
@@ -148,6 +174,31 @@ Each worker's Claude session runs in its worktree, `<repo>/.claude/worktrees/<fl
 Typing `! <command>` in a worker's Claude pane also runs a command in its worktree, but the output becomes part of that worker's conversation and uses context it needs for its task. `fleet shell` keeps your inspection out of the worker's context.
 
 Both commands need the repo record that `fleet new` writes for a fleet started in a git repo, and the worktree must exist. Claude Code creates it when the worker's session starts.
+
+### The notes folder
+
+Each fleet's notes folder, `$FLEET_HOME/<fleet>/`, holds the fleet's own record beside its task notes. `fleet new` creates the files below from `templates/` when they're missing and leaves existing ones alone. On a fleet that's already running, `fleet new <name>` adds any that are missing and then switches to it, which is how a fleet started before these files existed gets them.
+
+| Path | Holds | Written by |
+| --- | --- | --- |
+| `brief.md` | the fleet's goal, constraints, what done means, a Status section on where things stand, and a closing summary | the orchestrator, with you |
+| `backlog.md` | planned work not yet turned into tasks, each item linking its task once created | the orchestrator |
+| `decisions.md` | dated decisions that apply beyond one task | the orchestrator |
+| `knowledge/` | durable findings about the code and environment, one topic per page, listed in `knowledge/index.md` | the orchestrator, from task Handoffs |
+| `guidance/` | this fleet's working rules | you or the orchestrator |
+| `tasks/` | one note per task | the orchestrator and the task's worker |
+| `tasks/archive/` | closed notes moved out by `fleet archive` | fleet |
+
+Seats read these through links, not all at once. A task note links, under its Goal, only the knowledge pages and decisions that task needs. The worker skill tells workers to read what their note links and leave the fleet-level files to the orchestrator. That keeps each worker's context to its task and what it depends on.
+
+### Fleet workflows
+
+- **Kickoff.** On a new fleet, the orchestrator fills in `brief.md` with you before planning, then writes the first items into `backlog.md`.
+- **Planning.** Backlog items become tasks through `fleet task`. The orchestrator checks the item off and links the note.
+- **Moving findings up.** A worker's Handoff ends with a `### Worth keeping` list. When the task is done, the orchestrator moves those findings into a `knowledge/` page and moves decisions into `decisions.md`, before `fleet clear`. The next worker reads the page instead of rediscovering it.
+- **Resetting the orchestrator.** The orchestrator's context grows across the whole fleet. Between phases, it updates the Status section of `brief.md` and asks you to run `fleet clear orch`. It can't clear itself, because `fleet clear` needs an idle seat. Its launch prompt tells it to read `brief.md` and `backlog.md` and run `fleet status` at the start of every session, including after a clear.
+- **Archiving.** `fleet archive` moves task notes into `tasks/archive/` when all of these hold: the note is closed (it has an End), it's shipped or not meant to ship (a `PR:` line, or `Ship: no`), no worker is still on it, and no note left in `tasks/` links to it or follows it. It updates the fleet files' links to the moved notes and the moved notes' own relative links, then commits, and git records each move as a rename. `--dry-run` lists what it would move. Lookups by task id, such as `fleet diff`, `fleet task --from` and the check for an existing id, find archived notes too. `fleet assign` refuses an archived task, and the save hook and `:FleetBump` ignore archived notes.
+- **Closing.** When the goal is met, the orchestrator writes the closing summary in `brief.md` and tells you. You stop the fleet with `fleet kill` and remove its worktrees with `fleet clean`. The notes folder stays as the record.
 
 ### Reviewing progress
 
@@ -199,12 +250,13 @@ Claude Code refuses rapid bursts of messages to one session. The prompts tell se
 | --- | --- |
 | `fleet new [name] [dir]` | start a fleet and attach, or attach if it exists |
 | `fleet attach [name]` | attach, or switch client when already inside tmux |
-| `fleet ls` | list running fleets, and stopped fleets `fleet clean` hasn't removed, with each one's repo, notes folder and worktree count |
+| `fleet ls` | list running fleets, stopped fleets `fleet clean` hasn't removed, and notes folders with no fleet left (state `notes`), with each one's repo, notes folder and worktree count |
+| `fleet archive [--dry-run]` | move closed task notes nothing open needs into `tasks/archive/` |
 | `fleet kill [name]` | kill the tmux session, by default the fleet that owns the calling pane. Worktrees and notes stay on disk. |
 | `fleet clean <name> [--branches]` | remove a stopped fleet's worktrees and state. `--branches` also deletes merged worker branches. |
 | `fleet status` | each seat's state, task and todo progress |
 | `fleet task <id> [--from <id>] <title>` | create a task note and print its path. `--from` starts a follow-up to a closed task. |
-| `fleet assign <seat> <id>` | point an idle worker at a task note |
+| `fleet assign [--no-sync] <seat> <id>` | bring an idle worker's branch up to date with the default branch, then point it at a task note |
 | `fleet clear <seat>` | type `/clear` into an idle seat and drop its task |
 | `fleet interrupt <seat>` | send Escape |
 | `fleet restart <seat>` | kill the seat's process and relaunch its `claude` command |
@@ -258,7 +310,7 @@ Fleet's `--settings` file adds to the config folder's own settings. If that fold
 
 - **Messages:** task messages arrive over the inbox socket, and Claude Code treats a message from another session as never counting as your approval. It cannot answer a permission prompt ([how a session treats an incoming message](https://code.claude.com/docs/en/cross-session-messaging#how-a-session-treats-an-incoming-message)).
 - **Typed input:** `fleet` still types three things into panes with `tmux send-keys`: the launch line, `/clear` and Escape. Commands sent over the socket arrive as plain text and don't run, so `/clear` has to be typed. Claude Code treats typed input as yours, so `clear` and `interrupt` send only that fixed text, and `clear` acts only on an `idle` seat. Task ids must be letters, digits, `-` and `_`.
-- **Orchestrator allow rules:** its settings allow `fleet status`, `task`, `assign`, `clear`, `interrupt`, `rename`, `path`, `diff`, `answer` and `bump`. Workers' settings allow `fleet report`. `fleet new`, `kill`, `restart`, `clean` and `shell` still prompt you, so the orchestrator can't open windows on its own. See [permissions](https://code.claude.com/docs/en/permissions).
+- **Orchestrator allow rules:** its settings allow `fleet status`, `task`, `assign`, `clear`, `interrupt`, `rename`, `path`, `diff`, `answer`, `bump` and `archive`. Workers' settings allow `fleet report`. `fleet new`, `kill`, `restart`, `clean` and `shell` still prompt you, so the orchestrator can't open windows on its own. See [permissions](https://code.claude.com/docs/en/permissions).
 - **Workers:** each worker runs in auto mode, so Claude Code's classifier approves routine actions and you review work through notes and branches.
 - **Notes:** every seat may edit files under the fleet's notes folder through an `Edit` allow rule.
 
@@ -270,6 +322,8 @@ prompts/orchestrator.md   orchestrator identity, appended to Claude Code's syste
 prompts/worker.md         worker identity, appended to Claude Code's system prompt
 plugin/                   the fleet plugin: skills/orchestrator and skills/worker
 templates/task.md         task note template
+templates/brief.md, backlog.md, decisions.md, knowledge/index.md
+                          fleet-level files fleet new creates in a notes folder
 guidance/default.md       default working rules linked from each note
 settings.json             crossSessionInbound and hooks, with {{ROOT}} for this folder
 hooks/agent-state         sets @agent_state on the calling pane
@@ -282,7 +336,7 @@ nvim/plugin/fleet.lua     :FleetDiff and <Leader>d, linked into ~/.config/nvim/p
 Run state lives outside this folder:
 
 - `~/.local/state/fleet/<fleet>/`: rendered prompts and settings, and the repo root. `XDG_STATE_HOME` moves it. Seats read these files at every launch, including `fleet restart`, so they don't go in `$TMPDIR`, where macOS deletes files nobody has opened for a few days.
-- `$FLEET_HOME/<fleet>/`: task notes
+- `$FLEET_HOME/<fleet>/`: the notes folder, a git repo. See "The notes folder" above.
 - `<repo>/.claude/worktrees/<fleet>-w<n>/`: worker checkouts
 
 ### Cleaning up

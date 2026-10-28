@@ -117,20 +117,27 @@ vim.keymap.set("n", "<Leader>b", "<cmd>FleetBump<cr>", { desc = "fleet bump for 
 
 vim.api.nvim_create_user_command("FleetFollowUp", function(o)
   local path = vim.fn.expand("%:p")
+  -- archived notes, in tasks/archive/, can have follow-ups too
   local fleet, from = path:match("/([^/]+)/tasks/([%w_-]+)%.md$")
+  if not from then fleet, from = path:match("/([^/]+)/tasks/archive/([%w_-]+)%.md$") end
   if not from then
     vim.notify("FleetFollowUp: run it from a task note", vim.log.levels.ERROR)
     return
   end
-  local dir = vim.fn.fnamemodify(path, ":h")
+  local dir = path:match("^(.*/tasks)/")
+  -- an id is taken if a note by that name is in tasks/ or tasks/archive/
+  local function taken(name)
+    return vim.fn.filereadable(dir .. "/" .. name .. ".md") == 1
+      or vim.fn.filereadable(dir .. "/archive/" .. name .. ".md") == 1
+  end
   local id, title = o.fargs[1], table.concat(vim.list_slice(o.fargs, 2), " ")
   if not id then
     -- a follow-up to T3-2 is T3-3, not T3-2-2, when T3 exists; a numbered
     -- suffix reads the same on short ids like T3 and slugs like fix-login
     local root, n = from, 2
     local stem, num = from:match("^(.+)%-(%d+)$")
-    if stem and vim.fn.filereadable(dir .. "/" .. stem .. ".md") == 1 then root, n = stem, tonumber(num) + 1 end
-    while vim.fn.filereadable(dir .. "/" .. root .. "-" .. n .. ".md") == 1 do n = n + 1 end
+    if stem and taken(stem) then root, n = stem, tonumber(num) + 1 end
+    while taken(root .. "-" .. n) do n = n + 1 end
     id = root .. "-" .. n
   end
   local args = { "fleet", "-s", fleet, "task", id, "--from", from }

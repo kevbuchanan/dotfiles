@@ -8,6 +8,8 @@
 #   fleet attach [name]
 #   fleet ls                     running fleets, and stopped fleets that
 #                                `fleet clean` has not removed
+#   fleet archive [--dry-run]    move closed, shipped-or-unshipped task notes
+#                                that no open task links into tasks/archive
 #   fleet kill [name]            default: the calling pane's fleet; worktrees
 #                                and notes stay on disk
 #   fleet clean <name> [--branches]
@@ -18,7 +20,10 @@
 #   fleet task <id> [--from <id>] <title>
 #                                create a task note and print its path;
 #                                --from starts a follow-up to a closed task
-#   fleet assign <seat> <id>     point an idle worker at a task note
+#   fleet assign [--no-sync] <seat> <id>
+#                                point an idle worker at a task note, first
+#                                bringing its branch up to date with the
+#                                default branch
 #   fleet clear <seat>           /clear an idle seat and drop its task
 #   fleet interrupt <seat>       send Escape to the seat
 #   fleet restart <seat>         kill the seat's process and relaunch claude
@@ -120,6 +125,14 @@ worktree_of() {
   [[ -n $worktree ]] || die "no worktree yet at $(< $statedir/$S/repo)/.claude/worktrees/$S-$1"
 }
 
+# Sets $note to task $1's note: tasks/<id>.md, or tasks/archive/<id>.md once
+# fleet archive has moved it. With neither, the tasks/ path, for creating it.
+note_path() {
+  note=$notes/tasks/$1.md
+  [[ ! -f $note && -f $notes/tasks/archive/$1.md ]] && note=$notes/tasks/archive/$1.md
+  return 0
+}
+
 # Header fields of a task note, the "Key: value" lines under the title.
 note_get() { sed -n "s/^$2: *//p" $1 | head -1 }
 note_set() {
@@ -130,7 +143,7 @@ note_set() {
     # notes made from an older template lack the field; add it after the
     # last header field, so fields added in turn keep their order
     awk -v line="$key: $value" '
-      NR == FNR { if (/^(Guidance|Follows|Worker|Branch|Base|End|Status):/) last = FNR; next }
+      NR == FNR { if (/^(Guidance|Follows|Ship|PR|Worker|Branch|Base|End|Status):/) last = FNR; next }
       { print } FNR == last { print line }
     ' $note $note > $note.tmp
     mv $note.tmp $note
@@ -207,12 +220,34 @@ role_flags() {
   fi
 }
 
+# Creates the fleet-level files beside tasks/ from templates/, leaving any
+# that exist as they are, and commits what it adds.
+fleet_files() {
+  local f added=0
+  mkdir -p $notes/knowledge $notes/guidance
+  for f in brief.md backlog.md decisions.md knowledge/index.md; do
+    [[ -e $notes/$f ]] && continue
+    sed "s|{{SESSION}}|$S|g" $root/templates/$f > $notes/$f
+    added=1
+  done
+  if (( added )); then
+    git -C $notes add -A
+    git -C $notes commit -q -m "fleet $S: brief, backlog, decisions and knowledge"
+  fi
+}
+
 fleet_new() {
   S=${1:-${PWD:t}}
   S=${S//[.:]/-}
+  # the name becomes a tmux session, a notes folder and a state folder, so a
+  # path would nest folders under the notes root
+  [[ $S =~ '^[A-Za-z0-9_-]+$' ]] || die "fleet names use letters, digits, - and _: $S"
   local dir=${${2:-$PWD}:A}
   if tmux has-session -t "=$S:" 2> /dev/null; then
     is_fleet $S || die "$S is a tmux session but not a fleet"
+    # a fleet started before the fleet-level files existed gets them here
+    notes=$(tmux show -qv -t "=$S:" @fleet_notes)
+    [[ -d $notes/.git ]] && fleet_files
     attach
     return
   fi
@@ -229,6 +264,7 @@ fleet_new() {
     git -C $notes init -q
     git -C $notes commit -q --allow-empty -m "fleet $S"
   fi
+  fleet_files
 
   local -a workers
   for i in {1..$count}; do workers+=($S-w$i); done
@@ -244,7 +280,7 @@ fleet_new() {
   sed "s|{{ROOT}}|$root|g" $root/settings.json > $rundir/settings.json
   jq --arg e $edit '.permissions.allow = [$e, "Bash(fleet report *)"]' $rundir/settings.json > $rundir/worker-settings.json
   jq --arg e $edit '.permissions.allow = [$e] + ([
-      "status", "task", "assign", "clear", "interrupt", "rename", "path", "diff", "answer", "bump"
+      "status", "task", "assign", "clear", "interrupt", "rename", "path", "diff", "answer", "bump", "archive"
     ] | map("Bash(fleet \(.))", "Bash(fleet \(.) *)"))' \
     $rundir/settings.json > $rundir/orch-settings.json
 
@@ -347,16 +383,22 @@ fleet_task() {
     fi
   done
   need_id $id
-  local note=$notes/tasks/$id.md prev
+  local note prev
+  note_path $id
   [[ -e $note ]] && die "$note exists"
   if [[ -n $from ]]; then
     need_id $from
-    prev=$notes/tasks/$from.md
-    [[ -f $prev ]] || die "no task note $prev"
+    note_path $from
+    prev=$note
+    note=$notes/tasks/$id.md
+    [[ -f $prev ]] || die "no task note for $from"
     (( $#words )) || words=(follow-up to $from)
   fi
   local title=${(j: :)words}
-  sed -e "s|{{ID}}|$id|" -e "s|{{TITLE}}|${title:-untitled}|" -e "s|{{GUIDANCE}}|$root/guidance/default.md|" \
+  # a fleet's own guidance/default.md replaces the built-in one
+  local guidance=$root/guidance/default.md
+  [[ -f $notes/guidance/default.md ]] && guidance=$notes/guidance/default.md
+  sed -e "s|{{ID}}|$id|" -e "s|{{TITLE}}|${title:-untitled}|" -e "s|{{GUIDANCE}}|$guidance|" \
     $root/templates/task.md > $note
 
   # A follow-up starts from the earlier task's handoff, with its scope and
@@ -377,10 +419,17 @@ fleet_task() {
 
 fleet_assign() {
   current
-  local seat=${1:?seat} id=${2:?task id}
+  local sync=1
+  if [[ ${1:-} == --no-sync ]]; then
+    sync=0
+    shift
+  fi
+  local seat=${1:?usage: fleet assign [--no-sync] <seat> <task id>} id=${2:?usage: fleet assign [--no-sync] <seat> <task id>}
   [[ $seat == w<-> ]] || die "only worker seats take tasks: $seat"
   need_id $id
-  local note=$notes/tasks/$id.md pane
+  local note pane
+  note_path $id
+  [[ $note == */archive/* ]] && die "$id is archived; put follow-up work in a new task, such as fleet task ${id}-2 --from $id"
   pane_of $seat
   [[ -f $note ]] || die "no task note $note"
   need_idle $pane $seat
@@ -394,6 +443,7 @@ fleet_assign() {
   local worktree branch=worktree-$S-$seat base=-
   seat_checkout $seat
   if [[ -n $worktree ]]; then
+    (( sync )) && sync_checkout $worktree $seat
     branch=$(git -C $worktree symbolic-ref -q --short HEAD || print $branch)
     base=$(git -C $worktree rev-parse HEAD)
   fi
@@ -402,7 +452,8 @@ fleet_assign() {
   # already contain that task's End commit
   local follows=$(note_get $note Follows)
   if [[ -n $follows ]]; then
-    local prev=$notes/tasks/$follows.md prev_end
+    local prev prev_end
+    prev=$(note=; note_path $follows; print -r -- $note)
     [[ -f $prev ]] || die "$id follows $follows, which has no note"
     prev_end=$(note_get $prev End)
     [[ -n $prev_end ]] || die "$follows is still open; add the work to its note and fleet bump $follows"
@@ -464,7 +515,9 @@ fleet_ls() {
     [[ -n $name ]] && running[$name]=1
   done
   local -a names
-  names=(${(ou)${(k)running}} $statedir/*(N/:t))
+  # notes folders whose fleet has neither a session nor a state folder show
+  # as `notes`, so leftovers are visible
+  names=(${(ou)${(k)running}} $statedir/*(N/:t) $home/*/.git(N/:h:t))
   names=(${(ou)names})
   (( $#names )) || return 0
 
@@ -474,6 +527,7 @@ fleet_ls() {
   for name in $names; do
     st=stopped repo=- notes=$home/$name count=-
     (( ${+running[$name]} )) && st=running
+    [[ $st == stopped && ! -d $statedir/$name ]] && st=notes
     [[ -f $statedir/$name/repo ]] && repo=$(< $statedir/$name/repo)
     if [[ -f $statedir/$name/notes ]]; then
       notes=$(< $statedir/$name/notes)
@@ -532,7 +586,8 @@ fleet_diff() {
     [[ $id == w<-> ]] || die "usage: fleet diff [--rev] [<task id> | <seat>] [git diff args]"
   fi
   need_id $id
-  local note=$notes/tasks/$id.md
+  local note
+  note_path $id
   if [[ ! -f $note && $id == w<-> ]]; then
     branch_diff $id $rev_only "$@"
     return
@@ -652,21 +707,111 @@ fleet_report() {
 # A worker's branch since it left the default branch, through its working
 # tree, so uncommitted edits show. The default branch is origin's HEAD when
 # the repo has one, else main or master.
+# Sets $default_ref to the default branch as seen from checkout $1: origin's
+# HEAD when the repo has one, else main or master. Empty when none exists.
+default_branch() {
+  local ref
+  default_ref=
+  for ref in $(git -C $1 symbolic-ref -q --short refs/remotes/origin/HEAD) main master; do
+    git -C $1 rev-parse -q --verify $ref^{commit} > /dev/null && { default_ref=$ref; return 0; }
+  done
+  return 0
+}
+
+# Brings worker $2's checkout $1 up to date with the default branch before a
+# task starts, so Base comes after the update and the task's diff holds only
+# its own work. A branch with no commits of its own fast-forwards; one that
+# still carries earlier tasks gets the default branch merged in. A conflict
+# aborts the merge and stops the assignment. Uncommitted edits leave the
+# checkout untouched.
+sync_checkout() {
+  local wt=$1 seat=$2 default_ref
+  if [[ -n $(git -C $wt status --porcelain) ]]; then
+    print -u2 "fleet: $seat's worktree has uncommitted changes; left it as is"
+    return 0
+  fi
+  if git -C $wt remote get-url origin > /dev/null 2>&1; then
+    GIT_TERMINAL_PROMPT=0 git -C $wt fetch -q origin 2> /dev/null ||
+      print -u2 "fleet: fetching origin failed; updating $seat from the refs on disk"
+  fi
+  default_branch $wt
+  if [[ -z $default_ref ]]; then
+    print -u2 "fleet: no default branch found; $seat's branch is not updated"
+    return 0
+  fi
+  if git -C $wt merge-base --is-ancestor $default_ref HEAD; then
+    return 0
+  elif git -C $wt merge-base --is-ancestor HEAD $default_ref; then
+    git -C $wt merge -q --ff-only $default_ref
+  elif ! git -C $wt merge -q --no-edit $default_ref > /dev/null; then
+    git -C $wt merge --abort
+    die "merging $default_ref into $seat's branch conflicts; resolve it with fleet shell $seat, or assign with --no-sync"
+  fi
+  print "updated $seat's branch from $default_ref"
+}
+
 branch_diff() {
-  local seat=$1 rev_only=$2 worktree pane
+  local seat=$1 rev_only=$2 worktree pane default_ref
   shift 2
   worktree_of $seat
-  local base ref
-  for ref in $(git -C $worktree symbolic-ref -q --short refs/remotes/origin/HEAD) main master; do
-    git -C $worktree rev-parse -q --verify $ref^{commit} > /dev/null && { base=$ref; break; }
-  done
-  [[ -n $base ]] || die "can't find the default branch to diff $seat's branch against"
-  local mb=$(git -C $worktree merge-base $base HEAD)
+  default_branch $worktree
+  [[ -n $default_ref ]] || die "can't find the default branch to diff $seat's branch against"
+  local mb=$(git -C $worktree merge-base $default_ref HEAD)
   if (( rev_only )); then
     print -l -- $worktree $mb
   else
     git -C $worktree diff $mb "$@"
   fi
+}
+
+# Moves task notes out of tasks/ once nothing needs them there: closed by
+# fleet clear (End set), shipped or not meant to ship (PR set, or Ship no),
+# no worker still on them, and no note left in tasks/ that links or follows
+# them. The commit records each move as a rename, so history follows.
+fleet_archive() {
+  current
+  local dry=0
+  [[ ${1:-} == --dry-run ]] && dry=1
+  local -a open moved
+  local f id ship
+  open=($notes/tasks/*.md(N))
+  mkdir -p $notes/tasks/archive
+  for f in $open; do
+    id=${f:t:r}
+    [[ -n $(note_get $f End) ]] || continue
+    ship=$(note_get $f Ship)
+    [[ -z $ship || $ship == no || -n $(note_get $f PR) ]] || continue
+    tmux list-panes -s -t "=$S:" -F '#{@agent_task}' | grep -qxF -- $id && continue
+    # a link to the note, or a Follows line naming it, from another open note
+    grep -lE -- "\]\($id\.md\)|\(tasks/$id\.md\)|^Follows: *$id\$" ${open:#$f} /dev/null | grep -q . && continue
+    moved+=($id)
+  done
+  if (( ! $#moved )); then
+    print "nothing to archive"
+    return 0
+  fi
+  if (( dry )); then
+    print -l -- "would archive:" $moved
+    return 0
+  fi
+  # the fleet-level files link notes as tasks/<id>.md; follow them to archive/
+  local -a docs
+  docs=($notes/{brief,backlog,decisions}.md(N) $notes/knowledge/*.md(N))
+  local moved_note t
+  for id in $moved; do
+    mv $notes/tasks/$id.md $notes/tasks/archive/$id.md
+    (( $#docs )) && sed -i '' "s|tasks/$id\.md|tasks/archive/$id.md|g" $docs
+    # the note is now one folder deeper: links up to the fleet's files gain a
+    # level, and links to notes staying in tasks/ go up one
+    moved_note=$notes/tasks/archive/$id.md
+    sed -i '' 's|](\.\./|](../../|g' $moved_note
+    for t in ${(u)${(f)"$(grep -oE '\]\([A-Za-z0-9_-]+\.md\)' $moved_note | sed -E 's/^\]\(//; s/\.md\)$//')"}}; do
+      [[ -n $t && -f $notes/tasks/$t.md && ${moved[(Ie)$t]} -eq 0 ]] && sed -i '' "s|]($t\.md)|](../$t.md)|g" $moved_note
+    done
+  done
+  git -C $notes add -A
+  git -C $notes commit -q -m "archive ${(j:, :)moved}"
+  print -l -- "archived:" $moved
 }
 
 fleet_clean() {
@@ -728,6 +873,7 @@ case $cmd in
   path) current; worktree_of ${1:?seat}; print $worktree ;;
   diff) fleet_diff "$@" ;;
   answer) fleet_answer "$@" ;;
+  archive) fleet_archive "$@" ;;
   bump) fleet_bump "$@" ;;
   report) fleet_report "$@" ;;
   shell) fleet_shell "$@" ;;

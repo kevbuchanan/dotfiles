@@ -7,13 +7,33 @@ description: How a fleet orchestrator seat plans, assigns and reviews work, and 
 
 You plan with the user, write task notes, assign them to worker seats and review the results. Do not implement tasks yourself. Merge worker branches into the main checkout only when the user asks.
 
-Task notes live in the fleet's `tasks/` folder, one markdown file per task. The note is the record of the task: decisions, todos, questions, reports and handoff. Keep decisions out of chat. When you and the user settle something, write it into the note.
+Task notes live in the fleet's `tasks/` folder, one markdown file per task. The note is the record of the task: decisions, todos, questions, reports and handoff. Keep decisions out of chat. When you and the user settle something, write it into the note, or into `decisions.md` when it reaches beyond one task.
+
+## The fleet's files
+
+Beside `tasks/`, the notes folder holds the fleet's own record. You own these files; workers read them through links.
+
+- `brief.md`: the fleet's goal, constraints, what done means, and a short Status section on where things stand.
+- `backlog.md`: planned work not yet turned into tasks.
+- `decisions.md`: dated decisions that apply beyond one task.
+- `knowledge/`: durable findings about the code and environment, one topic per page, listed in `knowledge/index.md`.
+- `guidance/`: this fleet's working rules. A `guidance/default.md` here replaces the built-in default for new tasks.
+
+Keep context small: a task note links only the knowledge pages and decisions that task needs, under its Goal. Do not paste them into the note, and do not ask a worker to read the whole folder.
+
+## Kickoff
+
+On a new fleet, fill in `brief.md` with the user before planning tasks: the goal, the constraints, and what done means. Then write the first items into `backlog.md`.
+
+## Planning
+
+Turn backlog items into tasks with `fleet task`. Check the item off in `backlog.md` and link the note: `- [x] <item>: [<id>](tasks/<id>.md)`.
 
 ## Commands
 
 - `fleet status`: each seat's state, task, todo progress and last report.
 - `fleet task <id> <title>`: create a note and print its path. Fill in Goal, Scope, Verify and Todo before assigning. Give no two open tasks overlapping Scope.
-- `fleet assign <seat> <id>`: send a task to an idle worker.
+- `fleet assign <seat> <id>`: send a task to an idle worker. fleet first brings the worker's branch up to date with the default branch. If that merge conflicts, assign refuses; tell the user, who can resolve it or assign with `--no-sync`.
 - `fleet clear <seat>`: clear an idle worker's context and close its task. Run it after each finished task, before the next assignment.
 - `fleet bump <id>`: tell the task's worker its note has new items.
 - `fleet answer <id>`: tell the task's worker its questions are answered.
@@ -21,16 +41,30 @@ Task notes live in the fleet's `tasks/` folder, one markdown file per task. The 
 - `fleet path <seat>`: a worker's worktree path, for reading its files.
 - `fleet interrupt <seat>` stops a worker's turn. `fleet rename <seat> <title>` relabels a pane.
 
+## Shipping
+
+Each note's `Ship:` field tells its worker what to do with finished work: `no` (the default), `push`, `pr` or `draft`. Set it from the user's direction when you write the task. To ship a task that is done but was not shipped, set the field and run `fleet bump <id>`. Pushing and opening PRs are visible outside this machine, so set `push`, `pr` or `draft` only when the user has asked for it, for this task or for the fleet's work in general.
+
 ## Reports from workers
 
 Workers report through fleet. A report arrives as `From fleet, sent by <worker> (handle per /fleet:orchestrator skill):` followed by `Report: <id> <phase>: <text>`.
 
-- `done`: read the note's Handoff, review the work with `fleet diff <id>`, report the result to the user, then `fleet clear` the seat.
+- `done`: read the note's Handoff, review the work with `fleet diff <id>`, and report the result to the user with the note's `PR:` link if it has one. Before `fleet clear`, move what the next task should know out of the Handoff: findings about the code into a `knowledge/` page, listed in `knowledge/index.md`, and decisions into `decisions.md`, each linking the note. Then `fleet clear` the seat.
 - `blocked`: read the note. Answer from the codebase when you can: write the answer in the note, check it, and run `fleet answer <id>`. Otherwise tell the user which note to answer. Saving the note in nvim wakes the worker.
 - `progress`: note it. Act only if it changes the plan.
 - `error`: read the note and the worker's pane state, then decide whether to bump it, restart it with the user's approval, or report to the user.
 
 A seat in state `stalled` stopped with unchecked todos. Read its note and decide whether to bump it or report it to the user.
+
+## Resetting yourself
+
+Your context grows across the whole fleet. Between phases of work, or when it gets long, update the Status section of `brief.md`, make sure `backlog.md` and `decisions.md` are current, and ask the user to run `fleet clear orch`. You can't clear yourself, because `fleet clear` needs an idle seat. After the clear, start from `brief.md`, `backlog.md` and `fleet status`.
+
+## Archiving and closing
+
+`fleet archive` moves closed task notes that nothing open links to into `tasks/archive/`, and updates links to them in the fleet's files. `fleet archive --dry-run` lists them first. Run it when `tasks/` fills with finished work.
+
+When the fleet's goal is met, write the Closing summary in `brief.md`: what was done, the PRs, and what was left. Then tell the user, who stops the fleet with `fleet kill` and removes its worktrees with `fleet clean`. The notes stay as the record.
 
 ## Follow-up work
 
