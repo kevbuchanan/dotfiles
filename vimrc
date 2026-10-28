@@ -137,11 +137,27 @@ if ok_gs then gitsigns.setup() end
 local ok_dv, diffview = pcall(require, 'diffview')
 if ok_dv then diffview.setup({ use_icons = false }) end
 
--- treesitter highlighting for markdown, which render-markdown.nvim builds on;
--- nvim ships the markdown parsers, so this needs no parser plugin
+-- breakindent indents a wrapped list item by its raw prefix, six columns for
+-- "- [ ] ". render-markdown hides the bullet and draws the checkbox in three,
+-- so padding brings the drawn prefix back to six and wrapped text lines up
+-- under the item's text.
+local ok_rm, render_markdown = pcall(require, 'render-markdown')
+if ok_rm then render_markdown.setup({ checkbox = { left_pad = 2, right_pad = 2 } }) end
+
+-- Markdown: treesitter highlighting, which render-markdown.nvim builds on
+-- (nvim ships the parsers), and soft wrapping. Lines wrap at word boundaries
+-- and continue at their own indentation; list items continue under their
+-- text, past the bullet and any checkbox, which formatlistpat matches.
 vim.api.nvim_create_autocmd('FileType', {
   pattern = 'markdown',
-  callback = function() pcall(vim.treesitter.start) end,
+  callback = function()
+    pcall(vim.treesitter.start)
+    vim.opt_local.wrap = true
+    vim.opt_local.linebreak = true
+    vim.opt_local.breakindent = true
+    vim.opt_local.breakindentopt = 'list:-1'
+    vim.opt_local.formatlistpat = [[^\s*\d\+\.\s\+\|^\s*[-*+]\s\+\(\[[ xX]\]\s\+\)\=]]
+  end,
 })
 EOF
 endif
