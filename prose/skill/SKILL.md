@@ -79,11 +79,14 @@ scripts. `prose help` lists them.
    with SendMessage. Replies and status go to `prose respond` as
    described below.
 
-   When attaching to an existing draft, read `prose pending <file>`. The server does
-   not re-send requests left `waiting` (no session was reachable when they
-   were sent) or `interrupted` (a previous session stopped mid-work). Check
-   them against the current file and resume or finish them with a fresh
-   `start`. Do not process completed requests again.
+   Requests made while no session took them are held, and the server sends
+   them on its own: ahead of the next comment that gets through, every ten
+   seconds while its session is up, and at once when a session runs `prose
+   join`. It does not resend a request a session already took, or work left
+   `interrupted` when a previous session stopped mid-work. When attaching to
+   an existing draft, read `prose pending <file>`, check those requests
+   against the current file, and resume or finish them with a fresh `start`.
+   Do not process completed requests again.
 
 3. Tell the user the page is up in one line, then end the turn. Comments wake
    the session on their own.
@@ -99,11 +102,11 @@ a session in one of three ways:
   `prose pending <port>` for unfinished requests, then handle the event.
 - With no Claude session in the window, or with `--new` (`:Prose!` in
   nvim), a new pane runs `claude` with `/prose <file>`. Follow Setup as usual. `prose serve --bg` picks a free port.
-- Outside tmux, the server starts with no session, and comments wait. When
-  the user asks this session to join it, find the port with `prose
-  ls`, read `prose pending <port>`, and restart the server from this
-  session with `prose stop <port>` and `prose serve --bg <file> --port <port>`.
-  Then handle the `waiting` requests as in Setup step 2.
+- Outside tmux, the server starts with no session, and comments are held.
+  When the user asks this session to join it, run `prose join <file>`. Every
+  doc the server has open sends its comments here from then on, and the held
+  ones arrive at once. The same works for a server whose session ended.
+  Then read `prose pending <port>` and handle what is left as in Setup step 2.
 
 A server started for another session posts as an ordinary peer message, not
 as this session's own child. A session in bypass mode holds those messages
@@ -175,8 +178,9 @@ Each event is one JSON object:
   switch back to the TUI.
 - The server logs comments to `~/.local/state/prose/`, one file per doc,
   named by the draft's absolute path with slashes flattened. It prints the
-  exact path on startup. After a session restart or a failed delivery, read
-  `prose pending <file>` or that file for unhandled comments.
+  exact path on startup. After a session restart, run `prose join <file>`
+  to take over the server, then read `prose pending <file>` for unhandled
+  comments.
 
 ## Replies and activity
 

@@ -155,16 +155,35 @@ export class Doc {
     }
   }
 
+  // A comment goes out with any held requests ahead of it, oldest first, and
+  // the edit notice on the line before the comment it's context for. One the
+  // session doesn't take is marked held and goes out with the next delivery.
   comment(input: UserInput) {
     return this.#mutate(async () => {
       await this.onDiskChange()
       const fileEdit = this.#flushFileEdit()
+      const held = this.activity.held()
       const event = await this.activity.append(input)
       const delivered = await this.#deliver(
-        [fileEdit, JSON.stringify(event)].filter((line) => line !== null),
+        [...held.map((e) => JSON.stringify(e)), fileEdit, JSON.stringify(event)]
+          .filter((line) => line !== null),
       )
+      if (delivered) await this.activity.markDelivery("delivered", held.map((e) => e.id))
+      else await this.activity.markDelivery("held", [event.id])
       this.#send(this.snapshot(false))
       return { event, delivered }
+    })
+  }
+
+  // Sends held requests on their own, for when the session is back or a new
+  // one joined. Returns how many went out.
+  flushHeld() {
+    return this.#mutate(async () => {
+      const held = this.activity.held()
+      if (held.length === 0 || !(await this.#deliver(held.map((e) => JSON.stringify(e))))) return 0
+      await this.activity.markDelivery("delivered", held.map((e) => e.id))
+      this.#send(this.snapshot(false))
+      return held.length
     })
   }
 
@@ -186,7 +205,27 @@ export class DocSet {
   constructor(
     private readonly stateDir: string,
     private readonly ctx: { session: Session | null; port: number },
-  ) {}
+  ) {
+    // Held requests retry while the session is up, so a delivery that failed
+    // once (a slow socket, a session busy restarting) doesn't wait for the
+    // next comment.
+    setInterval(() => {
+      if (sessionAlive(this.ctx.session)) this.flushAll().catch(() => {})
+    }, 10_000)
+  }
+
+  async flushAll() {
+    let sent = 0
+    for (const doc of await this.all()) sent += await doc.flushHeld()
+    return sent
+  }
+
+  // Points every doc at another session, such as one joining with prose join
+  // after the first ended, and sends it the held requests.
+  async join(session: Session) {
+    this.ctx.session = session
+    return this.flushAll()
+  }
 
   get primary() {
     return this.#primary

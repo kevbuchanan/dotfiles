@@ -1,0 +1,19 @@
+#!/bin/sh
+# Points a running prose server at the calling Claude Code session: every
+# doc's comments go there from now on, and the requests held while no session
+# took them arrive at once. Run from the session's Bash tool, which has the
+# session's inbox socket and token in its environment.
+#
+#   prose join <file|port>
+set -eu
+here=$(cd "$(dirname "$(realpath "$0")")" && pwd)
+port=$("$here/prose-port" "${1:?usage: prose join <file|port>}")
+[ -n "${CLAUDE_CODE_MESSAGING_SOCKET:-}" ] || {
+  echo "prose join: not in a Claude Code session (no CLAUDE_CODE_MESSAGING_SOCKET)" >&2
+  exit 1
+}
+jq -cn --arg socket "$CLAUDE_CODE_MESSAGING_SOCKET" --arg token "${CLAUDE_CODE_MESSAGING_TOKEN:-}" \
+  '{socket: $socket} + (if $token == "" then {} else {token: $token} end)' |
+  curl --fail-with-body --silent --show-error --header 'Content-Type: application/json' \
+    --data-binary @- "http://localhost:$port/session" |
+  jq -r '"joined port '"$port"'; sent \(.sent) held requests"'

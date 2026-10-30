@@ -13,6 +13,7 @@
 #   prose pending <file|port>   unfinished requests, one JSON object per line
 #   prose post <port> [--get]   post one raw activity event, or print history
 #   prose port <file|port>      the port of a file's server
+#   prose join <file|port>      point a server at the calling Claude session
 #   prose sessions [--name N | --window [PANE] | --list]
 #                               find running Claude Code sessions
 set -eu
@@ -40,7 +41,7 @@ case "$cmd" in
     ;;
   stop) exec "$here/prose-bg" --stop "$("$here/prose-port" "${1:?usage: prose stop <port|file>}")" ;;
   ls) exec "$here/prose-bg" --list ;;
-  respond | pending | post | port) exec "$here/prose-$cmd" "$@" ;;
+  respond | pending | post | port | join) exec "$here/prose-$cmd" "$@" ;;
   sessions) exec "$here/prose-session" "$@" ;;
   help | -h | --help) usage ;;
   *) echo "prose: unknown command: $cmd" >&2; usage >&2; exit 1 ;;

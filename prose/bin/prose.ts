@@ -758,6 +758,22 @@ await new Command()
         if (doc instanceof Response) return doc
         return servePty(req, { binDir, hxConfig, file: doc.file, port })
       }
+      // prose join: a session takes over this server's docs, gets the held
+      // requests, and receives everything after. Only the prose tools call
+      // this; the browser checks above keep pages from it.
+      if (pathname === "/session" && req.method === "POST") {
+        try {
+          const { socket, token } = await req.json()
+          if (typeof socket !== "string" || !(await Deno.stat(socket)).isSocket) {
+            return new Response("socket must be a session's inbox socket", { status: 400 })
+          }
+          const sent = await docs.join({ socket, token: typeof token === "string" ? token : undefined })
+          console.log(`comments now go to session socket ${socket}; sent ${sent} held`)
+          return Response.json({ socket, sent })
+        } catch (error) {
+          return new Response(error instanceof Error ? error.message : String(error), { status: 400 })
+        }
+      }
       // Every open file, for prose pending and prose port
       if (pathname === "/docs") {
         return Response.json((await docs.all()).map((doc) => doc.file))

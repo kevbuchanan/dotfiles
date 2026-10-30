@@ -27,7 +27,14 @@ export type RequestState = {
   status: "waiting" | "working" | "done" | "needs-reply" | "error" | "interrupted"
   workId?: string
   updatedAt: string
+  // set when no session took the request, cleared once one does
+  held?: boolean
 }
+
+// Delivery records share the log with events but are not events: the page
+// never sees them. "held" marks requests no session took; "delivered" marks
+// held requests a session took later.
+type DeliveryRecord = { type: "held" | "delivered"; requestIds: string[]; ts: string }
 export type FeedSnapshot = {
   type: "conversation"
   file: string
@@ -118,7 +125,10 @@ export class ActivityLog {
       throw error
     }
     for (const line of source.split("\n")) {
-      if (line.trim()) log.apply(JSON.parse(line))
+      if (!line.trim()) continue
+      const record = JSON.parse(line)
+      if (record.type === "held" || record.type === "delivered") log.applyDelivery(record)
+      else log.apply(record)
     }
     for (const state of log.requests.values()) {
       if (state.status === "working") state.status = "interrupted"
@@ -143,6 +153,30 @@ export class ActivityLog {
       }
       state.updatedAt = event.ts
     }
+  }
+
+  private applyDelivery(record: DeliveryRecord) {
+    for (const id of record.requestIds) {
+      const state = this.requests.get(id)
+      if (state) state.held = record.type === "held"
+    }
+  }
+
+  async markDelivery(type: DeliveryRecord["type"], requestIds: string[]) {
+    if (requestIds.length === 0) return
+    const record: DeliveryRecord = { type, requestIds, ts: new Date().toISOString() }
+    await Deno.writeTextFile(this.path, JSON.stringify(record) + "\n", { append: true })
+    this.applyDelivery(record)
+  }
+
+  // Requests no session has taken yet that nobody has started on, oldest
+  // first. Logs from before delivery records have none, so nothing old is
+  // resent.
+  held(): Event[] {
+    return this.events.filter((event) => {
+      const state = this.requests.get(event.id)
+      return event.kind !== "activity" && state?.held && state.status === "waiting"
+    })
   }
 
   // Callers serialize appends; the server runs them through one mutation queue.
