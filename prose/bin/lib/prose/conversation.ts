@@ -404,7 +404,9 @@ export class Conversation {
   }
 
   async send(input: UserInput) {
-    const response = await fetch("/comment", {
+    // the doc this page shows, as in prose-client.ts
+    const file = new URLSearchParams(location.search).get("file")
+    const response = await fetch(file ? `/comment?${new URLSearchParams({ file })}` : "/comment", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(input),

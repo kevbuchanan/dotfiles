@@ -79,5 +79,8 @@ export async function postToSession(session: Session, text: string): Promise<voi
 // skill explains what these events are and how to reply, so repeating that
 // on every delivery only pads the transcript.
 export function formatForSession(file: string, port: number, events: string[]): string {
-  return [`Prose event for ${file} (port ${port}; handle per /prose skill):`, ...events].join("\n")
+  return [
+    `Prose event for ${file} (port ${port}; handle per /prose skill; reply with prose respond ${file} <phase> <request ids>):`,
+    ...events,
+  ].join("\n")
 }

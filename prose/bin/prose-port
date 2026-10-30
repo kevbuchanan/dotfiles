@@ -10,5 +10,15 @@ esac
 here=$(cd "$(dirname "$(realpath "$0")")" && pwd)
 file=$(realpath "$arg" 2>/dev/null) || { echo "prose: no such file: $arg" >&2; exit 1; }
 port=$("$here/prose-bg" --list | awk -F '\t' -v f="$file" '$3 == f { print $1; exit }')
+# a doc opened by following a link lives in another file's server, which
+# lists its open docs at /docs
+if [ -z "$port" ]; then
+  for p in $("$here/prose-bg" --list | cut -f1); do
+    if curl -sf "http://localhost:$p/docs" 2>/dev/null | jq -e --arg f "$file" 'index($f)' > /dev/null 2>&1; then
+      port=$p
+      break
+    fi
+  done
+fi
 [ -n "$port" ] || { echo "prose: no server is serving $file" >&2; exit 1; }
 echo "$port"

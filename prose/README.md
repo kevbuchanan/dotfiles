@@ -20,7 +20,7 @@ prose start docs/design.md        # from a shell
 
 ## Concepts
 
-**Server.** One `prose` process serves one file on one port, from 4917 up. It keeps running after the session or editor that started it exits. `prose ls` shows every running server, and `prose stop <port|file>` stops one.
+**Server.** One `prose` process on one port, from 4917 up, starts with one file and opens more as you follow links from it. It keeps running after the session or editor that started it exits. `prose ls` shows every running server, and `prose stop <port|file>` stops one.
 
 **Target session.** Each server delivers comments to one Claude Code session's inbox socket, chosen when the server starts. Every session binds a socket and exports its path to its child processes as `CLAUDE_CODE_MESSAGING_SOCKET` ([the session's inbox socket](https://code.claude.com/docs/en/cross-session-messaging#the-sessions-inbox-socket)). A server started from a session's Bash tool picks up that variable with no flag. A server started from nvim or a shell gets the socket path from `prose start`.
 
@@ -73,8 +73,8 @@ A session started with `CLAUDE_CONFIG_DIR` set registers under that folder, so a
 | `prose respond <file\|port> <phase> [ids...] [--text T \| --text-file F] [--work W]` | post a reply, sending `start` first when needed |
 | `prose pending <file\|port>` | print unfinished requests with their text and status |
 | `prose port <file\|port>` | print the port of the server for a file |
-| `prose post <port> < event.json` | post one raw activity event |
-| `prose post <port> --get` | print a server's history and request states |
+| `prose post <port> [--file F] < event.json` | post one raw activity event, to doc `F` when given |
+| `prose post <port> [--file F] --get` | print a doc's history and request states, the first file's by default |
 | `prose sessions --name NAME \| --window [PANE] \| --list` | print a session's socket path, or list sessions |
 
 In nvim:
@@ -126,13 +126,50 @@ SOURCE               upstream repo and commit
 
 The server reads its CSS and bundles the client once at startup. After editing anything under `bin/`, restart a server with `prose stop <port>` and start it again. A restart marks in-progress requests `interrupted`.
 
+## Following links
+
+A link in a doc to another local markdown file opens that file in the same server, in place, so the browser's back and forward buttons work. The page sends every relative or absolute local link through `/follow`, which resolves it against the linking doc's folder:
+
+- **Markdown:** a `.md` or `.markdown` file opens as another doc, at `/?file=<path>`. An `#anchor` in the link survives.
+- **Media:** an image or video file is served raw through `/local`.
+- **Anything else** gets a "markdown and media files only" message. Web links, mail links and in-page `#anchors` are left alone.
+
+Each open doc has its own state: its text and file watcher, its edit notices, its comment log under `~/.local/state/prose/`, its conversation, and its Helix pane. Comments on any doc go to the server's one session, and each event's header names the doc's path and the command to reply:
+
+```
+Prose event for /path/to/sub/b.md (port 4933; handle per /prose skill; reply with prose respond /path/to/sub/b.md <phase> <request ids>):
+```
+
+The tooling works per doc:
+
+- `prose respond <file>` names the doc. `prose respond <port>` finds the doc from the request ids.
+- `prose pending <port>` lists the unfinished requests of every doc the server has open, each with its `file`.
+- `prose port <file>` finds a followed doc's server through the server's `/docs` list.
+- `prose stop` stops the whole server, with all its open docs.
+
+A server opens only markdown under `$HOME` or beside its first file. It refuses a path that enters a dot folder, such as `.ssh` or `.config`, unless the first file's own path already passes through it. That exception is what lets a server started on a doc in `.claude/worktrees/<name>/` follow links within that worktree.
+
+## Requests from the browser
+
+The server listens on 127.0.0.1 and accepts browser requests only from its own page:
+
+- **Origin:** a POST or WebSocket upgrade from another site has a foreign `Origin` and gets a 403.
+- **Host:** a `Host` header other than `localhost:<port>` or `127.0.0.1:<port>` gets a 403, which blocks DNS rebinding.
+- **`Sec-Fetch-Site`:** any value other than `same-origin` or `none` gets a 403. That covers what carries no `Origin`, such as another site linking your browser to `/?file=<any path>`. `none` is a URL you typed or `prose start` opened.
+- **`/local`** serves media types only, from where docs may open, and sends a sandboxing `Content-Security-Policy`. An SVG opened directly can't run scripts on the server's origin, where they could post comments into the session.
+
+curl and the `prose` tools send none of these browser headers, so they pass.
+
 ## Upstream
 
-The server comes from `david-crespo/dotfiles` at the commit in `SOURCE`, under its MIT license. This copy has three changes:
+The server comes from `david-crespo/dotfiles` at the commit in `SOURCE`, under its MIT license. This copy has these changes:
 
 - **Preview-only without Helix:** `prose.ts` checks for `hx` at startup. Without it, the server serves every page preview-only and refuses `/pty`.
 - **Mermaid:** `prose-client.ts` renders `mermaid` fenced blocks as diagrams.
 - **Liveness across config dirs:** `sessionAlive` in `bin/lib/prose/session.ts` checks every config dir listed under "Finding sessions" above. Upstream checks only `~/.claude`.
+- **Many docs per server:** the per-file state moved from `prose.ts` into `Doc` and `DocSet` in `bin/lib/prose/docs.ts`. Every route takes `?file=`, `/follow` and `/docs` are new, and the client sends its doc's `file` on every request. See "Following links".
+- **Request checks:** the `Sec-Fetch-Site` check, and the media-only, sandboxed `/local`. See "Requests from the browser". Both follow `david-crespo/ah`, the same author's newer project.
+- **Reply hint:** each event's header names the `prose respond` command for its doc.
 
 The entrypoint and every `bin/prose-*` shell script exist only here. To update from upstream, diff the upstream files at a new commit against the ones at `SOURCE`, apply that diff here, and update `SOURCE`.
 

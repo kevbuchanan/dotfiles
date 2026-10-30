@@ -13,13 +13,9 @@
 
 import { Command } from "@cliffy/command"
 import { basename, dirname, fromFileUrl, join } from "@std/path"
-import { ActivityLog, InputError, parseActivity, parseUser } from "./lib/prose/events.ts"
-import {
-  formatForSession,
-  postToSession,
-  resolveSession,
-  sessionAlive,
-} from "./lib/prose/session.ts"
+import { InputError, parseActivity, parseUser } from "./lib/prose/events.ts"
+import { allowed, DocSet, isMarkdown } from "./lib/prose/docs.ts"
+import { resolveSession } from "./lib/prose/session.ts"
 
 // Helix gets a temp config: the user's config.toml (if any) plus auto-save, so
 // the preview updates shortly after typing stops, and auto-reload, so the pane
@@ -348,21 +344,6 @@ ${
 </html>`
 }
 
-// Single contiguous splice turning oldStr into newStr (common prefix/suffix
-// diff), for describing a disk change to the session compactly.
-function splice(oldStr: string, newStr: string) {
-  let start = 0
-  const maxStart = Math.min(oldStr.length, newStr.length)
-  while (start < maxStart && oldStr[start] === newStr[start]) start++
-  let endOld = oldStr.length
-  let endNew = newStr.length
-  while (endOld > start && endNew > start && oldStr[endOld - 1] === newStr[endNew - 1]) {
-    endOld--
-    endNew--
-  }
-  return { start, delLen: endOld - start, insert: newStr.slice(start, endNew) }
-}
-
 // deno bundle doesn't fetch missing npm packages itself, so cache first
 // (a fast no-op once the packages are in deno's cache).
 async function buildClientBundle(binDir: string): Promise<string> {
@@ -610,147 +591,87 @@ await new Command()
       Deno.exit(1)
     })
 
-    // Log comments under XDG state rather than next to the draft, so drafts
-    // in versioned directories don't grow a stray .comments.jsonl. One file
-    // per draft, named by its absolute path with slashes flattened.
+    // Comment logs live under XDG state; see Doc.open
     const stateDir = join(
       Deno.env.get("XDG_STATE_HOME") ??
         join(Deno.env.get("HOME")!, ".local", "state"),
       "prose",
     )
     await Deno.mkdir(stateDir, { recursive: true })
-    const absFile = await Deno.realPath(file)
-    const commentLog = join(
-      stateDir,
-      absFile.replaceAll("/", "-") + ".comments.jsonl",
-    )
     const session = resolveSession(socketFlag)
-    const docClients = new Set<WebSocket>()
-    const activity = await ActivityLog.open(commentLog, absFile)
-    const broadcastConversation = () => {
-      const message = JSON.stringify({
-        ...activity.snapshot(sessionAlive(session)),
-        replay: false,
-      })
-      for (const ws of docClients) {
-        try {
-          ws.send(message)
-        } catch {
-          docClients.delete(ws)
-        }
-      }
-    }
-    // Keep file context, the request log, and session delivery in that order,
-    // including when several comments arrive at once.
-    let mutations: Promise<unknown> = Promise.resolve()
-    const mutate = <T>(fn: () => Promise<T>): Promise<T> => {
-      const next = mutations.then(fn)
-      mutations = next.catch(() => {})
-      return next
-    }
-
-    let fileContent = await Deno.readTextFile(file)
-
-    // One socket connection per delivery; a failure leaves the event in the
-    // log for the skill's catch-up step, so it never fails the user's POST.
-    const deliver = async (events: string[]) => {
-      if (!session) return false
-      try {
-        await postToSession(session, formatForSession(absFile, port, events))
-        return true
-      } catch (error) {
-        console.error(`prose: could not reach session at ${session.socket}:`, error)
-        return false
-      }
-    }
-
-    // --- edit notices to the Claude session ---
-
-    // Edit notices keep the session's mental model of the draft current
-    // without a re-read, but the session only needs them when it's about to
-    // act — so they never wake it on their own. Disk changes (helix saves,
-    // and Claude's own edits echoed back — the session filters those by
-    // recognizing its own text) accumulate in a window that flushes right
-    // before the next comment, as one splice from the window's base, sent
-    // in the same message as the comment.
-    let windowBase: string | null = null
-
-    const flushFileEdit = (): string | null => {
-      if (windowBase === null) return null
-      const base = windowBase
-      windowBase = null
-      // A window that nets out to nothing (typed then undone) isn't worth
-      // the session's attention.
-      if (base === fileContent) return null
-      const { start, delLen, insert } = splice(base, fileContent)
-      return JSON.stringify({
-        kind: "file-edit",
-        file: absFile,
-        ts: new Date().toISOString(),
-        old: base.slice(start, start + delLen).slice(0, 2000),
-        new: insert.slice(0, 2000),
-      })
-    }
-
-    // --- disk -> preview ---
-
-    const docMessage = () => JSON.stringify({ type: "doc", text: fileContent })
-
-    const onDiskChange = async () => {
-      let disk: string
-      try {
-        disk = await Deno.readTextFile(file)
-      } catch {
-        return // transiently missing (rename-replace save); next event catches up
-      }
-      if (disk === fileContent) return
-      windowBase ??= fileContent
-      fileContent = disk
-      const msg = docMessage()
-      for (const ws of docClients) {
-        try {
-          ws.send(msg)
-        } catch {
-          docClients.delete(ws)
-        }
-      }
-    }
-
-    // Watch the parent dir rather than the file: most editors save by
-    // rename-replace, which makes a watch on the file itself go stale.
-    const watchTarget = basename(file)
-    ;(async () => {
-      let timer: ReturnType<typeof setTimeout> | undefined
-      for await (const event of Deno.watchFs(dirname(file))) {
-        if (!event.paths.some((p) => basename(p) === watchTarget)) continue
-        clearTimeout(timer)
-        timer = setTimeout(onDiskChange, 80)
-      }
-    })()
+    const docs = new DocSet(stateDir, { session, port })
+    const primary = await docs.start(file)
+    const absFile = primary.file
 
     // Only the page this server serves may talk to it. Browsers send Origin
     // on POSTs and WebSocket upgrades, so a cross-site page can't inject
     // comments into the session or type into helix; the Host check blocks
-    // DNS rebinding. Non-browser clients (curl from the session) send neither.
+    // DNS rebinding. Sec-Fetch-Site also covers the requests that carry no
+    // Origin, such as a cross-site link navigating to /?file=<any path>: only
+    // same-origin requests and ones the user started (typed URL, `open`)
+    // pass. Non-browser clients (curl from the session) send none of these.
     const selfOrigins = new Set([`http://localhost:${port}`, `http://127.0.0.1:${port}`])
     const allowedHosts = new Set([`localhost:${port}`, `127.0.0.1:${port}`])
+
+    // A request's doc, from ?file= or the primary file, or the error response
+    const docFor = async (searchParams: URLSearchParams) => {
+      try {
+        return await docs.forRequest(searchParams)
+      } catch (e) {
+        return new Response(e instanceof Error ? e.message : String(e), { status: 404 })
+      }
+    }
 
     Deno.serve({ port, hostname: "127.0.0.1" }, async (req) => {
       const { pathname, searchParams } = new URL(req.url)
       const origin = req.headers.get("origin")
       const host = req.headers.get("host")
-      if ((origin && !selfOrigins.has(origin)) || (host && !allowedHosts.has(host))) {
+      const site = req.headers.get("sec-fetch-site")
+      if (
+        (origin && !selfOrigins.has(origin)) || (host && !allowedHosts.has(host)) ||
+        (site && site !== "same-origin" && site !== "none")
+      ) {
         return new Response("forbidden", { status: 403 })
       }
       if (pathname === "/") {
+        const doc = await docFor(searchParams)
+        if (doc instanceof Response) return doc
         // ?preview renders only the markdown pane, for terminal-browser
         // setups where helix runs in a sibling terminal pane (prose-tab)
         return new Response(
-          page(basename(file), searchParams.has("preview") || !hasHelix),
+          page(basename(doc.file), searchParams.has("preview") || !hasHelix),
           {
             headers: { "content-type": "text/html; charset=utf-8" },
           },
         )
+      }
+      // A link in a doc to another local file. Markdown opens here as another
+      // doc, in place, so the browser's history works; anything else is served
+      // raw through /local. The path resolves against the linking doc's folder.
+      if (pathname === "/follow") {
+        const from = await docFor(new URLSearchParams({ file: searchParams.get("from") ?? "" }))
+        if (from instanceof Response) return from
+        const [path, hash] = (searchParams.get("path") ?? "").split("#", 2)
+        const resolved = path.startsWith("/") ? path : join(dirname(from.file), decodeURIComponent(path))
+        if (!isMarkdown(resolved)) {
+          const ext = resolved.split(".").pop()?.toLowerCase() ?? ""
+          if (!(ext in mimeTypes)) {
+            return new Response("prose opens linked markdown and media files only", { status: 404 })
+          }
+          return Response.redirect(
+            `http://${host}/local?${new URLSearchParams({ file: from.file, path })}`,
+            302,
+          )
+        }
+        try {
+          const doc = await docs.get(resolved)
+          return Response.redirect(
+            `http://${host}/?${new URLSearchParams({ file: doc.file })}${hash ? `#${hash}` : ""}`,
+            302,
+          )
+        } catch (e) {
+          return new Response(e instanceof Error ? e.message : String(e), { status: 404 })
+        }
       }
       if (pathname === "/bundle.js") {
         return new Response(await bundleJs, {
@@ -794,67 +715,71 @@ await new Command()
         }
       }
       if (pathname === "/local") {
+        const doc = await docFor(searchParams)
+        if (doc instanceof Response) return doc
         const p = searchParams.get("path") ?? ""
-        const resolved = p.startsWith("/") ? p : join(dirname(absFile), p)
+        const resolved = p.startsWith("/") ? p : join(dirname(doc.file), p)
         let real: string
         try {
           real = await Deno.realPath(resolved)
         } catch {
           return new Response("not found", { status: 404 })
         }
-        // Anything under $HOME or next to the draft; nothing else is a
-        // plausible screenshot location.
-        const allowed = [Deno.env.get("HOME")!, dirname(absFile)]
-        if (!allowed.some((dir) => real.startsWith(dir + "/"))) {
+        // Media only, where allowed() lets docs open (under $HOME or beside
+        // the draft, and not into a dot folder). The sandbox header keeps an
+        // SVG opened directly from running scripts on this origin, which
+        // could otherwise post comments into the session.
+        const ext = real.split(".").pop()?.toLowerCase() ?? ""
+        if (!(ext in mimeTypes) || !allowed(real, absFile)) {
           return new Response("forbidden", { status: 403 })
         }
-        const ext = real.split(".").pop()?.toLowerCase() ?? ""
         const f = await Deno.open(real)
         return new Response(f.readable, {
-          headers: { "content-type": mimeTypes[ext] ?? "application/octet-stream" },
+          headers: {
+            "content-type": mimeTypes[ext],
+            "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+          },
         })
       }
       // The preview subscribes here: current file text on connect and after
       // every change on disk.
       if (pathname === "/doc") {
+        const doc = await docFor(searchParams)
+        if (doc instanceof Response) return doc
         const { socket, response } = Deno.upgradeWebSocket(req)
-        socket.onopen = () => {
-          docClients.add(socket)
-          socket.send(docMessage())
-          socket.send(
-            JSON.stringify({ ...activity.snapshot(sessionAlive(session)), replay: true }),
-          )
-        }
-        socket.onclose = () => docClients.delete(socket)
-        socket.onerror = () => docClients.delete(socket)
+        socket.onopen = () => doc.addClient(socket)
+        socket.onclose = () => doc.clients.delete(socket)
+        socket.onerror = () => doc.clients.delete(socket)
         return response
       }
       if (pathname === "/pty") {
         if (!hasHelix) return new Response("hx not installed", { status: 404 })
-        return servePty(req, { binDir, hxConfig, file: absFile, port })
+        const doc = await docFor(searchParams)
+        if (doc instanceof Response) return doc
+        return servePty(req, { binDir, hxConfig, file: doc.file, port })
+      }
+      // Every open file, for prose pending and prose port
+      if (pathname === "/docs") {
+        return Response.json((await docs.all()).map((doc) => doc.file))
       }
       if (pathname === "/activity" && req.method === "GET") {
-        return Response.json(activity.snapshot(sessionAlive(session)))
+        const doc = await docFor(searchParams)
+        if (doc instanceof Response) return doc
+        return new Response(doc.snapshot(false), { headers: { "content-type": "application/json" } })
       }
       if ((pathname === "/comment" || pathname === "/activity") && req.method === "POST") {
         try {
           const body = await req.json()
           const input = pathname === "/comment" ? parseUser(body) : parseActivity(body)
-          const { event, delivered } = await mutate(async () => {
-            if (input.kind === "activity") {
-              const event = await activity.append(input)
-              broadcastConversation()
-              return { event, delivered: false }
-            }
-            await onDiskChange()
-            const fileEdit = flushFileEdit()
-            const event = await activity.append(input)
-            const delivered = await deliver(
-              [fileEdit, JSON.stringify(event)].filter((line) => line !== null),
-            )
-            broadcastConversation()
-            return { event, delivered }
-          })
+          // An agent's reply finds its doc by the request ids it answers, so
+          // prose respond works by port for any open file
+          let doc = searchParams.has("file") ? await docFor(searchParams) : undefined
+          if (doc instanceof Response) return doc
+          if (!doc && input.kind === "activity") doc = await docs.owning(input.requestIds)
+          doc ??= primary
+          const { event, delivered } = input.kind === "activity"
+            ? await doc.postActivity(input)
+            : await doc.comment(input)
           // Delivered means the session has it; a failed post leaves it waiting
           // in the log, which the page reports as "no agent connected".
           return Response.json({ event, agentConnected: delivered })
@@ -879,8 +804,8 @@ await new Command()
     console.log(`reviewing ${file} at ${url}`)
     console.log(
       session
-        ? `comments go to session socket ${session.socket} (logged to ${commentLog})`
-        : `no session socket (set CLAUDE_CODE_MESSAGING_SOCKET or --socket); comments only logged to ${commentLog}`,
+        ? `comments go to session socket ${session.socket} (logged to ${primary.commentLog})`
+        : `no session socket (set CLAUDE_CODE_MESSAGING_SOCKET or --socket); comments only logged to ${primary.commentLog}`,
     )
     if (open) {
       await bundleJs

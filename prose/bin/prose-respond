@@ -13,6 +13,11 @@ here=$(cd "$(dirname "$(realpath "$0")")" && pwd)
 usage="usage: prose respond <file|port> <phase> [request ids...] [--text T | --text-file F] [--work W]"
 [ $# -ge 2 ] || { echo "$usage" >&2; exit 1; }
 port=$("$here/prose-port" "$1")
+# a file names its doc on the server; a port leaves it to the request ids
+file=""
+case "$1" in
+  *[!0-9]*) file=$(realpath "$1") ;;
+esac
 phase="$2"
 shift 2
 case "$phase" in
@@ -40,14 +45,25 @@ post() {
   jq -cn --arg phase "$1" --arg ids "$ids" --arg work "$work" --arg text "$2" '
     {phase: $phase, requestIds: ($ids | split(" ") | map(select(. != ""))), workId: $work}
     + (if $text == "" then {} else {text: $text} end)' |
-    "$here/prose-post" "$port" > /dev/null
+    "$here/prose-post" "$port" ${file:+--file "$file"} > /dev/null
 }
+
+# By port, find the doc whose log holds the first request id, so the start
+# check below reads the right doc
+if [ -z "$file" ] && [ -n "$first" ]; then
+  for f in $(curl -sf "http://localhost:$port/docs" 2>/dev/null | jq -r '.[]' || true); do
+    if "$here/prose-post" "$port" --file "$f" --get | jq -e --arg id "$first" 'any(.requests[]; .id == $id)' > /dev/null; then
+      file=$f
+      break
+    fi
+  done
+fi
 
 if [ -n "$ids" ]; then
   case "$phase" in
     progress|done|needs-reply|error)
       # start whatever isn't already working under this work id
-      pending=$("$here/prose-post" "$port" --get |
+      pending=$("$here/prose-post" "$port" ${file:+--file "$file"} --get |
         jq -r --arg ids "$ids" --arg work "$work" '
           ($ids | split(" ")) as $want
           | [.requests[] | select(.id as $id | $want | index($id))

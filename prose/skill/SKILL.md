@@ -109,6 +109,15 @@ A server started for another session posts as an ordinary peer message, not
 as this session's own child. A session in bypass mode holds those messages
 behind an approval dialog.
 
+## Following links
+
+The user can follow a link in a doc to another local markdown file, which
+opens in the same server and page. Comments on it reach this session like any
+other, with that doc's path in the event header, which also names the reply
+command: `prose respond <that file> <phase> <ids>`. Edit the doc the event
+names. `prose pending <port>` lists unfinished requests across every doc the
+server has open, each with its `file`.
+
 ## Handling events
 
 Each event is one JSON object:
@@ -164,7 +173,7 @@ Each event is one JSON object:
   a short completion summary to the page. General answers can be longer and
   use Markdown. Keep prose-related replies in the page so the user does not
   switch back to the TUI.
-- The server logs comments to `~/.local/state/prose/`, one file per draft,
+- The server logs comments to `~/.local/state/prose/`, one file per doc,
   named by the draft's absolute path with slashes flattened. It prints the
   exact path on startup. After a session restart or a failed delivery, read
   `prose pending <file>` or that file for unhandled comments.

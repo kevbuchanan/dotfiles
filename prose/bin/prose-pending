@@ -1,13 +1,28 @@
 #!/bin/sh
-# Prints a prose page's unfinished requests, one JSON object per line: the
-# original request with its current status (waiting, working, needs-reply,
-# error or interrupted). A session joining a server runs this to pick up.
+# Prints unfinished prose requests, one JSON object per line: the original
+# request with its current status (waiting, working, needs-reply, error or
+# interrupted) and its doc's path. A session joining a server runs this to
+# pick up.
 #
-#   prose pending <file|port>
+#   prose pending <file>   that doc's requests
+#   prose pending <port>   the requests of every doc the server has open
 set -eu
 here=$(cd "$(dirname "$(realpath "$0")")" && pwd)
-port=$("$here/prose-port" "${1:?usage: prose pending <file|port>}")
-"$here/prose-post" "$port" --get | jq -c '
-  .events as $events
-  | .requests[] | select(.status != "done") as $r
-  | ($events[] | select(.id == $r.id)) + {status: $r.status}'
+arg="${1:?usage: prose pending <file|port>}"
+port=$("$here/prose-port" "$arg")
+case "$arg" in
+  *[!0-9]*) files=$(realpath "$arg") ;;
+  # servers from before /docs serve one file, which --get alone returns
+  *) files=$(curl -sf "http://localhost:$port/docs" 2>/dev/null | jq -r '.[]' || true) ;;
+esac
+pending() {
+  "$here/prose-post" "$port" ${1:+--file "$1"} --get | jq -c '
+    .file as $file | .events as $events
+    | .requests[] | select(.status != "done") as $r
+    | ($events[] | select(.id == $r.id)) + {status: $r.status, file: $file}'
+}
+if [ -z "$files" ]; then
+  pending ""
+else
+  printf '%s\n' "$files" | while IFS= read -r f; do pending "$f"; done
+fi

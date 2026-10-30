@@ -30,13 +30,19 @@ const conversation = new Conversation(() => hidePopover())
 
 // ---------- document ----------
 
+// The doc this page shows: ?file=<path>, or the server's own file when the
+// URL names none. Every request to the server carries it.
+const docFile = new URLSearchParams(location.search).get("file") ?? ""
+const withFile = (params: Record<string, string> = {}) =>
+  new URLSearchParams(docFile ? { file: docFile, ...params } : params)
+
 // The file on disk is the document. The server sends its full text on
 // connect and after every change; the diff against the previous text drives
 // the change flashes.
 let docText: string | null = null
 
 function connectDoc() {
-  const ws = new WebSocket(`ws://${location.host}/doc`)
+  const ws = new WebSocket(`ws://${location.host}/doc?${withFile()}`)
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data)
     if (msg.type === "doc") applyDoc(msg.text)
@@ -320,7 +326,18 @@ function rewriteLocalMedia() {
   for (const el of content.querySelectorAll<HTMLElement>("img, video, source")) {
     const src = el.getAttribute("src")
     if (!src || /^(https?:|data:|blob:|\/local\?)/.test(src)) continue
-    el.setAttribute("src", `/local?${new URLSearchParams({ path: src })}`)
+    el.setAttribute("src", `/local?${withFile({ path: src })}`)
+  }
+}
+
+// Links to other local files go through /follow, which opens a linked
+// markdown file in this page's server and serves linked media raw. Web
+// links, mail links and in-page #anchors are left alone.
+function rewriteLocalLinks() {
+  for (const a of content.querySelectorAll<HTMLAnchorElement>("a[href]")) {
+    const href = a.getAttribute("href")!
+    if (/^([a-z][a-z0-9+.-]*:|#|\/(follow|local)\?)/i.test(href)) continue
+    a.setAttribute("href", `/follow?${new URLSearchParams({ from: docFile, path: href })}`)
   }
 }
 
@@ -422,6 +439,7 @@ function renderPreview() {
   markConflictChanges()
   highlightCodeBlocks()
   rewriteLocalMedia()
+  rewriteLocalLinks()
   hydrateMermaid()
   hydrateEmbeds()
   CSS.highlights.delete("pending-comment") // ranges are stale after re-render
@@ -487,7 +505,7 @@ function startHelix(host: HTMLElement) {
 
   const spawnSize = { cols: term.cols, rows: term.rows }
   const ws = new WebSocket(
-    `ws://${location.host}/pty?${new URLSearchParams({
+    `ws://${location.host}/pty?${withFile({
       cols: String(spawnSize.cols),
       rows: String(spawnSize.rows),
     })}`,

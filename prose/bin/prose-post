@@ -1,12 +1,25 @@
 #!/bin/sh
 # Talks to a running prose server's /activity endpoint.
 #
-#   prose post <port> < event.json   POST one activity event
-#   prose post <port> --get          print history and request states
+#   prose post <port> [--file F] < event.json   POST one activity event
+#   prose post <port> [--file F] --get          print history and request states
+#
+# --file names one of the server's open docs; without it, the server uses the
+# file it started with, or for a reply, the doc holding its request ids.
 set -eu
 port="$1"
-url="http://localhost:$port/activity"
-if [ "${2:-}" = "--get" ]; then
+shift
+query=""
+get=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --file) query="?file=$(jq -rn --arg f "$2" '$f | @uri')"; shift 2 ;;
+    --get) get=1; shift ;;
+    *) echo "usage: prose post <port> [--file F] [--get]" >&2; exit 1 ;;
+  esac
+done
+url="http://localhost:$port/activity$query"
+if [ $get -eq 1 ]; then
   exec curl --fail-with-body --silent --show-error "$url"
 fi
 exec curl --fail-with-body --silent --show-error \
