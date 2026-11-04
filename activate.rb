@@ -19,6 +19,8 @@ LINKS = [
   ["gitconfig", ".gitconfig"],
   ["fish", ".config/fish"],
   ["rspec", ".rspec"],
+  # claude: ~/.claude/CLAUDE.md imports the writing rules
+  ["claude/writing.md", ".claude/writing.md"],
   # fleet
   ["fleet/bin/fleet", ".local/bin/fleet"],
   ["fleet/nvim/plugin/fleet.lua", ".config/nvim/plugin/fleet.lua"],

@@ -161,7 +161,7 @@ Each event is one JSON object:
 - When the intent is unclear, ask in the page and hold off on editing.
 - `kind: "dellm"` asks for a rewrite of the selection. `text` is optional
   extra guidance. Apply the writing style and mechanics rules in
-  `~/.claude/CLAUDE.md`. Match the register of the
+  `~/.claude/writing.md`. Match the register of the
   surrounding text. Keep the meaning and do not pad. If the same tic recurs
   elsewhere in the document, fix it there too.
 - `kind: "file-edit"` means the file changed on disk since the last comment:
