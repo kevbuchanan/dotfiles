@@ -136,13 +136,32 @@ test_new() {
   git -C $T/repo init -q -b main
   git -C $T/repo commit -q --allow-empty -m init
   # with no terminal to attach to, fleet new's last step fails; the fleet runs
-  (cd $T && command fleet new demo $T/repo --workers 2 > $T/new.log 2>&1 &)
+  (cd $T && command fleet new demo $T/repo --workers 2 --worker-model sonnet --orch-effort high > $T/new.log 2>&1 &)
   check "the fleet's seats register sockets" within 20 seats_up
   check "w1's worktree exists" test -d $(wt w1)
   check "the notes repo has a brief" test -f $T/agents/demo/brief.md
   check "the notes folder is a git repo" test -d $T/agents/demo/.git
   check "the state folder records the repo" test -f $T/state/fleet/demo/repo
   eq "fleet ls lists the fleet as running" "$(command fleet ls | awk '$1 == "demo" { print $2 }')" running
+  check "workers get --worker-model" eval "[[ \$(popt w1 @agent_cmd) == *' --permission-mode auto --model sonnet' ]]"
+  check "the orchestrator gets --orch-effort" eval "[[ \$(popt orch @agent_cmd) == *' --effort high' ]]"
+  check "the orchestrator gets no worker model" eval "[[ \$(popt orch @agent_cmd) != *--model* ]]"
+  local state=$T/state/fleet/demo
+  check "the orchestrator may run fleet status" eval "jq -e '.permissions.allow | index(\"Bash(fleet status)\")' $state/orch-settings.json"
+  check "workers may run fleet report" eval "jq -e '.permissions.allow | index(\"Bash(fleet report *)\")' $state/worker-settings.json"
+  check "the hooks' paths are filled in" eval "! grep -q '{{ROOT}}' $state/settings.json && grep -q $root/hooks/session-end $state/settings.json"
+}
+
+test_new_flags() {
+  refuses "zero workers" command fleet new bad --workers 0
+  refuses "a word for workers" command fleet new bad --workers many
+  refuses "an unknown worker mode" command fleet new bad --worker-mode yolo
+  refuses "an unknown effort" command fleet new bad --orch-effort huge
+  refuses "an unknown flag" command fleet new bad --colour blue
+  refuses "a flag with no value" command fleet new bad --workers
+  refuses "a name with a slash" command fleet new a/b
+  check "a refused fleet leaves no session" eval "! tmux has-session -t '=bad:'"
+  check "a refused fleet leaves no notes" test ! -e $T/agents/bad
 }
 
 test_task() {
@@ -172,6 +191,33 @@ test_assign() {
   tmux set -p -t $(pane w2) @agent_state busy
   refuses "a seat that isn't idle" fleet assign w2 t2
   tmux set -p -t $(pane w2) @agent_state idle
+}
+
+test_seat_commands() {
+  eq "fleet path" "$(fleet path w1)" $(wt w1)
+  refuses "path for the orchestrator" fleet path orch
+  refuses "path for a seat that doesn't exist" fleet path w9
+  check "fleet rename" fleet rename w2 hello
+  eq "the pane has the new title" "$(popt w2 pane_title)" hello
+  check "fleet interrupt" fleet interrupt w2
+  check "fleet bump" fleet bump t1
+  check "w1 gets the bump" within 3 received w1 "Task t1 was updated: re-read $(note t1)"
+  refuses "bump on an unassigned task" fleet bump t2
+  refuses "answer while the seat isn't on a question" fleet answer t1
+  tmux set -p -t $(pane w1) @agent_state question
+  awk '{ print } $0 == "## Questions" { print ""; print "- [ ] Q1: which way?" }' $(note t1) > $T/q.md && mv $T/q.md $(note t1)
+  refuses "answer with an open question" fleet answer t1
+  sed -i.bak 's/^- \[ \] Q1:/- [x] Q1:/' $(note t1) && rm $(note t1).bak
+  check "fleet answer" fleet answer t1
+  check "w1 gets the answer" within 3 received w1 "Questions in t1 are answered: re-read $(note t1)"
+  tmux set -p -t $(pane w1) @agent_state idle
+  eq "fleet status's header" "$(fleet status | head -1)" "SEAT     STATE      TASK                         REPORT     TODOS"
+  eq "fleet shell outside tmux" "$(fleet shell w1 true)" "opened demo:w1-shell; fleet attach demo to use it"
+  check "the shell window is open" eval "tmux list-windows -t '=demo:' -F '#{window_name}' | grep -qx w1-shell"
+  check "the shell window starts in the worktree" within 3 eval "[[ \$(tmux display -p -t '=demo:w1-shell' '#{pane_current_path}') == $(wt w1) ]]"
+  eq "fleet shell on an open window" "$(fleet shell w1 true 2>&1 >/dev/null)" "fleet: w1-shell is already open; run the command there"
+  refuses "clean while the fleet runs" command fleet clean demo
+  refuses "a seat command on a session that isn't a fleet" command fleet -s nope status
 }
 
 test_report() {
@@ -309,9 +355,22 @@ test_kill() {
   eq "fleet ls shows it stopped" "$(command fleet ls | awk '$1 == "demo" { print $2 }')" stopped
 }
 
+test_clean() {
+  check "fleet clean --branches" eval "command fleet clean demo --branches > $T/clean.log 2>&1"
+  check "w2's worktree is removed" test ! -d $(wt w2)
+  check "w1's worktree is removed" test ! -d $(wt w1)
+  eq "w2's branch, merged into main, is deleted" "$(git -C $T/repo branch --list demo-w2)" ""
+  check "w1's branch, with unmerged work, stays" eval "git -C $T/repo branch --list demo-w1 | grep -q demo-w1"
+  check "the state folder is removed" test ! -d $T/state/fleet/demo
+  check "the notes stay" test -d $T/agents/demo/.git
+  eq "fleet ls shows only the notes" "$(command fleet ls | awk '$1 == "demo" { print $2 }')" notes
+}
+
+run_test test_new_flags
 run_test test_new
 run_test test_task
 run_test test_assign
+run_test test_seat_commands
 run_test test_report
 run_test test_todo_check
 run_test test_diff
@@ -323,6 +382,7 @@ run_test test_abandon
 run_test test_archive
 run_test test_migrate
 run_test test_kill
+run_test test_clean
 
 print "$passed passed, $failed failed"
 (( failed == 0 ))

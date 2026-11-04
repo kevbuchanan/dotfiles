@@ -115,6 +115,8 @@ bin/prose.ts         the server
 bin/prose-client.ts  the page script, bundled by the server at startup
 bin/prose-pty.py     runs hx in a pty for the editor pane
 bin/lib/             CSS, and the conflict, event, conversation and session modules
+../lib/claude/session.ts
+                     inbox socket posting, liveness and config dirs, shared with fleet
 deno.jsonc           import map
 deno.lock            locked dependency versions
 skill/SKILL.md       the /prose skill
@@ -179,7 +181,8 @@ The server comes from `david-crespo/dotfiles` at the commit in `SOURCE`, under i
 
 - **Preview-only without Helix:** `prose.ts` checks for `hx` at startup. Without it, the server serves every page preview-only and refuses `/pty`.
 - **Mermaid:** `prose-client.ts` renders `mermaid` fenced blocks as diagrams.
-- **Liveness across config dirs:** `sessionAlive` in `bin/lib/prose/session.ts` checks every config dir listed under "Finding sessions" above. Upstream checks only `~/.claude`.
+- **Liveness across config dirs:** `sessionAlive` checks every config dir listed under "Finding sessions" above. Upstream checks only `~/.claude`.
+- **Shared session code:** `postToSession`, `sessionAlive` and `claudeDirs` live in `lib/claude/session.ts` at the dotfiles root, which fleet imports too. `bin/lib/prose/session.ts` re-exports them and keeps `resolveSession` and `formatForSession`. The shared module posts through `Deno.Command` in place of upstream's dax.
 - **Many docs per server:** the per-file state moved from `prose.ts` into `Doc` and `DocSet` in `bin/lib/prose/docs.ts`. Every route takes `?file=`, `/follow` and `/docs` are new, and the client sends its doc's `file` on every request. See "Following links".
 - **Request checks:** the `Sec-Fetch-Site` check, and the media-only, sandboxed `/local`. See "Requests from the browser". Both follow `david-crespo/ah`, the same author's newer project.
 - **Reply hint:** each event's header names the `prose respond` command for its doc.

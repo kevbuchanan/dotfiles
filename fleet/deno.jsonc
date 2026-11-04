@@ -1,0 +1,9 @@
+{
+  "fmt": {
+    "lineWidth": 110,
+    "semiColons": false
+  },
+  "imports": {
+    "@std/path": "jsr:@std/path@^1.0.8"
+  }
+}

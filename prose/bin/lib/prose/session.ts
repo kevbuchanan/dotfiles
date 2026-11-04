@@ -1,23 +1,13 @@
 // Delivery of prose events into the Claude Code session that launched the
-// server. Every session binds a cross-session messaging inbox socket (a Unix
-// domain socket) and exports its path to child processes as
-// CLAUDE_CODE_MESSAGING_SOCKET, so a server started from the session's Bash
-// tool knows where to post without any discovery or arming step. Writing one
-// JSON line to the socket wakes an idle session or is read between tool
-// calls in a busy one. Docs: code.claude.com/docs/en/cross-session-messaging
-// ("The session's inbox socket").
+// server. The socket, liveness and posting code is shared with fleet in
+// lib/claude/session.ts at the dotfiles root; this module adds how prose
+// picks its session and how it heads each delivery.
 
-import $ from "@david/dax"
-import { basename, join } from "@std/path"
+export { claudeDirs, postToSession, type Session, sessionAlive } from "../../../../lib/claude/session.ts"
+import type { Session } from "../../../../lib/claude/session.ts"
 
-export type Session = {
-  socket: string
-  // Exported alongside the socket; sending it as an auth line lets the
-  // session verify the post came from its own child even after process
-  // evidence is gone. Only meaningful for the socket from the environment.
-  token?: string
-}
-
+// The socket comes from --socket, or else from the environment of the Claude
+// Code session whose Bash tool started the server.
 export function resolveSession(flag?: string): Session | null {
   const envSocket = Deno.env.get("CLAUDE_CODE_MESSAGING_SOCKET")
   const socket = flag ?? envSocket
@@ -26,52 +16,6 @@ export function resolveSession(flag?: string): Session | null {
     ? Deno.env.get("CLAUDE_CODE_MESSAGING_TOKEN")
     : undefined
   return { socket, token }
-}
-
-// A session's registry entry, <config dir>/sessions/<pid>.json, exists only
-// while it runs; the socket file itself can outlive the process. A session
-// started with CLAUDE_CONFIG_DIR registers under that folder, so every config
-// dir in claudeDirs() is probed. Sync so the feed snapshot can include it
-// without plumbing promises through.
-export function sessionAlive(session: Session | null): boolean {
-  if (!session) return false
-  const pid = basename(session.socket).match(/^(\d+)\.sock$/)?.[1]
-  const probes = pid
-    ? claudeDirs().map((dir) => join(dir, "sessions", `${pid}.json`))
-    : [session.socket]
-  return probes.some((probe) => {
-    try {
-      Deno.statSync(probe)
-      return true
-    } catch {
-      return false
-    }
-  })
-}
-
-// ~/.claude, $CLAUDE_CONFIG_DIR, and the colon-separated $PROSE_CLAUDE_DIRS.
-// prose-bg reads the same list to find sessions by name or tmux window.
-export function claudeDirs(): string[] {
-  const env = (k: string) => Deno.env.get(k) ?? ""
-  return [
-    join(env("HOME"), ".claude"),
-    env("CLAUDE_CONFIG_DIR"),
-    ...env("PROSE_CLAUDE_DIRS").split(":"),
-  ].filter((d, i, all) => d && all.indexOf(d) === i)
-}
-
-export async function postToSession(session: Session, text: string): Promise<void> {
-  const lines = []
-  if (session.token) lines.push(JSON.stringify({ type: "auth", token: session.token }))
-  lines.push(JSON.stringify({ type: "user", message: { role: "user", content: text } }))
-  // nc rather than Deno.connect: Deno gates Unix sockets behind --allow-net
-  // with the exact path, which varies per session pid. Open only once the
-  // message is ready: the session drops connections that go 30s without a
-  // complete line. macOS nc has no shutdown-on-EOF flag and blocks until the
-  // peer closes; the session closes right after reading the line, but -w
-  // bounds the wait in case it ever doesn't, since delivery holds up the
-  // comment POST.
-  await $`nc -w 2 -U ${session.socket}`.stdinText(lines.join("\n") + "\n")
 }
 
 // The harness frames anything arriving on the socket as a message from

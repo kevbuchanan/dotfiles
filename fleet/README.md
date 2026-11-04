@@ -13,7 +13,8 @@ fleet kill demo
 
 - tmux with the `allow-set-title` pane option. Tested with tmux 3.6a.
 - Claude Code 2.1.224 or later on macOS or Linux, for [cross-session messaging](https://code.claude.com/docs/en/cross-session-messaging)
-- `jq`, `git` and `nc` on PATH. fleet posts to sessions' inbox sockets with `nc -U`, which macOS's `nc` supports; some Linux netcat builds lack `-U`.
+- [Deno](https://deno.com) 2 to run `fleet`, which prose also needs. The first run downloads the locked `@std/path` into Deno's cache.
+- `jq`, `git` and `nc` on PATH. fleet and its hooks post to sessions' inbox sockets with `nc -U`, which macOS's `nc` supports; some Linux netcat builds lack `-U`. The hooks use `jq`.
 - [diffview.nvim](https://github.com/sindrets/diffview.nvim), optional, for `:FleetDiff`
 - A git repository as the working folder, if workers should get worktrees. Outside a repo, every worker shares the folder, and `fleet clear` closes a task with `end: -`, since there's no commit to record.
 
@@ -223,7 +224,7 @@ status: blocked
 # pay-1022-retry-queue: retry queue
 ```
 
-`fleet:` and `task:` mark the file as a fleet note. nvim's commands, the save hook and the tree column read them, so nothing depends on where the note is kept, including `tasks/archive/`. Each value is one plain line, which `fleet` reads and writes with sed and awk, not a YAML parser. The paths, shas, branch names and URLs stored here need no quoting.
+`fleet:` and `task:` mark the file as a fleet note. nvim's commands, the save hook and the tree column read them, so nothing depends on where the note is kept, including `tasks/archive/`. Each value is one plain line. `fleet` reads and writes the lines themselves, in `src/note.ts`, without a YAML library, because `nvim/lua/fleet/note.lua` and the hooks read the same lines and a YAML dumper would quote or reflow values such as URLs. The paths, shas, branch names and URLs stored here need no quoting.
 
 Notes from before frontmatter kept `Key: value` lines under their title. `fleet` still reads those. The first time `fleet` writes to one, it converts the note, and `fleet migrate` converts every old note in a fleet at once and commits. `--dry-run` lists them first. The prose page shows frontmatter as a `yaml` code block.
 
@@ -400,7 +401,15 @@ Fleet's `--settings` file adds to the config folder's own settings. If that fold
 ## Files
 
 ```
-bin/fleet                 the command
+bin/fleet                 the command: runs src/main.ts with deno.jsonc and its permission flags
+src/main.ts               argument parsing, usage and dispatch
+src/fleet.ts              a fleet's session, seats, notes lock and message posting
+src/note.ts               task note frontmatter, sections, migration and lookup by id
+src/run.ts                subprocess and file helpers
+src/cmd/                  lifecycle.ts (new, attach, ls, kill, clean), seat.ts (tasks and seat
+                          commands), diff.ts (diff and branch sync), archive.ts (archive,
+                          relink and migrate)
+deno.jsonc, deno.lock     import map and locked dependency versions
 prompts/orchestrator.md   orchestrator identity, appended to Claude Code's system prompt
 prompts/worker.md         worker identity, appended to Claude Code's system prompt
 plugin/                   the fleet plugin: skills/orchestrator and skills/worker
@@ -422,6 +431,8 @@ nvim/lua/fleet/           note.lua (frontmatter reader), tree.lua (nvim-tree dec
 test/run                  end-to-end tests, see "Tests"
 test/claude-stub          the claude the tests' seats run
 ```
+
+`bin/fleet` resolves its own folder through the `~/.local/bin/fleet` symlink. Deno looks for `deno.jsonc` next to the script it runs, so a bare symlink to `src/main.ts` fails with `Import "@std/path" not a dependency`. fleet posts to inbox sockets through `lib/claude/session.ts` at the dotfiles root, which prose uses too.
 
 Run state lives outside this folder:
 
