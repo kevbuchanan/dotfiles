@@ -100,11 +100,16 @@ end))
 -- pcall keeps startup clean before :PlugInstall has fetched the plugins
 local ok, tree = pcall(require, 'nvim-tree')
 if ok then
+  -- nvim-tree's default decorators, plus fleet's note-state decorator after
+  -- Git when the fleet module is installed (see fleet/nvim/lua/fleet/tree.lua)
+  local decorators = { "Git", "Open", "Hidden", "Modified", "Bookmark", "Diagnostics", "Copied", "Cut" }
+  local ok_fleet, fleet_tree = pcall(require, 'fleet.tree')
+  if ok_fleet then table.insert(decorators, 2, fleet_tree.Decorator) end
   -- show dotfiles and ignored files and never fold single-child folders,
   -- matching the NERDTree settings above
   tree.setup({
     filters = { dotfiles = false, git_ignored = false },
-    renderer = { group_empty = false },
+    renderer = { group_empty = false, decorators = decorators },
     -- The tree redraws when files change, and agents change files in fleet
     -- notes folders often. A key pressed mid-redraw can land on a line with
     -- no node, and nvim-tree 1.19's open actions index that nil. The open
@@ -128,6 +133,8 @@ if ok then
       end
     end,
   })
+  -- fleet's status lines under each note; see fleet/nvim/lua/fleet/tree.lua
+  if ok_fleet then fleet_tree.attach() end
 end
 
 local ok_gs, gitsigns = pcall(require, 'gitsigns')

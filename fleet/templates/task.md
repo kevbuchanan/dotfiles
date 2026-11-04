@@ -1,12 +1,16 @@
-# {{ID}}: {{TITLE}}
+---
+fleet: {{FLEET}}
+task: {{ID}}
+guidance: {{GUIDANCE}}
+ship: no
+worker:
+branch:
+base:
+end:
+status:
+---
 
-Guidance: {{GUIDANCE}}
-Ship: no
-Worker:
-Branch:
-Base:
-End:
-Status:
+# {{ID}}: {{TITLE}}
 
 ## Goal
 

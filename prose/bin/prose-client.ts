@@ -434,8 +434,18 @@ function wrapText(el: HTMLElement, inserted: string, className: string): boolean
   return false
 }
 
+// A leading YAML frontmatter block (fleet task notes have one) would render
+// as a rule plus a setext heading. As a yaml code block it reads as data, and
+// swapping only the two fence lines keeps line numbers for the change flashes.
+function frontmatterAsCode(text: string) {
+  if (!text.startsWith("---\n")) return text
+  const end = text.indexOf("\n---\n", 3)
+  if (end === -1) return text
+  return "```yaml\n" + text.slice(4, end) + "\n```\n" + text.slice(end + 5)
+}
+
 function renderPreview() {
-  content.innerHTML = md.render(docText ?? "")
+  content.innerHTML = md.render(frontmatterAsCode(docText ?? ""))
   markConflictChanges()
   highlightCodeBlocks()
   rewriteLocalMedia()

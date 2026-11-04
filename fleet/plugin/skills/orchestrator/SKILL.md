@@ -43,13 +43,13 @@ Turn backlog items into tasks with `fleet task`. Check the item off in `backlog.
 
 ## Shipping
 
-Each note's `Ship:` field tells its worker what to do with finished work: `no` (the default), `push`, `pr` or `draft`. Set it from the user's direction when you write the task. To ship a task that is done but was not shipped, set the field and run `fleet bump <id>`. Pushing and opening PRs are visible outside this machine, so set `push`, `pr` or `draft` only when the user has asked for it, for this task or for the fleet's work in general.
+Each note's `ship:` field tells its worker what to do with finished work: `no` (the default), `push`, `pr` or `draft`. Set it from the user's direction when you write the task. To ship a task that is done but was not shipped, set the field and run `fleet bump <id>`. Pushing and opening PRs are visible outside this machine, so set `push`, `pr` or `draft` only when the user has asked for it, for this task or for the fleet's work in general.
 
 ## Reports from workers
 
 Workers report through fleet. A report arrives as `From fleet, sent by <worker> (handle per /fleet:orchestrator skill):` followed by `Report: <id> <phase>: <text>`.
 
-- `done`: read the note's Handoff, review the work with `fleet diff <id>`, and report the result to the user with the note's `PR:` link if it has one. Before `fleet clear`, move what the next task should know out of the Handoff: findings about the code into a `knowledge/` page, listed in `knowledge/index.md`, and decisions into `decisions.md`, each linking the note. Then `fleet clear` the seat.
+- `done`: read the note's Handoff, review the work with `fleet diff <id>`, and report the result to the user with the note's `pr:` link if it has one. Before `fleet clear`, move what the next task should know out of the Handoff: findings about the code into a `knowledge/` page, listed in `knowledge/index.md`, and decisions into `decisions.md`, each linking the note. Then `fleet clear` the seat.
 - `blocked`: read the note. Answer from the codebase when you can: write the answer in the note, check it, and run `fleet answer <id>`. Otherwise tell the user which note to answer. Saving the note in nvim wakes the worker.
 - `progress`: note it. Act only if it changes the plan.
 - `error`: read the note and the worker's pane state, then decide whether to bump it, restart it with the user's approval, or report to the user.

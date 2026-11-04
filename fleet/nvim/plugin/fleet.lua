@@ -5,7 +5,7 @@
 --                       whole branch through its working tree. With no
 --                       argument, the branch of the worker the current buffer
 --                       belongs to: a file in its worktree, or a task note
---                       naming it as Worker.
+--                       whose frontmatter names it as worker.
 --   <Leader>d           :FleetDiff
 --   :FleetBump [task]   tell the task's worker its note has new work. With
 --                       no task, uses the task note in the current buffer.
@@ -15,6 +15,8 @@
 --                       `fleet task --from` and open it. The id defaults to
 --                       the next free number, such as T3-2 after T3 and
 --                       T3-3 after T3-2.
+--   :FleetBoard [fleet] list a fleet's tasks, with keys to open, diff, bump
+--                       and follow up; see fleet/board.lua.
 --
 -- Saving a task note runs `fleet answer` for it. fleet answers only when the
 -- note's worker is waiting in state `question` and no question is left open,
@@ -31,19 +33,17 @@ local function fleet_notes()
   return out ~= "" and out or nil
 end
 
+local note = require("fleet.note")
+
 -- The fleet and worker seat the current buffer belongs to, if any: a file in
--- a worktree named <fleet>-w<n>, or a task note whose Worker line names one.
+-- a worktree named <fleet>-w<n>, or a task note whose frontmatter names its
+-- worker.
 local function buffer_worker()
-  local path = vim.fn.expand("%:p")
-  local fleet, seat = path:match("/%.claude/worktrees/([^/]+)%-(w%d+)/")
+  local fleet, seat = vim.fn.expand("%:p"):match("/%.claude/worktrees/([^/]+)%-(w%d+)/")
   if fleet then return fleet, seat end
-  fleet = path:match("/([^/]+)/tasks/[%w_-]+%.md$")
-  if not fleet then return nil end
-  for _, line in ipairs(vim.api.nvim_buf_get_lines(0, 0, 20, false)) do
-    local worker = line:match("^Worker:%s*(%S+)")
-    if worker then return fleet, worker:match("%-(w%d+)$") end
-  end
-  return fleet, nil
+  local meta = note.buffer()
+  if not meta then return nil end
+  return meta.fleet, (meta.worker or ""):match("%-(w%d+)$")
 end
 
 vim.api.nvim_create_user_command("FleetDiff", function(o)
@@ -55,21 +55,7 @@ vim.api.nvim_create_user_command("FleetDiff", function(o)
       return
     end
   end
-  if vim.fn.exists(":DiffviewOpen") ~= 2 then
-    vim.notify("FleetDiff: diffview.nvim is not installed", vim.log.levels.ERROR)
-    return
-  end
-  local args = fleet and { "fleet", "-s", fleet, "diff", "--rev", target } or { "fleet", "diff", "--rev", target }
-  local r = vim.system(args, { text = true }):wait()
-  if r.code ~= 0 then
-    vim.notify(vim.trim(r.stderr), vim.log.levels.ERROR)
-    return
-  end
-  local dir, rev = unpack(vim.split(vim.trim(r.stdout), "\n"))
-  -- fleet prints a note on stderr when a task has no End
-  if vim.trim(r.stderr) ~= "" then vim.notify(vim.trim(r.stderr), vim.log.levels.WARN) end
-  -- -C makes diffview use the worker's repo, not the notes repo this buffer is in
-  vim.cmd("DiffviewOpen -C" .. vim.fn.fnameescape(dir) .. " " .. rev)
+  require("fleet.actions").diff(fleet, target)
 end, {
   nargs = "?",
   desc = "Open a fleet task's or worker branch's changes in diffview",
@@ -98,8 +84,11 @@ vim.api.nvim_create_user_command("FleetBump", function(o)
   if o.args ~= "" then
     id = o.args
   else
-    fleet, id = vim.fn.expand("%:p"):match("/([^/]+)/tasks/([%w_-]+)%.md$")
-    if id then vim.cmd("silent update") end
+    local meta = note.buffer()
+    if meta then
+      fleet, id = meta.fleet, meta.task
+      vim.cmd("silent update")
+    end
   end
   if not id then
     vim.notify("FleetBump: name a task, or run it from a task note", vim.log.levels.ERROR)
@@ -116,15 +105,15 @@ end, { nargs = "?", desc = "Tell a fleet task's worker its note has new work" })
 vim.keymap.set("n", "<Leader>b", "<cmd>FleetBump<cr>", { desc = "fleet bump for this task note" })
 
 vim.api.nvim_create_user_command("FleetFollowUp", function(o)
-  local path = vim.fn.expand("%:p")
-  -- archived notes, in tasks/archive/, can have follow-ups too
-  local fleet, from = path:match("/([^/]+)/tasks/([%w_-]+)%.md$")
-  if not from then fleet, from = path:match("/([^/]+)/tasks/archive/([%w_-]+)%.md$") end
-  if not from then
+  local meta = note.buffer()
+  if not meta then
     vim.notify("FleetFollowUp: run it from a task note", vim.log.levels.ERROR)
     return
   end
-  local dir = path:match("^(.*/tasks)/")
+  local fleet, from = meta.fleet, meta.task
+  -- the tasks folder, from a note in it or in its archive/
+  local dir = vim.fn.expand("%:p:h")
+  if vim.fn.fnamemodify(dir, ":t") == "archive" then dir = vim.fn.fnamemodify(dir, ":h") end
   -- an id is taken if a note by that name is in tasks/ or tasks/archive/
   local function taken(name)
     return vim.fn.filereadable(dir .. "/" .. name .. ".md") == 1
@@ -150,18 +139,43 @@ vim.api.nvim_create_user_command("FleetFollowUp", function(o)
   vim.cmd.edit(vim.fn.fnameescape(vim.trim(r.stdout)))
 end, { nargs = "*", desc = "Create a follow-up to this fleet task and open it" })
 
--- A note lives in <notes root>/<fleet>/tasks/<id>.md, so the path names both
--- the fleet and the task, and this works from any nvim, inside a fleet or not.
+-- A note's frontmatter names its fleet and task, so this works from any
+-- nvim, inside a fleet or not, and ignores markdown that isn't a fleet note.
 vim.api.nvim_create_autocmd("BufWritePost", {
-  pattern = "*/tasks/*.md",
+  pattern = "*.md",
   callback = function(ev)
-    local path = vim.fn.fnamemodify(ev.file, ":p")
-    local fleet, id = path:match("/([^/]+)/tasks/([%w_-]+)%.md$")
-    if not fleet or vim.fn.executable("fleet") == 0 then return end
-    vim.system({ "fleet", "-s", fleet, "answer", id }, { text = true }, function(r)
+    local meta = note.buffer(ev.buf)
+    if not meta or vim.fn.executable("fleet") == 0 then return end
+    vim.system({ "fleet", "-s", meta.fleet, "answer", meta.task }, { text = true }, function(r)
       if r.code == 0 then
         vim.schedule(function() vim.notify(vim.trim(r.stdout)) end)
       end
     end)
+  end,
+})
+
+-- :FleetBoard [fleet] lists a fleet's tasks; see fleet.board. With no name,
+-- the fleet of the note in the current buffer, or of this tmux session.
+vim.api.nvim_create_user_command("FleetBoard", function(o)
+  local fleet = o.args ~= "" and o.args or (note.buffer() or {}).fleet
+  if not fleet and vim.env.TMUX_PANE then
+    local session = vim.trim(vim.fn.system({ "tmux", "display", "-p", "-t", vim.env.TMUX_PANE, "#S" }))
+    if vim.trim(vim.fn.system({ "tmux", "show", "-qv", "-t", "=" .. session .. ":", "@fleet" })) == "1" then fleet = session end
+  end
+  if not fleet then
+    vim.notify("FleetBoard: name a fleet, or run it from a fleet note or a fleet's tmux session", vim.log.levels.ERROR)
+    return
+  end
+  require("fleet.board").open(fleet)
+end, {
+  nargs = "?",
+  desc = "List a fleet's tasks",
+  complete = function(lead)
+    local names = {}
+    for line in vim.gsplit(vim.fn.system({ "fleet", "ls" }), "\n", { trimempty = true }) do
+      local name = line:match("^(%S+)")
+      if name and name ~= "FLEET" and vim.startswith(name, lead) then table.insert(names, name) end
+    end
+    return names
   end,
 })

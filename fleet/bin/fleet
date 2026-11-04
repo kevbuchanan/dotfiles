@@ -8,6 +8,7 @@
 #   fleet attach [name]
 #   fleet ls                     running fleets, and stopped fleets that
 #                                `fleet clean` has not removed
+#   fleet migrate [--dry-run]    convert old-format notes to frontmatter
 #   fleet archive [--dry-run]    move closed, shipped-or-unshipped task notes
 #                                that no open task links into tasks/archive
 #   fleet kill [name]            default: the calling pane's fleet; worktrees
@@ -133,21 +134,62 @@ note_path() {
   return 0
 }
 
-# Header fields of a task note, the "Key: value" lines under the title.
-note_get() { sed -n "s/^$2: *//p" $1 | head -1 }
+# A task note's fields live in YAML frontmatter, one `key: value` per line
+# between `---` lines at the top. `fleet:` and `task:` mark a file as a fleet
+# note, which nvim's tree decorator and commands rely on, so they never guess
+# from a path. Values are single plain lines, so sed and awk read them.
+
+# Notes from before frontmatter kept "Key: value" lines under the title
+legacy_fields='Guidance|Follows|Ship|PR|Worker|Branch|Base|End|Status'
+has_frontmatter() { [[ $(head -1 $1) == --- ]] }
+
+note_get() {
+  local note=$1 key=$2
+  if has_frontmatter $note; then
+    awk -v k=$key 'NR == 1 { next } $0 == "---" { exit } index($0, k ":") == 1 { sub(/^[^:]*: */, ""); print; exit }' $note
+  else
+    local legacy=${(C)key}
+    [[ $key == pr ]] && legacy=PR
+    sed -n "s/^$legacy: *//p" $note | head -1
+  fi
+}
+
 note_set() {
   local note=$1 key=$2 value=$3
-  if grep -q "^$key:" $note; then
-    sed -i '' "s|^$key:.*|$key: $value|" $note
-  else
-    # notes made from an older template lack the field; add it after the
-    # last header field, so fields added in turn keep their order
-    awk -v line="$key: $value" '
-      NR == FNR { if (/^(Guidance|Follows|Ship|PR|Worker|Branch|Base|End|Status):/) last = FNR; next }
-      { print } FNR == last { print line }
-    ' $note $note > $note.tmp
-    mv $note.tmp $note
-  fi
+  has_frontmatter $note || note_migrate $note
+  awk -v k=$key -v v=$value '
+    NR == 1 { print; next }
+    !done && $0 == "---" { if (!set) print k ": " v; print; done = 1; next }
+    !done && index($0, k ":") == 1 { print k ": " v; set = 1; next }
+    { print }
+  ' $note > $note.tmp
+  mv $note.tmp $note
+}
+
+# Rewrites an old-format note's "Key: value" header lines as frontmatter,
+# with the fleet and task marker keys, and keeps everything else.
+note_migrate() {
+  local note=$1 id=${1:t:r}
+  awk -v fleet=$S -v task=$id -v pat="^($legacy_fields): *" '
+    function lower(k) { return k == "PR" ? "pr" : tolower(k) }
+    !body && /^## / { body = 1 }
+    !body && $0 ~ pat {
+      key = $0; sub(/:.*/, "", key)
+      val = $0; sub(/^[^:]*: */, "", val)
+      fields[lower(key)] = val
+      next
+    }
+    !body && /^$/ && blank { next }
+    { blank = ($0 == ""); lines[++n] = $0 }
+    END {
+      print "---"; print "fleet: " fleet; print "task: " task
+      split("guidance ship follows pr worker branch base end status", order, " ")
+      for (i = 1; i <= 9; i++) if (order[i] in fields) print order[i] ": " fields[order[i]]
+      print "---"; print ""
+      for (i = 1; i <= n; i++) print lines[i]
+    }
+  ' $note > $note.tmp
+  mv $note.tmp $note
 }
 
 opt() { tmux display -p -t $1 "#{$2}" }
@@ -349,7 +391,7 @@ fleet_status() {
     progress= report=
     if [[ -n $task && -f $notes/tasks/$task.md ]]; then
       progress=$($root/hooks/task-progress $notes/tasks/$task.md | awk '{ printf "%d/%d", $1, $2; if ($3) printf ", %d open questions", $3 }')
-      report=$(note_get $notes/tasks/$task.md Status)
+      report=$(note_get $notes/tasks/$task.md status)
     fi
     printf '%-8s %-10s %-28s %-10s %s\n' $seat ${st:--} ${task:--} ${report:--} $progress
   done
@@ -398,13 +440,13 @@ fleet_task() {
   # a fleet's own guidance/default.md replaces the built-in one
   local guidance=$root/guidance/default.md
   [[ -f $notes/guidance/default.md ]] && guidance=$notes/guidance/default.md
-  sed -e "s|{{ID}}|$id|" -e "s|{{TITLE}}|${title:-untitled}|" -e "s|{{GUIDANCE}}|$guidance|" \
+  sed -e "s|{{FLEET}}|$S|" -e "s|{{ID}}|$id|g" -e "s|{{TITLE}}|${title:-untitled}|" -e "s|{{GUIDANCE}}|$guidance|" \
     $root/templates/task.md > $note
 
   # A follow-up starts from the earlier task's handoff, with its scope and
   # checks, so the new worker needs none of the earlier conversation
   if [[ -n $from ]]; then
-    note_set $note Follows $from
+    note_set $note follows $from
     local body=$(mktemp) sec
     for sec in Scope Verify; do
       note_section $prev $sec > $body
@@ -435,7 +477,7 @@ fleet_assign() {
   need_idle $pane $seat
   need_socket $pane
   # reassigning would overwrite Base, and `fleet diff` would lose the closed work
-  [[ -z $(note_get $note End) ]] || die "$id is closed; put follow-up work in a new task, such as fleet task ${id}-2 --from $id"
+  [[ -z $(note_get $note end) ]] || die "$id is closed; put follow-up work in a new task, such as fleet task ${id}-2 --from $id"
 
   # Base is the worker branch's commit when the task starts, and End is set by
   # `fleet clear`, so `fleet diff` can show this task apart from the branch's
@@ -450,23 +492,23 @@ fleet_assign() {
 
   # A follow-up builds on the earlier task's code, so the worker's branch must
   # already contain that task's End commit
-  local follows=$(note_get $note Follows)
+  local follows=$(note_get $note follows)
   if [[ -n $follows ]]; then
     local prev prev_end
     prev=$(note=; note_path $follows; print -r -- $note)
     [[ -f $prev ]] || die "$id follows $follows, which has no note"
-    prev_end=$(note_get $prev End)
+    prev_end=$(note_get $prev end)
     [[ -n $prev_end ]] || die "$follows is still open; add the work to its note and fleet bump $follows"
     if [[ -n $worktree && $prev_end != - ]] && ! git -C $worktree merge-base --is-ancestor $prev_end HEAD 2> /dev/null; then
-      die "$seat's branch doesn't contain $follows's work (${prev_end[1,12]}); assign $id to ${$(note_get $prev Worker)#$S-} or merge $(note_get $prev Branch) into $branch first"
+      die "$seat's branch doesn't contain $follows's work (${prev_end[1,12]}); assign $id to ${$(note_get $prev worker)#$S-} or merge $(note_get $prev branch) into $branch first"
     fi
   fi
 
-  note_set $note Worker $S-$seat
-  note_set $note Branch $branch
-  note_set $note Base $base
-  note_set $note End ""
-  note_set $note Status assigned
+  note_set $note worker $S-$seat
+  note_set $note branch $branch
+  note_set $note base $base
+  note_set $note end ""
+  note_set $note status assigned
 
   # the commit is the baseline that `git diff` in the notes repo compares against
   git -C $notes add -A
@@ -485,7 +527,7 @@ fleet_clear() {
   local task=$(opt $pane @agent_task) worktree
   if [[ -n $task && -f $notes/tasks/$task.md ]]; then
     seat_checkout $seat
-    [[ -n $worktree ]] && note_set $notes/tasks/$task.md End $(git -C $worktree rev-parse HEAD)
+    [[ -n $worktree ]] && note_set $notes/tasks/$task.md end $(git -C $worktree rev-parse HEAD)
   fi
   tmux set -p -u -t $pane @agent_task
   tmux select-pane -t $pane -T $S-$seat
@@ -593,8 +635,8 @@ fleet_diff() {
     return
   fi
   [[ -f $note ]] || die "no task note $note"
-  local base=$(note_get $note Base) end=$(note_get $note End) branch=$(note_get $note Branch)
-  local seat=${$(note_get $note Worker)#$S-}
+  local base=$(note_get $note base) end=$(note_get $note end) branch=$(note_get $note branch)
+  local seat=${$(note_get $note worker)#$S-}
   [[ -n $base && $base != - ]] || die "$id has no Base; it was assigned before fleet recorded one, or its workers have no worktrees"
   local repo=$(< $statedir/$S/repo) dir rev pane worktree
   if [[ -n $end ]]; then
@@ -622,7 +664,7 @@ worker_on_task() {
   need_id $1
   note=$notes/tasks/$1.md
   [[ -f $note ]] || die "no task note $note"
-  seat=${$(note_get $note Worker)#$S-}
+  seat=${$(note_get $note worker)#$S-}
   [[ -n $seat ]] || die "$1 is not assigned"
   pane_of $seat
   [[ $(opt $pane @agent_task) == $1 ]] || die "$seat is no longer on $1; start a follow-up task with fleet task"
@@ -695,7 +737,7 @@ fleet_report() {
     counts=($($root/hooks/task-progress $note))
     (( counts[1] == counts[2] )) || die "$id has $(( counts[2] - counts[1] )) unchecked todos; check them or report blocked"
   fi
-  note_set $note Status $phase
+  note_set $note status $phase
   grep -q '^## Log$' $note || printf '\n## Log\n\n' >> $note
   print -r -- "- $(date '+%Y-%m-%d %H:%M') $phase: $text" >> $note
   local orch_pane
@@ -778,12 +820,12 @@ fleet_archive() {
   mkdir -p $notes/tasks/archive
   for f in $open; do
     id=${f:t:r}
-    [[ -n $(note_get $f End) ]] || continue
-    ship=$(note_get $f Ship)
-    [[ -z $ship || $ship == no || -n $(note_get $f PR) ]] || continue
+    [[ -n $(note_get $f end) ]] || continue
+    ship=$(note_get $f ship)
+    [[ -z $ship || $ship == no || -n $(note_get $f pr) ]] || continue
     tmux list-panes -s -t "=$S:" -F '#{@agent_task}' | grep -qxF -- $id && continue
     # a link to the note, or a Follows line naming it, from another open note
-    grep -lE -- "\]\($id\.md\)|\(tasks/$id\.md\)|^Follows: *$id\$" ${open:#$f} /dev/null | grep -q . && continue
+    grep -lE -- "\]\($id\.md\)|\(tasks/$id\.md\)|^[Ff]ollows: *$id\$" ${open:#$f} /dev/null | grep -q . && continue
     moved+=($id)
   done
   if (( ! $#moved )); then
@@ -812,6 +854,31 @@ fleet_archive() {
   git -C $notes add -A
   git -C $notes commit -q -m "archive ${(j:, :)moved}"
   print -l -- "archived:" $moved
+}
+
+# Converts every old-format note, in tasks/ and tasks/archive/, to
+# frontmatter and commits. note_set converts a note the first time it writes
+# one, so this only hurries the rest along.
+fleet_migrate() {
+  current
+  local dry=0 f
+  [[ ${1:-} == --dry-run ]] && dry=1
+  local -a old
+  for f in $notes/tasks/*.md(N) $notes/tasks/archive/*.md(N); do
+    has_frontmatter $f || old+=($f)
+  done
+  if (( ! $#old )); then
+    print "every note has frontmatter"
+    return 0
+  fi
+  if (( dry )); then
+    print -l -- "would migrate:" ${old:t:r}
+    return 0
+  fi
+  for f in $old; do note_migrate $f; done
+  git -C $notes add -A
+  git -C $notes commit -q -m "migrate ${#old} notes to frontmatter"
+  print -l -- "migrated:" ${old:t:r}
 }
 
 fleet_clean() {
@@ -874,6 +941,7 @@ case $cmd in
   diff) fleet_diff "$@" ;;
   answer) fleet_answer "$@" ;;
   archive) fleet_archive "$@" ;;
+  migrate) fleet_migrate "$@" ;;
   bump) fleet_bump "$@" ;;
   report) fleet_report "$@" ;;
   shell) fleet_shell "$@" ;;

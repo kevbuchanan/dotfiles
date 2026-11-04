@@ -37,7 +37,7 @@ nvim +PlugInstall +qall
 
 nvim only:
 
-- nvim-tree replaces NERDTree, and gitsigns marks changed lines in the sign column. diffview.nvim shows a whole diff in one tab. render-markdown.nvim draws markdown in the buffer: headings, checkboxes, tables and code blocks. The cursor line and insert mode show the raw text.
+- nvim-tree replaces NERDTree, and gitsigns marks changed lines in the sign column. diffview.nvim shows a whole diff in one tab. In a fleet's notes folder, nvim-tree shows each task note's status as an icon in the sign column, and the command line shows a note's details when the cursor is on it ([fleet](fleet/README.md#note-state-in-nvim)). render-markdown.nvim draws markdown in the buffer: headings, checkboxes, tables and code blocks. The cursor line and insert mode show the raw text.
 - Every second, nvim reloads any unmodified buffer whose file changed on disk, so edits from Claude Code or other tools show up without a focus change. A buffer with unsaved edits gets nvim's normal conflict prompt.
 - The prose commands below.
 
@@ -101,6 +101,7 @@ vim-test runs tests in a neoterm split.
 | --- | --- |
 | `\s` | run `fleet status` from a pane inside a fleet |
 | `:FleetDiff [task \| seat]`, `\d` | open changes in diffview: a task's, or a worker's whole branch. With no argument, the branch of the worker the current buffer belongs to. See [fleet](fleet/README.md#reviewing-progress). |
+| `:FleetBoard [fleet]` | list a fleet's tasks with their status, worker and todos, with keys to open, diff, bump and follow up. See [fleet](fleet/README.md#note-state-in-nvim). |
 | `:FleetFollowUp [id] [title]` | from a closed task's note, create a follow-up task and open it. See [fleet](fleet/README.md#follow-up-work). |
 | `:FleetBump [task]`, `\b` | save the task note and tell its worker the note has new work. See [fleet](fleet/README.md#follow-up-work). |
 | saving a task note | runs `fleet answer` for it, which wakes a worker waiting on a question once none is left open |
