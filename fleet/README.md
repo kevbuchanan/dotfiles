@@ -198,7 +198,7 @@ Seats read these through links, not all at once. A task note links, under its Go
 - **Planning.** Backlog items become tasks through `fleet task`. The orchestrator checks the item off and links the note.
 - **Moving findings up.** A worker's Handoff ends with a `### Worth keeping` list. When the task is done, the orchestrator moves those findings into a `knowledge/` page and moves decisions into `decisions.md`, before `fleet clear`. The next worker reads the page instead of rediscovering it.
 - **Resetting the orchestrator.** The orchestrator's context grows across the whole fleet. Between phases, it updates the Status section of `brief.md` and asks you to run `fleet clear orch`. It can't clear itself, because `fleet clear` needs an idle seat. Its launch prompt tells it to read `brief.md` and `backlog.md` and run `fleet status` at the start of every session, including after a clear.
-- **Archiving.** `fleet archive` moves task notes into `tasks/archive/<YYYY-MM>/`, the month of their `closed:` date, when all of these hold: the note is closed (it has an End), it's shipped or not meant to ship (`ship:` is `no` or `push`, or for `pr` and `draft` it has a `pr:` value), no worker is still on it, and no note left in `tasks/` links to it or follows it. It rewrites every relative markdown link in the notes repo that the moves change: links from the moved notes, links to them from the fleet files and from notes archived earlier, and links between notes in different month folders. Then it commits, and git records each move as a rename. `--dry-run` lists what it would move. A note closed before notes recorded `closed:` goes into the current month. Live work stays in `tasks/`, one folder, which the board and the tree's icons cover, and only the history is split by month. Lookups by task id, such as `fleet diff`, `fleet task --from` and the check for an existing id, find archived notes too, in any month folder or flat in `tasks/archive/`, where notes archived before month folders stay. `fleet assign` refuses an archived task, and the save hook does nothing for an archived note, and `:FleetBump` reports that no worker is on it.
+- **Archiving.** `fleet archive` moves task notes into `tasks/archive/<YYYY-MM>/`, the month of their `closed:` date, when all of these hold: the note is closed (it has an End), it's shipped or not meant to ship (`ship:` is `no` or `push`, or for `pr` and `draft` it has a `pr:` value), no worker is still on it, and no note staying in `tasks/` links to it or follows it. Notes archived in the same run don't hold each other back, so a closed follow-up and the task it follows move together. It rewrites every relative markdown link in the notes repo that the moves change: links from the moved notes, links to them from the fleet files and from notes archived earlier, and links between notes in different month folders. Then it commits, and git records each move as a rename. `--dry-run` lists what it would move. A note closed before notes recorded `closed:` goes into the current month. Live work stays in `tasks/`, one folder, which the board and the tree's icons cover, and only the history is split by month. Lookups by task id, such as `fleet diff`, `fleet task --from` and the check for an existing id, find archived notes too, in any month folder or flat in `tasks/archive/`, where notes archived before month folders stay. `fleet assign` refuses an archived task, and the save hook does nothing for an archived note, and `:FleetBump` reports that no worker is on it.
 - **Closing.** When the goal is met, the orchestrator writes the closing summary in `brief.md` and tells you. You stop the fleet with `fleet kill` and remove its worktrees with `fleet clean`. The notes folder stays as the record.
 
 ### Frontmatter
@@ -419,6 +419,8 @@ nvim/plugin/fleet.lua     :FleetDiff, :FleetBump, :FleetFollowUp and the save ho
 nvim/lua/fleet/           note.lua (frontmatter reader), tree.lua (nvim-tree decorator and
                           cursor details), board.lua (:FleetBoard) and actions.lua,
                           linked as ~/.config/nvim/lua/fleet
+test/run                  end-to-end tests, see "Tests"
+test/claude-stub          the claude the tests' seats run
 ```
 
 Run state lives outside this folder:
@@ -447,6 +449,18 @@ docs                 stopped  2         ~/code/docs                             
 A fleet started before fleet kept a repo record shows `-` for its repo and worktrees, and `fleet clean` can't find its worktrees. Remove them with `git worktree remove`.
 
 `clean` never touches the notes folder. It is the task record and a git repo of its own, so archive or delete it yourself.
+
+## Tests
+
+`test/run` starts a fleet with two workers on its own tmux server, `tmux -L fleet-test-<pid>`, in a scratch repo, notes folder and state folder, then runs every command and hook against it. It never touches a running fleet or your notes. A run takes about 20 seconds and removes everything it made. `test/run -k` keeps the scratch folder and tmux server and prints how to attach.
+
+Each seat runs `test/claude-stub` in place of `claude`. The stub does what fleet relies on a seat doing:
+
+- With `-w <name>`, it creates the worktree under `.claude/worktrees/<name>`.
+- It binds an inbox socket and runs the real `register` and `agent-state` hooks, as `SessionStart` would, and again after a typed `/clear`.
+- It records each socket message and each typed line, which the tests read back.
+
+The stub never runs `Stop` or `SessionEnd` hooks, so the tests call `hooks/todo-check` and `hooks/session-end` themselves, with the input Claude Code sends. What the tests can't cover is Claude Code itself: the inbox message format, which hook events fire when, and how a model follows the skills.
 
 ## Limits
 

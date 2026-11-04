@@ -1,0 +1,328 @@
+#!/usr/bin/env zsh
+# fleet's end-to-end tests. Each run starts a fleet on its own tmux server,
+# with claude replaced by test/claude-stub, in a scratch repo, notes folder
+# and state folder, so it never touches a running fleet or your notes.
+#
+#   test/run           run every test
+#   test/run -k        keep the scratch folder and tmux server for a look
+#
+# Tests run in order and share the one fleet, each starting from the state
+# the one before left.
+
+emulate zsh
+setopt err_return no_unset pipe_fail extended_glob
+
+root=${0:A:h:h}
+keep=0
+[[ ${1:-} == -k ]] && keep=1
+
+T=$(mktemp -d)
+T=${T:A}
+server=fleet-test-$$
+mkdir -p $T/bin $T/socks $T/repo
+# tmux reads the server name and config from the wrapper, so fleet, the hooks
+# and the stub all reach the test server through plain `tmux`
+print -r -- "#!/bin/sh
+exec $(command -v tmux) -L $server -f $T/tmux.conf \"\$@\"" > $T/bin/tmux
+ln -s $root/test/claude-stub $T/bin/claude
+print '#!/bin/sh\nexec cat > /dev/null' > $T/bin/nvim
+chmod +x $T/bin/tmux $T/bin/nvim
+print -r -- "set -g default-command \"env PATH=$T/bin:$root/bin:$PATH zsh -f\"" > $T/tmux.conf
+
+unset TMUX TMUX_PANE CLAUDE_CONFIG_DIR CLAUDE_CODE_MESSAGING_SOCKET CLAUDE_CODE_MESSAGING_TOKEN
+fleet_vars=(${(M)${(k)parameters}:#FLEET_*})
+(( $#fleet_vars )) && unset $fleet_vars
+export PATH=$T/bin:$root/bin:$PATH FLEET_HOME=$T/agents XDG_STATE_HOME=$T/state
+export FLEET_ROOT=$root FLEET_TEST_SOCKS=$T/socks
+export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.com
+export GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.com
+
+cleanup() {
+  if (( keep )); then
+    print "kept $T; tmux -L $server attach -t demo, and tmux -L $server kill-server when done"
+  else
+    tmux kill-server 2> /dev/null || true
+    # tmux leaves its socket file behind when the server exits
+    rm -f ${TMUX_TMPDIR:-/tmp}/tmux-$UID/$server
+    rm -rf $T
+  fi
+}
+trap cleanup EXIT
+
+# --- assertions ---
+
+integer passed=0 failed=0
+current_test=
+
+pass() { (( ++passed )) }
+fail() {
+  (( ++failed ))
+  print -u2 "  FAIL $current_test: $*"
+}
+# check <description> <command...>
+check() {
+  local what=$1
+  shift
+  if "$@" > /dev/null 2>&1; then pass; else fail $what; fi
+}
+# refuses <description> <command...>: the command must fail
+refuses() {
+  local what=$1
+  shift
+  if "$@" > /dev/null 2>&1; then fail "$what: it succeeded"; else pass; fi
+}
+# eq <description> <actual> <expected>
+eq() {
+  if [[ $2 == $3 ]]; then pass; else fail "$1: got '$2', want '$3'"; fi
+}
+# within <seconds> <command...>: polls until the command succeeds
+within() {
+  local tries=$(( $1 * 10 ))
+  shift
+  until "$@" > /dev/null 2>&1; do
+    (( --tries > 0 )) || return 1
+    sleep 0.1
+  done
+}
+has() { grep -qE -- $2 $1 2> /dev/null }
+
+run_test() {
+  current_test=$1
+  print "$1"
+  $1 || fail "stopped early"
+}
+
+# --- helpers ---
+
+fleet() { command fleet -s demo "$@" }
+pane() { tmux list-panes -s -t '=demo:' -F '#{pane_id} #{@agent_seat}' | awk -v s=$1 '$2 == s { print $1 }' }
+popt() { tmux display -p -t $(pane $1) "#{$2}" }
+sock() { popt $1 @agent_socket }
+inbox() { print -r -- $(sock $1).inbox }
+typed() { print -r -- $(sock $1).typed }
+messages() { [[ -f $(inbox $1) ]] && jq -r .message.content $(inbox $1) }
+received() { messages $1 | grep -qF -- $2 }
+note() { print -r -- $T/agents/demo/tasks/$1.md }
+field() { awk -v k=$2 'NR == 1 { next } /^---$/ { exit } index($0, k ": ") == 1 { print substr($0, length(k) + 3) }' $1 }
+wt() { print -r -- $T/repo/.claude/worktrees/demo-$1 }
+# replaces a note's Todo section with the given items
+todos() {
+  local f=$(note $1) item
+  shift
+  local -a lines
+  for item in "$@"; do lines+=("- $item"); done
+  # through the environment, since BSD awk refuses a newline in -v
+  ITEMS=${(pj:\n:)lines} awk '
+    $0 == "## Todo" { print; print ""; print ENVIRON["ITEMS"]; print ""; skip = 1; next }
+    skip && /^## / { skip = 0 }
+    !skip' $f > $f.tmp && mv $f.tmp $f
+}
+# runs a command as if from a seat's pane, the way its Bash tool would
+as() {
+  local seat=$1
+  shift
+  TMUX_PANE=$(pane $seat) "$@"
+}
+seats_up() {
+  local seat
+  for seat in orch w1 w2; do
+    [[ -S $(sock $seat) && $(popt $seat @agent_state) == idle ]] || return 1
+  done
+}
+
+# --- tests ---
+
+test_new() {
+  git -C $T/repo init -q -b main
+  git -C $T/repo commit -q --allow-empty -m init
+  # with no terminal to attach to, fleet new's last step fails; the fleet runs
+  (cd $T && command fleet new demo $T/repo --workers 2 > $T/new.log 2>&1 &)
+  check "the fleet's seats register sockets" within 20 seats_up
+  check "w1's worktree exists" test -d $(wt w1)
+  check "the notes repo has a brief" test -f $T/agents/demo/brief.md
+  check "the notes folder is a git repo" test -d $T/agents/demo/.git
+  check "the state folder records the repo" test -f $T/state/fleet/demo/repo
+  eq "fleet ls lists the fleet as running" "$(command fleet ls | awk '$1 == "demo" { print $2 }')" running
+}
+
+test_task() {
+  check "fleet task creates a note" fleet task t1 first task
+  eq "the note names its fleet" "$(field $(note t1) fleet)" demo
+  eq "the note has its title" "$(grep -m1 '^# ' $(note t1))" "# t1: first task"
+  refuses "a duplicate id" fleet task t1 again
+  refuses "an id with a slash" fleet task a/b bad
+  refuses "a follow-up to an open task" fleet task t1b --from t1
+}
+
+test_assign() {
+  todos t1 '[ ] one' '[ ] two'
+  # a commit on main after the worktree was made, which assign merges in
+  git -C $T/repo commit -q --allow-empty -m "main moves on"
+  local main=$(git -C $T/repo rev-parse main)
+  check "fleet assign" fleet assign w1 t1
+  eq "w1's branch has main's commit" "$(git -C $(wt w1) rev-parse HEAD)" $main
+  eq "the note records the worker" "$(field $(note t1) worker)" demo-w1
+  eq "the note records the base" "$(field $(note t1) base)" $main
+  eq "the note is assigned" "$(field $(note t1) status)" assigned
+  eq "the seat holds the task" "$(popt w1 @agent_task)" t1
+  check "w1 gets the task" within 3 received w1 "Task t1: read $(note t1)"
+  check "the assign is committed in the notes repo" git -C $T/agents/demo log -1 --format=%s --grep='assign t1'
+  fleet task t2 second > /dev/null
+  refuses "a second task on a busy seat" fleet assign w1 t2
+  tmux set -p -t $(pane w2) @agent_state busy
+  refuses "a seat that isn't idle" fleet assign w2 t2
+  tmux set -p -t $(pane w2) @agent_state idle
+}
+
+test_report() {
+  refuses "a report from outside the worker's pane" fleet report t1 progress hi
+  refuses "done with unchecked todos" as w1 command fleet report t1 done all done
+  check "a progress report" as w1 command fleet report t1 progress halfway
+  eq "the report sets the status" "$(field $(note t1) status)" progress
+  check "the report is logged in the note" has $(note t1) '^- .* progress: halfway$'
+  check "the orchestrator gets the report" within 3 received orch "Report: t1 progress: halfway"
+  check "fleet status shows it" eval "fleet status | grep -E '^w1 .* t1 .* progress'"
+}
+
+test_todo_check() {
+  local out
+  out=$(print '{"stop_hook_active":false}' | as w1 $root/hooks/todo-check)
+  eq "the first stop is blocked" "$(print -r -- $out | jq -r .decision)" block
+  print '{"stop_hook_active":true}' | as w1 $root/hooks/todo-check > /dev/null
+  eq "the second stop is stalled" "$(popt w1 @agent_state)" stalled
+  check "the orchestrator gets a stall notice" within 3 received orch "Notice: t1 stalled"
+  tmux set -p -t $(pane w1) @agent_state idle
+}
+
+test_diff() {
+  print change > $(wt w1)/file.txt
+  git -C $(wt w1) add file.txt
+  git -C $(wt w1) commit -q -m "w1 work"
+  check "a committed change shows in the task's diff" eval "fleet diff t1 --stat | grep -q file.txt"
+  print more >> $(wt w1)/file.txt
+  check "an uncommitted edit shows in the task's diff" eval "fleet diff t1 | grep -q '^+more'"
+  git -C $(wt w1) commit -q -am "w1 more work"
+  check "the branch diff shows it" eval "fleet diff w1 --stat | grep -q file.txt"
+  check "the calling worker's branch, with no argument" eval "as w1 command fleet diff --stat | grep -q file.txt"
+}
+
+test_restart() {
+  local old=$(sock w1)
+  check "fleet restart" fleet restart w1
+  eq "the seat keeps its task" "$(popt w1 @agent_task)" t1
+  check "the seat has a new socket" test $(sock w1) != $old
+  check "the new session gets the task again" within 3 received w1 "Task t1: your session restarted"
+  check "the new session starts in the worktree" within 3 eval "[[ \$(popt w1 pane_current_path) == $(wt w1) ]]"
+}
+
+# the stub never runs SessionEnd, so these run the hook as Claude Code would
+test_session_end() {
+  local s=$(sock w1) w1=$(pane w1)
+  tmux set -p -t $w1 @agent_state restarting
+  print '{"reason":"other"}' | as w1 $root/hooks/session-end
+  tmux set -t '=demo:' @fleet_stopping 1
+  tmux set -p -t $w1 @agent_socket $s
+  print '{"reason":"other"}' | as w1 $root/hooks/session-end
+  tmux set -u -t '=demo:' @fleet_stopping
+  tmux set -p -t $w1 @agent_socket $s
+  print '{"reason":"prompt_input_exit"}' | as w1 $root/hooks/session-end
+  check "the orchestrator gets a session-ended notice" within 3 received orch "Notice: t1: the worker's session ended (prompt_input_exit)"
+  eq "only that end sends a notice, not a restart or a kill" "$(messages orch | grep -c 'session ended')" 1
+  eq "the seat's socket is unset" "$(popt w1 @agent_socket)" ""
+  eq "the seat's state is unset" "$(popt w1 @agent_state)" ""
+  # the stub is still running; give the pane back what the hook unset
+  tmux set -p -t $w1 @agent_socket $s
+  tmux set -p -t $w1 @agent_state idle
+}
+
+test_clear() {
+  todos t1 '[x] one' '[x] two'
+  check "a done report" as w1 command fleet report t1 done finished
+  local head=$(git -C $(wt w1) rev-parse HEAD)
+  check "fleet clear" fleet clear w1
+  eq "the note records the end" "$(field $(note t1) end)" $head
+  eq "the note records the close date" "$(field $(note t1) closed)" $(date +%F)
+  eq "the seat drops the task" "$(popt w1 @agent_task)" ""
+  check "/clear is typed into the seat" within 3 grep -qx /clear $(typed w1)
+  check "the seat registers again" within 5 eval "[[ \$(popt w1 @agent_state) == idle ]]"
+}
+
+test_follow_up() {
+  check "a follow-up to a closed task" fleet task t3 --from t1
+  eq "the follow-up records what it follows" "$(field $(note t3) follows)" t1
+  check "the follow-up links its source" has $(note t3) '\[t1\]\(t1\.md\)'
+  check "the follow-up goes to the same worker" fleet assign w1 t3
+}
+
+test_abandon() {
+  check "fleet assign w2" fleet assign w2 t2
+  tmux set -p -t $(pane w2) @agent_state question
+  check "fleet abandon from state question" fleet abandon w2
+  eq "the note is abandoned" "$(field $(note t2) status)" abandoned
+  eq "the note records the end" "$(field $(note t2) end)" $(git -C $(wt w2) rev-parse HEAD)
+  check "the note logs it" has $(note t2) '^- .* abandoned: '
+  eq "the seat drops the task" "$(popt w2 @agent_task)" ""
+  # the stub reads the Escape that abandon types first as part of the line
+  check "/clear is typed into the seat" within 3 grep -q '/clear$' $(typed w2)
+  refuses "abandon on a seat with no task" fleet abandon w2
+}
+
+test_archive() {
+  local n=$T/agents/demo
+  # t1 closed last month, t2 this month; t3 is open, follows t1, and so
+  # keeps it in tasks/ until it closes
+  local last=$(date -v-1m +%Y-%m 2> /dev/null || date -d '-1 month' +%Y-%m)
+  sed -i.bak "s/^closed: .*/closed: $last-15/" $(note t1) && rm $(note t1).bak
+  print -- "- [t1](tasks/t1.md) and [t2](tasks/t2.md)" >> $n/backlog.md
+  print -- "See [t1](t1.md) and the [brief](../brief.md)." >> $(note t2)
+  eq "an open follow-up keeps its source" "$(fleet archive --dry-run | tail -n +2)" t2
+  check "fleet archive" fleet archive
+  local a2=$n/tasks/archive/$(date +%Y-%m)/t2.md
+  check "t2 moves into this month" test -f $a2
+  check "t2's link to t1, still open, goes up two folders" has $a2 '\[t1\]\(\.\./\.\./t1\.md\)'
+  check "t2's link to the brief goes up three" has $a2 '\[brief\]\(\.\./\.\./\.\./brief\.md\)'
+  check "the backlog follows t2" has $n/backlog.md "\(tasks/archive/$(date +%Y-%m)/t2\.md\)"
+
+  check "fleet clear w1 closes t3" fleet clear w1
+  eq "t1 and t3 go together, since t3 is t1's only holder" "$(fleet archive --dry-run | tail -n +2 | sort | xargs)" "t1 t3"
+  check "fleet archive after t3 closes" fleet archive
+  local a1=$n/tasks/archive/$last/t1.md
+  check "t1 moves into last month" test -f $a1
+  check "t2's link follows t1 into last month" has $a2 "\[t1\]\(\.\./$last/t1\.md\)"
+  check "the backlog follows t1" has $n/backlog.md "\(tasks/archive/$last/t1\.md\)"
+  check "t3's link follows t1 across months" has $n/tasks/archive/$(date +%Y-%m)/t3.md "\[t1\]\(\.\./$last/t1\.md\)"
+  check "the moves are committed as renames" eval "git -C $n show --stat -M HEAD | grep -q '=>'"
+}
+
+test_migrate() {
+  local f=$T/agents/demo/tasks/old.md
+  printf '# old: an old note\n\nFleet: demo\nTask: old\nStatus: done\n\n## Todo\n\n- [x] a\n' > $f
+  eq "migrate lists the old note" "$(fleet migrate --dry-run | tail -n +2)" old
+  check "fleet migrate" fleet migrate
+  check "the note has frontmatter" eval "[[ \$(head -1 $f) == --- ]]"
+  eq "the status carries over" "$(field $f status)" done
+}
+
+test_kill() {
+  check "fleet kill" fleet kill
+  check "the session is gone" within 3 eval "! tmux has-session -t '=demo:'"
+  eq "fleet ls shows it stopped" "$(command fleet ls | awk '$1 == "demo" { print $2 }')" stopped
+}
+
+run_test test_new
+run_test test_task
+run_test test_assign
+run_test test_report
+run_test test_todo_check
+run_test test_diff
+run_test test_restart
+run_test test_session_end
+run_test test_clear
+run_test test_follow_up
+run_test test_abandon
+run_test test_archive
+run_test test_migrate
+run_test test_kill
+
+print "$passed passed, $failed failed"
+(( failed == 0 ))

@@ -954,7 +954,7 @@ relink() {
     files+=(${(P)i})
     names+=(-e ${${(P)i}:t})
   done
-  files+=(${(f)"$(cd $notes && grep -rlF --include='*.md' --exclude-dir=.git $names . | sed 's|^\./||')"})
+  files+=(${(f)"$(cd $notes && { grep -rlF --include='*.md' --exclude-dir=.git $names . || true } | sed 's|^\./||')"})
   files=(${(u)files:#})
   (cd $notes && perl -i -pe '
     BEGIN {
@@ -1009,9 +1009,23 @@ fleet_archive() {
     # and an abandoned task ships nothing
     [[ $ship != (pr|draft) || -n $(note_get $f pr) || $(note_get $f status) == abandoned ]] || continue
     tmux list-panes -s -t "=$S:" -F '#{@agent_task}' | grep -qxF -- $id && continue
-    # a link to the note, or a Follows line naming it, from another open note
-    grep -lE -- "\]\($id\.md\)|\(tasks/$id\.md\)|^[Ff]ollows: *$id\$" ${open:#$f} /dev/null | grep -q . && continue
     moved+=($id)
+  done
+  # A note stays while a link to it, or a follows: line naming it, sits in a
+  # note that stays. Notes moving together don't hold each other back, and
+  # each note dropped here can hold back others, so this runs until nothing
+  # changes.
+  local -a staying
+  local changed=1
+  while (( changed )); do
+    changed=0
+    staying=(${open:#(${(j:|:)~${moved/#/$notes/tasks/}}).md})
+    for id in $moved; do
+      if grep -lE -- "\]\($id\.md\)|\(tasks/$id\.md\)|^[Ff]ollows: *$id\$" $staying /dev/null | grep -q .; then
+        moved=(${moved:#$id})
+        changed=1
+      fi
+    done
   done
   if (( ! $#moved )); then
     print "nothing to archive"
