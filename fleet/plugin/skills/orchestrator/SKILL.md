@@ -54,11 +54,20 @@ Workers report through fleet. A report arrives as `From fleet, sent by <worker> 
 - `progress`: note it. Act only if it changes the plan.
 - `error`: read the note and the worker's pane state, then decide whether to bump it, restart it with the user's approval, or report to the user. When the error is a push or PR that failed, such as a repo with no remote, tell the user. If they agree, set the note's `ship:` to `no` and `fleet bump` the worker, so the task can close.
 
+## Notices from workers' hooks
+
+A worker's hooks send what the worker can't report itself, as `From fleet, sent by <worker> (handle per /fleet:orchestrator skill):` followed by `Notice: <text>`.
+
+- `<id> stalled`: the worker stopped twice with unchecked todos and no question. Read its note, then `fleet bump <id>` with any needed change written into the note, or report it to the user.
+- `<id>: the worker's session ended`: the note is still open with nobody on it. Tell the user. `fleet restart <seat>` relaunches the seat on the same task, and `fleet abandon <seat>` closes the task. Both prompt the user.
+
 Seat states that need you, from `fleet status` or the pane border:
 
-- `stalled`: the worker stopped with unchecked todos and no question. Read its note, then `fleet bump <id>` with any needed change written into the note, or report it to the user.
+- `stalled`: as for the notice above.
 - `waiting`: a permission prompt is open in the worker's pane. Only the user can answer it; tell them which seat.
-- No state at all for a seat that held a task: its session has likely ended. Tell the user, who can `fleet restart` it.
+- No state at all for a seat that held a task: its session has ended. Handle it as the session-ended notice.
+
+A task that should stop where it is, such as a stalled worker the user gives up on or a question nobody will answer, closes with `fleet abandon <seat>`, with the user's approval. It records the note as `status: abandoned` and clears the seat from any state.
 
 `fleet clear` needs an idle seat. A worker that just reported `done` may still be finishing its turn; wait until `fleet status` shows it `idle`, then clear.
 

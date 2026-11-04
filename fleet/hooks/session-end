@@ -1,0 +1,21 @@
+#!/bin/sh
+# Claude Code SessionEnd hook for fleet seats. A worker whose session ends
+# while it holds a task tells the orchestrator, since the note stays open
+# with nobody working it. `fleet clear` drops the task before its /clear and
+# `fleet restart` marks the pane restarting, so neither sends a notice. Then
+# it unsets the pane's @agent_state and the @agent_socket the register hook
+# records.
+
+input=$(cat)
+[ -n "$TMUX_PANE" ] || exit 0
+here=$(dirname "$0")
+
+task=$(tmux display -p -t "$TMUX_PANE" '#{@agent_task}')
+state=$(tmux display -p -t "$TMUX_PANE" '#{@agent_state}')
+if [ -n "$task" ] && [ "$state" != restarting ]; then
+  reason=$(printf '%s' "$input" | jq -r '.reason // "other"' 2> /dev/null)
+  "$here/notify" "$task: the worker's session ended ($reason) while it held the task. The note is still open. fleet restart relaunches the seat with the task; fleet abandon closes it."
+fi
+
+tmux set -p -u -t "$TMUX_PANE" @agent_state
+tmux set -p -u -t "$TMUX_PANE" @agent_socket

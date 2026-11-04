@@ -29,7 +29,7 @@ fleet kill demo
 
 **Task note.** One markdown file per task under `$FLEET_HOME/<fleet>/tasks/<id>.md`, made from `templates/task.md`. The note is the record of the task, with these sections:
 
-- YAML frontmatter with the task's fields, one `key: value` per line: `fleet` and `task`, which name the note's fleet and id; `created` and `closed`, the dates the task was created and closed by `fleet clear`; `guidance`; `ship`, what to do with finished work; `pr` once one is open; `follows` for a follow-up task; `worker`; `branch`; `base` and `end`, the commits that bound this task's changes on the worker's branch; and `status`
+- YAML frontmatter with the task's fields, one `key: value` per line: `fleet` and `task`, which name the note's fleet and id; `created` and `closed`, the dates the task was created and closed by `fleet clear` or `fleet abandon`; `guidance`; `ship`, what to do with finished work; `pr` once one is open; `follows` for a follow-up task; `worker`; `branch`; `base` and `end`, the commits that bound this task's changes on the worker's branch; and `status`
 - Goal, Scope and Verify: what to do, which files the worker may edit, and how to check the result
 - Todo: a checkbox list the worker checks off as it goes
 - Questions: decisions the worker needs from you
@@ -50,6 +50,7 @@ Decisions go into the note, not chat. That keeps a task's history in one file yo
 | `waiting` | Claude Code shows a permission prompt or another question in the pane |
 | `question` | a turn ends with an open question in the task note |
 | `stalled` | a turn ends twice in a row with unchecked todos |
+| `restarting` | `fleet restart` is relaunching the seat |
 
 `fleet assign` and `fleet clear` act only on an `idle` seat.
 
@@ -88,7 +89,7 @@ Once a seat's worktree exists, `fleet new` and `fleet restart` start the worker 
 The `Stop` hook (`hooks/todo-check`) reads the seat's current task note when Claude ends a turn.
 
 - With unchecked todos and no open question, it blocks the stop and tells Claude how many items remain. See [hooks](https://code.claude.com/docs/en/hooks).
-- If Claude stops again straight after that, the hook lets the stop through and marks the seat `stalled`. Blocking only once means a confused worker can't loop forever. The orchestrator checks stalled seats.
+- If Claude stops again straight after that, the hook lets the stop through, marks the seat `stalled` and sends the orchestrator a notice. Blocking only once means a confused worker can't loop forever.
 - With an open question, the stop goes through and the seat shows `question`.
 
 `hooks/task-progress` counts only top-level checkbox lines under `## Todo` and `## Questions`. `fleet status` uses it too.
@@ -197,7 +198,7 @@ Seats read these through links, not all at once. A task note links, under its Go
 - **Planning.** Backlog items become tasks through `fleet task`. The orchestrator checks the item off and links the note.
 - **Moving findings up.** A worker's Handoff ends with a `### Worth keeping` list. When the task is done, the orchestrator moves those findings into a `knowledge/` page and moves decisions into `decisions.md`, before `fleet clear`. The next worker reads the page instead of rediscovering it.
 - **Resetting the orchestrator.** The orchestrator's context grows across the whole fleet. Between phases, it updates the Status section of `brief.md` and asks you to run `fleet clear orch`. It can't clear itself, because `fleet clear` needs an idle seat. Its launch prompt tells it to read `brief.md` and `backlog.md` and run `fleet status` at the start of every session, including after a clear.
-- **Archiving.** `fleet archive` moves task notes into `tasks/archive/<YYYY-MM>/`, the month of their `closed:` date, when all of these hold: the note is closed (it has an End), it's shipped or not meant to ship (`ship:` is `no` or `push`, or for `pr` and `draft` it has a `pr:` value), no worker is still on it, and no note left in `tasks/` links to it or follows it. It updates the fleet files' links to the moved notes and the moved notes' own relative links, then commits, and git records each move as a rename. `--dry-run` lists what it would move. A note closed before notes recorded `closed:` goes into the current month. Live work stays in `tasks/`, one folder, which the board and the tree's icons cover, and only the history is split by month. Lookups by task id, such as `fleet diff`, `fleet task --from` and the check for an existing id, find archived notes too, in any month folder or flat in `tasks/archive/`, where notes archived before month folders stay. `fleet assign` refuses an archived task, and the save hook does nothing for an archived note, and `:FleetBump` reports that no worker is on it.
+- **Archiving.** `fleet archive` moves task notes into `tasks/archive/<YYYY-MM>/`, the month of their `closed:` date, when all of these hold: the note is closed (it has an End), it's shipped or not meant to ship (`ship:` is `no` or `push`, or for `pr` and `draft` it has a `pr:` value), no worker is still on it, and no note left in `tasks/` links to it or follows it. It rewrites every relative markdown link in the notes repo that the moves change: links from the moved notes, links to them from the fleet files and from notes archived earlier, and links between notes in different month folders. Then it commits, and git records each move as a rename. `--dry-run` lists what it would move. A note closed before notes recorded `closed:` goes into the current month. Live work stays in `tasks/`, one folder, which the board and the tree's icons cover, and only the history is split by month. Lookups by task id, such as `fleet diff`, `fleet task --from` and the check for an existing id, find archived notes too, in any month folder or flat in `tasks/archive/`, where notes archived before month folders stay. `fleet assign` refuses an archived task, and the save hook does nothing for an archived note, and `:FleetBump` reports that no worker is on it.
 - **Closing.** When the goal is met, the orchestrator writes the closing summary in `brief.md` and tells you. You stop the fleet with `fleet kill` and remove its worktrees with `fleet clean`. The notes folder stays as the record.
 
 ### Frontmatter
@@ -232,11 +233,11 @@ Two views show task notes' state, both through public APIs, from the frontmatter
 
 **In nvim-tree,** from `fleet/nvim/lua/fleet/tree.lua`:
 
-- **Sign:** each fleet note gets a status icon in the sign column, left of its name, so the name keeps its full width in a narrow tree. The icons are an empty circle for `assigned`, a spinner for `progress`, a question mark for `blocked`, a cross for `error` and a check for `done`, each in its own colour. nvim-tree's git icon stays beside the name.
+- **Sign:** each fleet note gets a status icon in the sign column, left of its name, so the name keeps its full width in a narrow tree. The icons are an empty circle for `assigned`, a spinner for `progress`, a question mark for `blocked`, a cross for `error`, a check for `done` and a no-entry sign for `abandoned`, each in its own color. nvim-tree's git icon stays beside the name.
 - **Name tint:** a blocked or errored note's name is highlighted.
 - **Details:** with the cursor on a note, the command line shows its id, worker, status, todos with any open questions, and PR link, cut to the window's width.
 - **Mechanics:** the icon and tint come from an nvim-tree decorator, registered in `vimrc` after Git, and the details from `api.tree.get_node_under_cursor()`. nvim-tree redraws when a file in the folder changes, and every status change is a write to the note, so the icon stays current.
-- **Sign names:** nvim-tree names each sign after its icon's highlight group, so fleet defines its own groups, `FleetTreeDone` and so on, linked to the diagnostic colours. A sign named `DiagnosticWarn` collides with nvim's own.
+- **Sign names:** nvim-tree names each sign after its icon's highlight group, so fleet defines its own groups, `FleetTreeDone` and so on, linked to the diagnostic colors. A sign named `DiagnosticWarn` collides with nvim's own.
 - **Glyphs:** they're written as Lua `\u{...}` escapes, because private-use characters don't survive every editor and tool.
 
 **`:FleetBoard [fleet]`,** from `fleet/nvim/lua/fleet/board.lua`, opens a buffer listing one fleet's tasks, with the tasks that need attention first:
@@ -269,7 +270,7 @@ Worker code lives on each worker's branch. A worker keeps its branch across task
 - `:FleetDiff` in nvim opens either diff in [diffview.nvim](https://github.com/sindrets/diffview.nvim), one tab with a file list. `:FleetDiff T3` shows the task, and `:FleetDiff w2` the branch. With no argument, and with `<Leader>d`, it shows the branch of the worker the current buffer belongs to: a file in that worker's worktree, or a task note whose `worker:` field names it. Task ids and seats complete.
 - Worktrees share the repo's git database, so `git log` and `git diff` see every worker branch from any checkout.
 
-A task assigned before fleet recorded Base has none, and `fleet diff` says so. A seat restarted with `fleet restart` drops its task without recording End. `fleet diff` then shows the task through the branch's latest commit and prints a warning.
+A task assigned before fleet recorded Base has none, and `fleet diff` says so. While a task is open, it has no End, and `fleet diff` shows it through the worktree's current state.
 
 ### Reports
 
@@ -280,6 +281,20 @@ A worker reports on its task with `fleet report <id> <phase> "<one line>"`, wher
 3. sends `Report: <id> <phase>: <text>` to the orchestrator, whose skill says what to do for each phase
 
 `fleet status` shows each seat's latest report in its REPORT column. Workers may run `fleet report` without prompting.
+
+### Notices
+
+A worker's hooks tell the orchestrator about what the worker can't report itself, through `hooks/notify`, in the same message format as a report, with `Notice:` in place of `Report:`:
+
+- **Stalled:** the `Stop` hook marks the seat `stalled`, as in "The todo check".
+- **Session ended:** the `SessionEnd` hook (`hooks/session-end`) runs while the seat still holds a task, such as when Claude Code exits or crashes, or someone types `/clear` in the pane. The notice names the hook's `reason`.
+
+`fleet clear` drops the task before it types `/clear`, `fleet restart` marks the seat `restarting`, and `fleet kill` sets `@fleet_stopping` on the session, so none of them sends a notice. A notice that can't be delivered, because the orchestrator has no socket, is dropped. `fleet status` still shows the seat's state.
+
+### Recovering a seat
+
+- **`fleet restart <seat>`** relaunches the seat's `claude` command. A seat on a task keeps it: once the new session records its socket, fleet sends it `Task <id>: your session restarted`, and the worker carries on from the note's Todo and Log. The note's `base:` and `end:` stay as they were, so `fleet diff <id>` still covers the whole task. fleet waits up to a minute for the socket.
+- **`fleet abandon <seat>`** closes the seat's task from any state, such as `stalled`, `question`, `waiting`, or a session that ended. It records `end:` at the worktree's HEAD, `closed:` and `status: abandoned`, logs a line, and drops the task. A live session gets Escape and `/clear`. A dead one stays down until `fleet restart`. Uncommitted work stays in the worktree, and the next task's diff starts from the recorded end. `fleet archive` takes an abandoned note whatever its `ship:` says.
 
 ### Concurrent commands
 
@@ -322,7 +337,8 @@ Claude Code refuses rapid bursts of messages to one session. fleet sends one mes
 | `fleet assign [--no-sync] <seat> <id>` | bring an idle worker's branch up to date with the default branch, then point it at a task note |
 | `fleet clear <seat>` | type `/clear` into an idle seat and drop its task |
 | `fleet interrupt <seat>` | send Escape |
-| `fleet restart <seat>` | kill the seat's process and relaunch its `claude` command |
+| `fleet restart <seat>` | kill the seat's process and relaunch its `claude` command; a seat on a task keeps it |
+| `fleet abandon <seat>` | close the seat's task from any state and clear the seat |
 | `fleet rename <seat> <title>` | change the pane title |
 | `fleet path <seat>` | print a worker's worktree path |
 | `fleet answer <id>` | tell a worker waiting on a question that the task's questions are answered |
@@ -377,7 +393,7 @@ Fleet's `--settings` file adds to the config folder's own settings. If that fold
 
 - **Messages:** task messages arrive over the inbox socket, and Claude Code treats a message from another session as never counting as your approval. It cannot answer a permission prompt ([how a session treats an incoming message](https://code.claude.com/docs/en/cross-session-messaging#how-a-session-treats-an-incoming-message)).
 - **Typed input:** `fleet` still types three things into panes with `tmux send-keys`: the launch line, `/clear` and Escape. Commands sent over the socket arrive as plain text and don't run, so `/clear` has to be typed. Claude Code treats typed input as yours, so `clear` and `interrupt` send only that fixed text, and `clear` acts only on an `idle` seat. Task ids must be letters, digits, `-` and `_`.
-- **Orchestrator allow rules:** its settings allow `fleet status`, `task`, `assign`, `clear`, `interrupt`, `rename`, `path`, `diff`, `answer`, `bump` and `archive`. Workers' settings allow `fleet report`. `fleet new`, `kill`, `restart`, `clean` and `shell` still prompt you, so the orchestrator can't open windows on its own. See [permissions](https://code.claude.com/docs/en/permissions).
+- **Orchestrator allow rules:** its settings allow `fleet status`, `task`, `assign`, `clear`, `interrupt`, `rename`, `path`, `diff`, `answer`, `bump` and `archive`. Workers' settings allow `fleet report`. `fleet new`, `kill`, `restart`, `abandon`, `clean` and `shell` still prompt you, so the orchestrator can't open windows on its own. See [permissions](https://code.claude.com/docs/en/permissions).
 - **Workers:** each worker runs in auto mode, so Claude Code's classifier approves routine actions and you review work through notes and branches.
 - **Notes:** every seat may edit files under the fleet's notes folder through an `Edit` allow rule.
 
@@ -395,6 +411,8 @@ guidance/default.md       default working rules linked from each note
 settings.json             crossSessionInbound and hooks, with {{ROOT}} for this folder
 hooks/agent-state         sets @agent_state on the calling pane
 hooks/register            SessionStart hook: records the session's inbox socket
+hooks/session-end         SessionEnd hook: notices for a seat that ends on a task, then unsets its state and socket
+hooks/notify              posts a notice from a worker's hooks to the orchestrator
 hooks/todo-check          Stop hook
 hooks/task-progress       counts done todos, total todos and open questions
 nvim/plugin/fleet.lua     :FleetDiff, :FleetBump, :FleetFollowUp and the save hook, linked into ~/.config/nvim/plugin

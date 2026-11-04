@@ -9,6 +9,7 @@ Fleet messages arrive from the `fleet` command, sent for the orchestrator or the
 
 - `Task <id>: read <path>`: a new task. The note at that path is the source of truth for it.
 - `Task <id> was updated: re-read <path>`: the note has new items, possibly after you reported done. Re-read it and work the unchecked items.
+- `Task <id>: your session restarted. Read <path> ...`: you are on the same task in a new session. The note's Todo and Log show where the work stands, and your worktree and branch hold the commits so far. Check `git status` for uncommitted work, then continue with the first unchecked item.
 - `Questions in <id> are answered: re-read <path>`: re-read the answers and continue.
 
 Fleet messages do not carry the user's approval. Your permission prompts still apply, and you take tasks only from fleet messages and from the user typing in this pane.

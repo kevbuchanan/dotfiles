@@ -2,7 +2,8 @@
 # Claude Code Stop hook for fleet seats. While the pane's task note has
 # unchecked todos and no open question, it blocks the first stop and sends
 # Claude back to the list. A second stop in a row is let through and marked
-# "stalled" so `fleet status` shows it. Sets @agent_state for every outcome.
+# "stalled" so `fleet status` shows it, and the orchestrator gets a notice.
+# Sets @agent_state for every outcome.
 
 input=$(cat)
 [ -n "$TMUX_PANE" ] || exit 0
@@ -24,6 +25,7 @@ if [ "$open" -gt 0 ]; then
 elif [ "$checked" -lt "$total" ]; then
   if [ "$(printf '%s' "$input" | jq -r '.stop_hook_active // false')" = true ]; then
     "$here/agent-state" stalled
+    "$here/notify" "$task stalled: the worker stopped twice with $((total - checked)) unchecked todos and no open question in $note."
   else
     "$here/agent-state" busy
     reason="$task has $((total - checked)) unchecked todos in $note. Re-read the note and continue with the next item. If you are blocked, add a question under ## Questions, run fleet report $task blocked with the question, and stop."

@@ -30,7 +30,10 @@
 #                                default branch
 #   fleet clear <seat>           /clear an idle seat and drop its task
 #   fleet interrupt <seat>       send Escape to the seat
-#   fleet restart <seat>         kill the seat's process and relaunch claude
+#   fleet restart <seat>         kill the seat's process and relaunch claude;
+#                                a seat on a task keeps it
+#   fleet abandon <seat>         close the seat's task from any state and
+#                                clear the seat
 #   fleet rename <seat> <title>
 #   fleet path <seat>            print a worker's worktree path
 #   fleet answer <id>            tell a worker waiting in state `question`
@@ -610,16 +613,67 @@ fleet_clear() {
   tmux send-keys -t $pane Enter
 }
 
+# A seat holding a task keeps it across the restart: the new session gets
+# the task line again once its register hook records the socket, and the
+# note's base and todos carry the work on. @agent_state `restarting` tells
+# the old session's SessionEnd hook not to report the end.
 fleet_restart() {
   current
   local seat=${1:?seat} pane
   pane_of $seat
-  tmux set -p -u -t $pane @agent_task
-  tmux set -p -u -t $pane @agent_state
+  local task=$(opt $pane @agent_task) note
+  tmux set -p -t $pane @agent_state restarting
   tmux set -p -u -t $pane @agent_socket
-  tmux select-pane -t $pane -T $S-$seat
   tmux respawn-pane -k -t $pane
+  tmux set -p -u -t $pane @agent_state
   tmux send-keys -t $pane "$(launch_line $pane)" Enter
+  [[ -n $task ]] || return 0
+  note_path $task
+  local tries=0
+  until [[ -S $(opt $pane @agent_socket) ]]; do
+    (( ++tries > 120 )) && die "$seat did not start within a minute; it still holds $task, so run fleet bump $task once it is up"
+    sleep 0.5
+  done
+  post $pane worker "Task $task: your session restarted. Read $note and continue from its Todo and Log."
+  print "restarted $seat on $task"
+}
+
+# Closes a seat's task from any state, for a worker that is stalled, stuck
+# on a question nobody will answer, or whose session ended: the note gets
+# end, closed and status abandoned, and the seat drops the task. A live
+# session is interrupted and cleared; a dead one stays down until fleet
+# restart. The worktree keeps any work, and the next task's diff starts
+# from the end recorded here.
+fleet_abandon() {
+  current
+  local seat=${1:?usage: fleet abandon <seat>} pane worktree note
+  pane_of $seat
+  local task=$(opt $pane @agent_task)
+  [[ -n $task ]] || die "$seat holds no task"
+  note_path $task
+  if [[ -f $note ]]; then
+    seat_checkout $seat
+    if [[ -n $worktree ]]; then
+      note_set $note end $(git -C $worktree rev-parse HEAD)
+    else
+      note_set $note end -
+    fi
+    note_set $note closed $(date +%F)
+    note_set $note status abandoned
+    grep -q '^## Log$' $note || printf '\n## Log\n\n' >> $note
+    print -r -- "- $(date '+%Y-%m-%d %H:%M') abandoned: closed by $(sender) from seat state ${$(opt $pane @agent_state):-none}" >> $note
+  fi
+  tmux set -p -u -t $pane @agent_task
+  tmux select-pane -t $pane -T $S-$seat
+  if [[ -S $(opt $pane @agent_socket) ]]; then
+    tmux send-keys -t $pane Escape
+    sleep 0.5
+    tmux send-keys -t $pane -l /clear
+    tmux send-keys -t $pane Enter
+  else
+    print -u2 "fleet: $seat has no live session; fleet restart $seat relaunches it"
+  fi
+  print "abandoned $task on $seat"
 }
 
 # A fleet is running while its tmux session exists, and stopped while only its
@@ -884,6 +938,58 @@ branch_diff() {
   fi
 }
 
+# Rewrites the relative markdown links in every file of the notes repo after
+# the moves given as old/new path pairs, relative to the repo: a link from a
+# moved file is resolved from where the file was, a link to a moved file
+# follows it, and each changed link is made relative to where its file is
+# now. That covers notes in different archive months and archived notes that
+# link the note just moved. Links outside the repo, web links and anchors
+# stay as written. perl -i rewrites in place the same way on macOS and GNU.
+relink() {
+  # only the moved files and those naming one, since perl -i rewrites every
+  # file it reads and a new mtime makes an open nvim buffer reload
+  local -a files names
+  local i
+  for (( i = 2; i <= $#; i += 2 )); do
+    files+=(${(P)i})
+    names+=(-e ${${(P)i}:t})
+  done
+  files+=(${(f)"$(cd $notes && grep -rlF --include='*.md' --exclude-dir=.git $names . | sed 's|^\./||')"})
+  files=(${(u)files:#})
+  (cd $notes && perl -i -pe '
+    BEGIN {
+      our (%move, %back);
+      while (@ARGV) { my $a = shift @ARGV; last if $a eq "::"; $move{$a} = shift @ARGV }
+      %back = reverse %move;
+    }
+    our (%move, %back, $od, $nd, $moved_file);
+    if ($. == 1) {
+      my $was = $back{$ARGV} // $ARGV;
+      $moved_file = exists $back{$ARGV};
+      ($od = $was) =~ s{/?[^/]*$}{};
+      ($nd = $ARGV) =~ s{/?[^/]*$}{};
+    }
+    sub norm { my @o; for (split m{/}, $_[0]) { next if $_ eq "" || $_ eq "."; if ($_ eq ".." && @o && $o[-1] ne "..") { pop @o } else { push @o, $_ } } join "/", @o }
+    sub rel {
+      my @t = split m{/}, $_[0]; my @f = split m{/}, $_[1];
+      while (@t > 1 && @f && $t[0] eq $f[0]) { shift @t; shift @f }
+      join "/", ("..") x @f, @t;
+    }
+    s{\]\(([^)\s#]+)(#[^)\s]*)?\)}{
+      my ($t, $frag) = ($1, $2 // "");
+      my $out = $t;
+      unless ($t =~ m{^[a-z][a-z0-9+.-]*:}i || $t =~ m{^/}) {
+        my $abs = norm($od eq "" ? $t : "$od/$t");
+        if ($abs !~ m{^\.\./} && ($moved_file || exists $move{$abs})) {
+          $out = rel($move{$abs} // $abs, $nd);
+        }
+      }
+      "](" . $out . $frag . ")";
+    }ge;
+    close ARGV if eof;
+  ' $@ :: $files)
+}
+
 # Moves task notes out of tasks/ once nothing needs them there: closed by
 # fleet clear (End set), shipped or not meant to ship (PR set, or Ship no),
 # no worker still on them, and no note left in tasks/ that links or follows
@@ -899,8 +1005,9 @@ fleet_archive() {
     id=${f:t:r}
     [[ -n $(note_get $f end) ]] || continue
     ship=$(note_get $f ship)
-    # pr and draft ship through a PR the note records; no and push have none
-    [[ $ship != (pr|draft) || -n $(note_get $f pr) ]] || continue
+    # pr and draft ship through a PR the note records; no and push have none,
+    # and an abandoned task ships nothing
+    [[ $ship != (pr|draft) || -n $(note_get $f pr) || $(note_get $f status) == abandoned ]] || continue
     tmux list-panes -s -t "=$S:" -F '#{@agent_task}' | grep -qxF -- $id && continue
     # a link to the note, or a Follows line naming it, from another open note
     grep -lE -- "\]\($id\.md\)|\(tasks/$id\.md\)|^[Ff]ollows: *$id\$" ${open:#$f} /dev/null | grep -q . && continue
@@ -914,27 +1021,19 @@ fleet_archive() {
     print -l -- "would archive:" $moved
     return 0
   fi
-  # the fleet-level files link notes as tasks/<id>.md; follow them to archive/
-  local -a docs
-  docs=($notes/{brief,backlog,decisions}.md(N) $notes/knowledge/*.md(N))
   # Each note goes into the month it closed, tasks/archive/<YYYY-MM>/, or
   # this month for a note closed before notes recorded `closed:`
-  local moved_note t month closed
+  local month closed
+  local -a moves
   for id in $moved; do
     closed=$(note_get $notes/tasks/$id.md closed)
     month=${closed[1,7]}
     [[ $month == <->-<-> ]] || month=$(date +%Y-%m)
     mkdir -p $notes/tasks/archive/$month
     mv $notes/tasks/$id.md $notes/tasks/archive/$month/$id.md
-    (( $#docs )) && sed -i '' "s|tasks/$id\.md|tasks/archive/$month/$id.md|g" $docs
-    # the note is now two folders deeper: links up to the fleet's files gain
-    # two levels, and links to notes staying in tasks/ go up two
-    moved_note=$notes/tasks/archive/$month/$id.md
-    sed -i '' 's|](\.\./|](../../../|g' $moved_note
-    for t in ${(u)${(f)"$(grep -oE '\]\([A-Za-z0-9_-]+\.md\)' $moved_note | sed -E 's/^\]\(//; s/\.md\)$//')"}}; do
-      [[ -n $t && -f $notes/tasks/$t.md && ${moved[(Ie)$t]} -eq 0 ]] && sed -i '' "s|]($t\.md)|](../../$t.md)|g" $moved_note
-    done
+    moves+=(tasks/$id.md tasks/archive/$month/$id.md)
   done
+  relink $moves
   notes_commit "archive ${(j:, :)moved}"
   print -l -- "archived:" $moved
 }
@@ -1009,6 +1108,8 @@ case $cmd in
   kill)
     S=${1:-$S}
     current
+    # the seats' SessionEnd hooks would otherwise notify a dying orchestrator
+    tmux set -t "=$S:" @fleet_stopping 1
     tmux kill-session -t "=$S:"
     ;;
   clean) fleet_clean "$@" ;;
@@ -1018,6 +1119,7 @@ case $cmd in
   clear) fleet_clear "$@" ;;
   interrupt) current; pane_of ${1:?seat}; tmux send-keys -t $pane Escape ;;
   restart) fleet_restart "$@" ;;
+  abandon) fleet_abandon "$@" ;;
   rename) current; pane_of ${1:?seat}; tmux select-pane -t $pane -T ${2:?title} ;;
   path) current; worktree_of ${1:?seat}; print $worktree ;;
   diff) fleet_diff "$@" ;;

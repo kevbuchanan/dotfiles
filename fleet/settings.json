@@ -61,7 +61,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "{{ROOT}}/hooks/agent-state clear"
+            "command": "{{ROOT}}/hooks/session-end"
           }
         ]
       }

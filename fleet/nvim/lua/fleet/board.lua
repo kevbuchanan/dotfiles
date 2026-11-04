@@ -15,7 +15,7 @@ local ns = vim.api.nvim_create_namespace("FleetBoard")
 local REFRESH_MS = 5000
 
 -- needs attention first, finished last
-local rank = { error = 1, blocked = 2, progress = 3, assigned = 4, [""] = 5, done = 6 }
+local rank = { error = 1, blocked = 2, progress = 3, assigned = 4, [""] = 5, done = 6, abandoned = 6 }
 
 -- A running fleet records its notes folder on its tmux session; a stopped
 -- one is found under $FLEET_HOME.

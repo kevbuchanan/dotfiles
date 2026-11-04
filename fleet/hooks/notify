@@ -1,0 +1,21 @@
+#!/bin/sh
+# Posts a notice from the seat in $TMUX_PANE to its fleet's orchestrator, in
+# the format fleet's own messages use: `fleet report` covers what a worker
+# says, and this covers what its hooks see, such as a stall or an ended
+# session, so the orchestrator hears of them without polling. A failed
+# delivery is dropped: the orchestrator also sees the seat's state in
+# `fleet status`. Usage: notify <text>
+
+[ -n "$TMUX_PANE" ] || exit 0
+seat=$(tmux display -p -t "$TMUX_PANE" '#{@agent_seat}')
+case $seat in w[0-9]*) ;; *) exit 0 ;; esac
+session=$(tmux display -p -t "$TMUX_PANE" '#{session_name}')
+[ -z "$(tmux show -qv -t "=$session:" @fleet_stopping)" ] || exit 0
+
+sock=$(tmux list-panes -s -t "$TMUX_PANE" -F '#{@agent_seat} #{@agent_socket}' | awk '$1 == "orch" { print $2; exit }')
+[ -n "$sock" ] && [ -S "$sock" ] || exit 0
+
+msg="From fleet, sent by worker $session-$seat (handle per /fleet:orchestrator skill):
+Notice: $1"
+jq -cn --arg c "$msg" '{type: "user", message: {role: "user", content: $c}}' | nc -U -w 2 "$sock" > /dev/null 2>&1
+exit 0

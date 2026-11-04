@@ -25,6 +25,7 @@ M.status = {
   blocked = { icon = "\u{f059}", hl = "FleetTreeBlocked", link = "DiagnosticWarn" },
   error = { icon = "\u{f057}", hl = "FleetTreeError", link = "DiagnosticError" },
   done = { icon = "\u{f012c}", hl = "FleetTreeDone", link = "DiagnosticOk" },
+  abandoned = { icon = "\u{f05e}", hl = "FleetTreeAbandoned", link = "Comment" },
 }
 for _, st in pairs(M.status) do
   vim.api.nvim_set_hl(0, st.hl, { link = st.link, default = true })

@@ -1,13 +1,9 @@
 #!/bin/sh
 # Claude Code hook: sets @agent_state on the session's tmux pane, which the
-# pane-border-format in tmux.conf displays. "clear", at SessionEnd, unsets
-# it and the @agent_socket the register hook records.
+# pane-border-format in tmux.conf displays.
 
 [ -n "$TMUX_PANE" ] || exit 0
+# settings rendered by an older `fleet new` run `agent-state clear` at SessionEnd
+[ "$1" = clear ] && exec "$(dirname "$0")/session-end"
 
-if [ "$1" = clear ]; then
-  tmux set -p -u -t "$TMUX_PANE" @agent_state
-  tmux set -p -u -t "$TMUX_PANE" @agent_socket
-else
-  tmux set -p -t "$TMUX_PANE" @agent_state "$1"
-fi
+tmux set -p -t "$TMUX_PANE" @agent_state "$1"
