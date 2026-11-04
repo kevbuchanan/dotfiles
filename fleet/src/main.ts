@@ -8,9 +8,10 @@ import * as seat from "./cmd/seat.ts"
 import { die, FleetError } from "./run.ts"
 
 const USAGE = `fleet: Claude Code fleets in tmux. Each fleet is one tmux session with an
-orchestrator seat in window \`orch\` and worker seats w1..wN in window
-\`workers\`. Seats share task notes in $FLEET_HOME/<fleet>/tasks, a git repo,
-so \`git diff\` there shows what agents wrote since the last assignment.
+orchestrator seat in window \`orch\`, worker seats w1..wN in window
+\`workers\`, and a shell in the project folder in window \`shell\`. Seats
+share task notes in $FLEET_HOME/<fleet>/tasks, a git repo, so \`git diff\`
+there shows what agents wrote since the last assignment.
 
   fleet new [name] [dir] [--workers N] [--worker-mode M]
             [--orch-model M] [--worker-model M] [--orch-effort E] [--worker-effort E]

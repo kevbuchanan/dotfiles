@@ -20,7 +20,7 @@ fleet kill demo
 
 ## Concepts
 
-**Fleet.** One tmux session marked with the `@fleet` session option. Window `orch` holds nvim on the fleet's notes folder on the left and the orchestrator on the right. Window `workers` holds the worker panes, tiled. Several fleets can run at once. `fleet ls` lists them, along with stopped fleets that still have files on disk. A fleet's name becomes its tmux session, notes folder and state folder, so it may use only letters, digits, `-` and `_`. `fleet new` refuses anything else, such as a path.
+**Fleet.** One tmux session marked with the `@fleet` session option. Window `orch` holds nvim on the fleet's notes folder on the left and the orchestrator on the right. Window `workers` holds the worker panes, tiled. Window `shell` holds a shell in the project folder. Several fleets can run at once. `fleet ls` lists them, along with stopped fleets that still have files on disk. A fleet's name becomes its tmux session, notes folder and state folder, so it may use only letters, digits, `-` and `_`. `fleet new` refuses anything else, such as a path.
 
 **Seat.** One pane running one Claude Code session. Seats are named `orch`, `w1`, `w2` and so on. The Claude Code session in seat `w3` of fleet `demo` is named `demo-w3`. That name is the session's [cross-session messaging](https://code.claude.com/docs/en/cross-session-messaging) address, so the fleet prefix keeps two fleets' orchestrators from claiming each other's workers. The pane title shows the same name.
 
@@ -64,9 +64,10 @@ Decisions go into the note, not chat. That keeps a task's history in one file yo
 1. Creates `$FLEET_HOME/<name>/` as a git repo for task notes, if it does not exist yet.
 2. Renders each seat's prompt from `prompts/` into `~/.local/state/fleet/<name>/`, filling in the names of the fleet, the seat, the orchestrator and the workers. In a git repo, it also records the repo's root there for `fleet clean`.
 3. Renders two settings files from `settings.json`. Both enable the hooks and allow edits under the notes folder. The orchestrator's file also allows the per-seat `fleet` commands.
-4. Creates the tmux session and its two windows. In each seat pane it types a `claude` command with `--name`, `--settings`, `--append-system-prompt-file`, `--add-dir <notes folder>` and `--plugin-dir <fleet>/plugin`. Workers also get `--permission-mode`, and in a git repo `-w <seat name>` the first time. See "Worker worktrees" below. See the [CLI reference](https://code.claude.com/docs/en/cli-reference).
+4. Creates the tmux session and its `orch` and `workers` windows. In each seat pane it types a `claude` command with `--name`, `--settings`, `--append-system-prompt-file`, `--add-dir <notes folder>` and `--plugin-dir <fleet>/plugin`. Workers also get `--permission-mode`, and in a git repo `-w <seat name>` the first time. See "Worker worktrees" below. See the [CLI reference](https://code.claude.com/docs/en/cli-reference).
 5. Opens `nvim .` in the notes folder, in a pane left of the orchestrator. That pane is not a seat, so seat commands and `fleet status` skip it.
-6. Turns off `allow-set-title` on each pane, so terminal-title updates from Claude Code or nvim do not replace the pane name.
+6. Opens window `shell` after the workers, with a shell in the project folder. It is not a seat either.
+7. Turns off `allow-set-title` on each pane, so terminal-title updates from Claude Code or nvim do not replace the pane name.
 
 Claude runs inside the pane's shell. When Claude exits, the pane stays open at a prompt.
 

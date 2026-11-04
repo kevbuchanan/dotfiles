@@ -311,6 +311,25 @@ export async function create(args: string[]) {
   }
   await borders(`=${name}:workers`)
 
+  // a plain shell in the project folder, after the workers. It has no
+  // @agent_seat, so seat commands and `fleet status` skip it.
+  const shell = await run("tmux", [
+    "new-window",
+    "-d",
+    "-t",
+    target(name),
+    "-n",
+    "shell",
+    "-c",
+    dir,
+    "-P",
+    "-F",
+    "#{pane_id}",
+  ])
+  await borders(`=${name}:shell`)
+  await tmux("set", "-p", "-t", shell, "allow-set-title", "off")
+  await tmux("select-pane", "-t", shell, "-T", `${name}-shell`)
+
   // each worker gets its own worktree so workers never share a checkout.
   // launchLine reads the repo record to decide each worker's worktree; a
   // record left by an earlier fleet of this name must not outlive a move to a

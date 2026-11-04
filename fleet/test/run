@@ -149,6 +149,9 @@ test_new() {
   local state=$T/state/fleet/demo
   check "the orchestrator may run fleet status" eval "jq -e '.permissions.allow | index(\"Bash(fleet status)\")' $state/orch-settings.json"
   check "workers may run fleet report" eval "jq -e '.permissions.allow | index(\"Bash(fleet report *)\")' $state/worker-settings.json"
+  eq "the windows, in order" "$(tmux list-windows -t '=demo:' -F '#{window_name}' | xargs)" "orch workers shell"
+  check "the shell window starts in the project folder" within 3 eval "[[ \$(tmux display -p -t '=demo:shell' '#{pane_current_path}') == $T/repo ]]"
+  eq "the shell window is no seat" "$(tmux display -p -t '=demo:shell' '#{@agent_seat}')" ""
   check "the hooks' paths are filled in" eval "! grep -q '{{ROOT}}' $state/settings.json && grep -q $root/hooks/session-end $state/settings.json"
 }
 
