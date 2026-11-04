@@ -4,7 +4,10 @@
 # `workers`. Seats share task notes in $FLEET_HOME/<fleet>/tasks, a git repo,
 # so `git diff` there shows what agents wrote since the last assignment.
 #
-#   fleet new [name] [dir]       start a fleet and attach to it
+#   fleet new [name] [dir] [--workers N] [--worker-mode M]
+#             [--orch-model M] [--worker-model M] [--orch-effort E] [--worker-effort E]
+#                                start a fleet and attach to it; each flag
+#                                overrides the FLEET_* variable of that name
 #   fleet attach [name]
 #   fleet ls                     running fleets, and stopped fleets that
 #                                `fleet clean` has not removed
@@ -283,6 +286,35 @@ fleet_files() {
 }
 
 fleet_new() {
+  # Each flag sets the environment variable of the same setting for this
+  # fleet, so flags win and the variables remain the fallback. They're
+  # locals, which role_flags reads through zsh's dynamic scope.
+  local FLEET_WORKERS=${FLEET_WORKERS:-} FLEET_WORKER_MODE=${FLEET_WORKER_MODE:-}
+  local FLEET_ORCH_MODEL=${FLEET_ORCH_MODEL:-} FLEET_WORKER_MODEL=${FLEET_WORKER_MODEL:-}
+  local FLEET_ORCH_EFFORT=${FLEET_ORCH_EFFORT:-} FLEET_WORKER_EFFORT=${FLEET_WORKER_EFFORT:-}
+  local -a positional
+  local opt value
+  while (( $# )); do
+    case $1 in
+      --*=*) opt=${1%%=*} value=${1#*=}; shift ;;
+      --*) opt=$1; value=${2-}; (( $# >= 2 )) || die "$opt needs a value"; shift 2 ;;
+      *) positional+=($1); shift; continue ;;
+    esac
+    case $opt in
+      --workers) FLEET_WORKERS=$value ;;
+      --worker-mode) FLEET_WORKER_MODE=$value ;;
+      --orch-model) FLEET_ORCH_MODEL=$value ;;
+      --worker-model) FLEET_WORKER_MODEL=$value ;;
+      --orch-effort) FLEET_ORCH_EFFORT=$value ;;
+      --worker-effort) FLEET_WORKER_EFFORT=$value ;;
+      *) die "unknown option $opt; see fleet help" ;;
+    esac
+  done
+  [[ -z $FLEET_WORKERS || $FLEET_WORKERS == <1-> ]] || die "workers must be a whole number from 1: $FLEET_WORKERS"
+  [[ -z $FLEET_WORKER_MODE || $FLEET_WORKER_MODE == (acceptEdits|auto|bypassPermissions|manual|dontAsk|plan) ]] ||
+    die "worker mode must be acceptEdits, auto, bypassPermissions, manual, dontAsk or plan: $FLEET_WORKER_MODE"
+  set -- $positional
+
   S=${1:-${PWD:t}}
   S=${S//[.:]/-}
   # the name becomes a tmux session, a notes folder and a state folder, so a

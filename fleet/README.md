@@ -306,7 +306,7 @@ Claude Code refuses rapid bursts of messages to one session. The prompts tell se
 
 | Command | Effect |
 | --- | --- |
-| `fleet new [name] [dir]` | start a fleet and attach, or attach if it exists |
+| `fleet new [name] [dir] [flags]` | start a fleet and attach, or attach if it exists. The flags are under Configuration. |
 | `fleet attach [name]` | attach, or switch client when already inside tmux |
 | `fleet ls` | list running fleets, stopped fleets `fleet clean` hasn't removed, and notes folders with no fleet left (state `notes`), with each one's repo, notes folder and worktree count |
 | `fleet archive [--dry-run]` | move closed task notes nothing open needs into `tasks/archive/` |
@@ -331,22 +331,26 @@ Seat commands act on the fleet that owns the calling pane, or on the fleet named
 
 ## Configuration
 
-| Variable | Default | Used by |
-| --- | --- | --- |
-| `FLEET_HOME` | `~/agents` | notes root |
-| `FLEET_WORKERS` | `6` | `fleet new` worker count |
-| `FLEET_WORKER_MODE` | `auto` | `fleet new` worker `--permission-mode` |
-| `CLAUDE_CONFIG_DIR` | unset | `fleet new` runs every seat's `claude` with it |
-| `FLEET_ORCH_MODEL` | unset | `fleet new` orchestrator `--model` |
-| `FLEET_WORKER_MODEL` | unset | `fleet new` worker `--model` |
-| `FLEET_ORCH_EFFORT` | unset | `fleet new` orchestrator `--effort`: `low`, `medium`, `high`, `xhigh` or `max` |
-| `FLEET_WORKER_EFFORT` | unset | `fleet new` worker `--effort` |
+`fleet new` takes each per-fleet setting as a flag or an environment variable. A flag wins when both are given, and either form is checked the same way. Flags go anywhere after `new`, as `--flag value` or `--flag=value`.
+
+| Flag | Variable | Default | Sets |
+| --- | --- | --- | --- |
+| `--workers N` | `FLEET_WORKERS` | `6` | the number of worker seats, a whole number from 1 |
+| `--worker-mode M` | `FLEET_WORKER_MODE` | `auto` | workers' `--permission-mode`: `acceptEdits`, `auto`, `bypassPermissions`, `manual`, `dontAsk` or `plan` |
+| `--orch-model M` | `FLEET_ORCH_MODEL` | unset | the orchestrator's `--model` |
+| `--worker-model M` | `FLEET_WORKER_MODEL` | unset | workers' `--model` |
+| `--orch-effort E` | `FLEET_ORCH_EFFORT` | unset | the orchestrator's `--effort`: `low`, `medium`, `high`, `xhigh` or `max` |
+| `--worker-effort E` | `FLEET_WORKER_EFFORT` | unset | workers' `--effort` |
+| | `FLEET_HOME` | `~/agents` | the notes root |
+| | `CLAUDE_CONFIG_DIR` | unset | the config folder every seat's `claude` runs with |
 
 ### Models and effort
 
-Unset, every seat uses its config folder's default model: `ANTHROPIC_MODEL` if that is set, otherwise the `model` setting. The four variables above set the orchestrator and the workers separately. The orchestrator plans and reviews, and the workers carry out narrower tasks, so a strong model for one seat and a cheaper one for the rest is a common split:
+Unset, every seat uses its config folder's default model: `ANTHROPIC_MODEL` if that is set, otherwise the `model` setting. The four model and effort settings above set the orchestrator and the workers separately. The orchestrator plans and reviews, and the workers carry out narrower tasks, so a strong model for one seat and a cheaper one for the rest is a common split:
 
 ```sh
+fleet new demo --orch-model opus --worker-model sonnet --worker-effort medium
+# the same, with variables
 FLEET_ORCH_MODEL=opus FLEET_WORKER_MODEL=sonnet FLEET_WORKER_EFFORT=medium fleet new demo
 ```
 
