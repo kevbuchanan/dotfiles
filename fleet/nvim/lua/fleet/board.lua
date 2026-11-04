@@ -15,7 +15,7 @@ local ns = vim.api.nvim_create_namespace("FleetBoard")
 local REFRESH_MS = 5000
 
 -- needs attention first, finished last
-local rank = { error = 1, blocked = 2, progress = 3, assigned = 4, [""] = 5, done = 6, abandoned = 6 }
+local rank = { error = 1, blocked = 2, review = 2, progress = 3, assigned = 4, [""] = 5, done = 6, abandoned = 6 }
 
 -- A running fleet records its notes folder on its tmux session; a stopped
 -- one is found under $FLEET_HOME.
@@ -99,7 +99,7 @@ local function render(buf)
       (t.archived and "[archived] " or "") .. (t.title or ""),
     })
     table.insert(lines, row)
-    table.insert(marks, { #lines - 1, st and st.hl or "Comment", (t.open > 0 or t.status == "blocked") })
+    table.insert(marks, { #lines - 1, st and st.hl or "Comment", (t.open > 0 or t.status == "blocked" or t.status == "review") })
   end
   if #tasks == 0 then table.insert(lines, "  no task notes in " .. notes_dir(b.fleet_board) .. "/tasks") end
 

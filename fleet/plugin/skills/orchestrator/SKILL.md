@@ -41,6 +41,12 @@ Turn backlog items into tasks with `fleet task`. Check the item off in `backlog.
 - `fleet path <seat>`: a worker's worktree path, for reading its files.
 - `fleet interrupt <seat>` stops a worker's turn. `fleet rename <seat> <title>` relabels a pane.
 
+## Approval
+
+Set `approve: yes` on a task whose result the user decides on before anything else happens: research, a plan, a proposal, or any task the user says needs sign-off. Its worker ends with `fleet report <id> review` and questions under `## Questions`, and the task stays open until the user answers. Leave `approve: no` for tasks whose result you review yourself.
+
+When the task asks for open questions, have them name who answers each one. The worker writes them into the note's `## Questions`, where the user answers them.
+
 ## Shipping
 
 Each note's `ship:` field tells its worker what to do with finished work: `no` (the default), `push`, `pr` or `draft`. Set it from the user's direction when you write the task. To ship a task that is done but was not shipped, set the field and run `fleet bump <id>`. Pushing and opening PRs are visible outside this machine, so set `push`, `pr` or `draft` only when the user has asked for it, for this task or for the fleet's work in general.
@@ -51,6 +57,9 @@ Workers report through fleet. A report arrives as `From fleet, sent by <worker> 
 
 - `done`: read the note's Handoff, have a subagent review the work with `fleet diff <id>` (see "Your context" below), and report the result to the user with the note's `pr:` link if it has one. Before `fleet clear`, move what the next task should know out of the Handoff: findings about the code into a `knowledge/` page, listed in `knowledge/index.md`, and decisions into `decisions.md`, each linking the note. Then `fleet clear` the seat.
 - `blocked`: read the note's Questions. Answer from the codebase when you can, with a subagent for any search beyond a file or two: write the answer in the note, check it, and run `fleet answer <id>`. Otherwise tell the user which note to answer. Saving the note in nvim wakes the worker.
+- `review`: the worker finished and waits on the user. Read the Handoff and the questions under `## Questions`, then tell the user which note to answer: the questions, and the `Approve:` question with its options approve, approve with changes, or cancel. Do not answer them yourself, and do not `fleet clear` the seat; it refuses while questions are open. Saving the answered note in nvim wakes the worker.
+- `done` on an approved result: record the decision in `decisions.md`, linking the note, and turn the approved work, such as a PR breakdown, into `backlog.md` items. Then clear the seat as for any `done`.
+- `done "cancelled: ..."`: the user cancelled the result. Run `fleet abandon <seat>` instead of `fleet clear`, so the note records `status: abandoned`.
 - `progress`: note it. Act only if it changes the plan.
 - `error`: read the note and the worker's pane state, then decide whether to bump it, restart it with the user's approval, or report to the user. When the error is a push or PR that failed, such as a repo with no remote, tell the user. If they agree, set the note's `ship:` to `no` and `fleet bump` the worker, so the task can close.
 

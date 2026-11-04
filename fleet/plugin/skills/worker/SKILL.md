@@ -45,12 +45,27 @@ A PR from your branch includes every earlier task still on it that the default b
 
 When you need a decision, write it under `## Questions` as `- [ ] Qn: <question>` with nested `- [ ] <option>` lines, run `fleet report <id> blocked "<the question, in a line>"`, then stop. Do not ask in chat.
 
+## Results that need approval
+
+A note with `approve: yes`, such as a research or planning task, ends with the user's decision instead of `done`:
+
+1. Finish the work and the Handoff as for `done`.
+2. Write every question the result leaves for someone under `## Questions`, as `- [ ] Qn (<who answers>): <question>` with nested options where they help. Put them in the note even when the readout lists them too: fleet and the user only see questions there.
+3. Run `fleet report <id> review "<the result, in a line>"` and stop. fleet adds an `Approve:` question with the options `approve`, `approve with the changes in my answers above` and `cancel`.
+4. When `Questions in <id> are answered` arrives, read the answers and the option checked under `Approve:`.
+   - `approve`: write the decision and the answers into the Handoff, then report `done`.
+   - `approve with the changes`: make the changes the answers ask for, update the Handoff, and report `review` again if the result changed, or `done` if it didn't.
+   - `cancel`: write why into the Handoff and report `done "cancelled: <reason>"`.
+
+`fleet report done` refuses while a question is open, and on an `approve: yes` note until `Approve:` is answered.
+
 ## Reporting
 
 Report with `fleet report <id> <phase> "<one line>"`, never with SendMessage. fleet records the report in the note and sends it to the orchestrator.
 
 - `progress`: a milestone worth telling the orchestrator about, such as a finished part of a long task.
-- `done`: every todo is checked, `## Handoff` is written, and the work is shipped as `ship:` says. fleet refuses `done` while todos are unchecked.
+- `review`: the work is finished and waits on the user's answers and approval. See "Results that need approval".
+- `done`: every todo is checked, `## Handoff` is written, and the work is shipped as `ship:` says. fleet refuses `done` while todos are unchecked or a question is open.
 - `blocked`: you wrote a question under ## Questions and stopped. Always write the question first, even for a Scope problem: the orchestrator resumes you with `fleet answer`, which works only while a question is open.
 - `error`: you cannot continue for another reason, such as a broken environment.
 

@@ -212,6 +212,11 @@ export async function clear(fleet: Fleet, args: string[]) {
   const id = await opt(pane, "@agent_task")
   const path = join(fleet.notes, "tasks", `${id}.md`)
   if (id && isFile(path)) {
+    // a task waiting on the user's answers stays open; abandon closes it
+    const [, , open] = await note.progress(root, path)
+    if (open) {
+      die(`${id} has ${open} open questions; wait for the answers, or fleet abandon ${seat} to close it`)
+    }
     const worktree = fleet.checkout(seat)
     if (worktree && await output("git", ["-C", worktree, "status", "--porcelain"])) {
       warn(
@@ -362,13 +367,41 @@ export async function answer(fleet: Fleet, args: string[]) {
 
 // A worker's report: recorded in the note's status field and Log section,
 // and sent to the orchestrator. Only the task's own worker reports on it.
+// The question `fleet report review` adds, which the user answers by
+// checking one option and then the question line
+const APPROVE = [
+  "- [ ] Approve: is the result in the Handoff approved? Check one option, then this line.",
+  "  - [ ] approve",
+  "  - [ ] approve with the changes in my answers above",
+  "  - [ ] cancel",
+]
+const isApprove = (line: string) => /^- \[[ xX]\] Approve:/.test(line)
+
+// Puts a fresh, unchecked approval question last under ## Questions,
+// replacing any earlier one, so a second review asks again
+function askApproval(path: string) {
+  const body: string[] = []
+  let inApprove = false
+  for (const line of note.section(path, "Questions")) {
+    if (isApprove(line)) inApprove = true
+    else if (inApprove && !/^\s/.test(line)) inApprove = false
+    if (!inApprove) body.push(line)
+  }
+  while (body[0] === "") body.shift()
+  while (body.at(-1) === "") body.pop()
+  note.setSection(path, "Questions", ["", ...body, ...(body.length ? [""] : []), ...APPROVE, ""])
+}
+
+// whether the approval question is answered
+const approved = (path: string) => note.section(path, "Questions").some((l) => /^- \[[xX]\] Approve:/.test(l))
+
 export async function report(fleet: Fleet, args: string[]) {
-  const usage = "usage: fleet report <task id> <progress|done|blocked|error> <text>"
+  const usage = "usage: fleet report <task id> <progress|review|done|blocked|error> <text>"
   const id = args[0] || die(usage)
   if (args.length < 2) die(usage)
   const phase = args[1]
-  if (!["progress", "done", "blocked", "error"].includes(phase)) {
-    die(`phase must be progress, done, blocked or error: ${phase}`)
+  if (!["progress", "review", "done", "blocked", "error"].includes(phase)) {
+    die(`phase must be progress, review, done, blocked or error: ${phase}`)
   }
   const text = args.slice(2).join(" ")
   if (!text) die("a report needs a line of text")
@@ -376,15 +409,24 @@ export async function report(fleet: Fleet, args: string[]) {
   const path = join(fleet.notes, "tasks", `${id}.md`)
   const { seat, pane } = await fleet.workerOn(id, path)
   if (env("TMUX_PANE") !== pane) die(`only ${seat}, the worker on ${id}, reports on it`)
-  if (phase === "done") {
-    const [done, total] = await note.progress(root, path)
+  if (phase === "done" || phase === "review") {
+    const [done, total, open] = await note.progress(root, path)
     if (done !== total) die(`${id} has ${total - done} unchecked todos; check them or report blocked`)
+    if (phase === "done" && open) {
+      die(`${id} has ${open} open questions; wait for the answers, or report review or blocked`)
+    }
+    if (phase === "done" && note.get(path, "approve") === "yes" && !approved(path)) {
+      die(
+        `${id} needs the user's approval: report review, then report done once its Approve question is answered`,
+      )
+    }
   }
   // find the orchestrator's socket before writing anything, so a report that
   // can't be delivered (the orchestrator mid-/clear) changes nothing and a
   // retry doesn't log the same line twice
   const orch = await fleet.pane("orch")
   await fleet.needSocket(orch)
+  if (phase === "review") askApproval(path)
   note.set(path, "status", phase, fleet.name)
   note.appendLog(path, `${stamp()} ${phase}: ${text}`)
   await fleet.post(orch, "orchestrator", `Report: ${id} ${phase}: ${text}`)

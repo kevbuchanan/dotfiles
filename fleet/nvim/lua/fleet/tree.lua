@@ -1,6 +1,7 @@
 -- Fleet note state in nvim-tree, through its public APIs only. A decorator
 -- puts each fleet note's status icon in the sign column, which leaves the
--- file name its full width, and tints a blocked or errored note's name. With
+-- file name its full width, and tints the name of a note that is blocked,
+-- in review or errored. With
 -- the cursor on a note, the command line shows the whole status: worker,
 -- status, PR and todo progress. Notes are recognized by their frontmatter
 -- (see fleet.note), so the folder doesn't matter. fleet.board shows every
@@ -23,6 +24,7 @@ M.status = {
   assigned = { icon = "\u{f10c}", hl = "FleetTreeAssigned", link = "Comment" },
   progress = { icon = "\u{f110}", hl = "FleetTreeProgress", link = "DiagnosticInfo" },
   blocked = { icon = "\u{f059}", hl = "FleetTreeBlocked", link = "DiagnosticWarn" },
+  review = { icon = "\u{f06e}", hl = "FleetTreeReview", link = "DiagnosticWarn" },
   error = { icon = "\u{f057}", hl = "FleetTreeError", link = "DiagnosticError" },
   done = { icon = "\u{f012c}", hl = "FleetTreeDone", link = "DiagnosticOk" },
   abandoned = { icon = "\u{f05e}", hl = "FleetTreeAbandoned", link = "Comment" },
@@ -79,7 +81,7 @@ end
 
 function M.Decorator:highlight_group(node)
   local s = summary(node)
-  if s and (s.status == "blocked" or s.status == "error") then return M.status[s.status].hl end
+  if s and (s.status == "blocked" or s.status == "review" or s.status == "error") then return M.status[s.status].hl end
   return nil
 end
 

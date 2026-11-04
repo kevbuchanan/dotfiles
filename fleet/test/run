@@ -177,6 +177,7 @@ test_new_flags() {
 test_task() {
   check "fleet task creates a note" fleet task t1 first task
   eq "the note names its fleet" "$(field $(note t1) fleet)" demo
+  eq "a new task needs no approval" "$(field $(note t1) approve)" no
   eq "the note has its title" "$(grep -m1 '^# ' $(note t1))" "# t1: first task"
   check "a title with \$ patterns" fleet task tz 'charge $$5 for $& and' "\$'x"
   eq "the title is kept as written" "$(grep -m1 '^# ' $(note tz))" "# tz: charge \$\$5 for \$& and \$'x"
@@ -355,6 +356,39 @@ test_archive() {
   check "the moves are committed as renames" eval "git -C $n show --stat -M HEAD | grep -q '=>'"
 }
 
+test_review() {
+  local n=$(note t4)
+  fleet task t4 a plan > /dev/null
+  sed -i.bak 's/^approve: no$/approve: yes/' $n && rm $n.bak
+  todos t4 '[x] research'
+  awk '{ print } $0 == "## Questions" { print ""; print "- [ ] Q1 (Kevin): which way?"; print "  - [ ] left"; print "  - [ ] right" }' $n > $T/q.md && mv $T/q.md $n
+  # the stub reads abandon's Escape and /clear as one line and keeps the
+  # state test_abandon left; a real session starts again idle
+  tmux set -p -t $(pane w2) @agent_state idle
+  check "fleet assign w2 t4" fleet assign w2 t4
+  refuses "done on an approve: yes task before review" as w2 command fleet report t4 done finished
+  check "a review report" as w2 command fleet report t4 review plan ready
+  eq "the note is in review" "$(field $n status)" review
+  check "the orchestrator gets the review" within 3 received orch "Report: t4 review: plan ready"
+  eq "the note asks for approval" "$(grep -c '^- \[ \] Approve:' $n)" 1
+  check "the worker's question stays, ahead of the approval" eval "awk '/^- \\[ \\] Q1/ { q = NR } /^- \\[ \\] Approve:/ { a = NR } END { exit !(q && a > q) }' $n"
+  check "a second review" as w2 command fleet report t4 review plan revised
+  eq "a second review asks once" "$(grep -c 'Approve:' $n)" 1
+  print '{"stop_hook_active":false}' | as w2 $root/hooks/todo-check > /dev/null
+  eq "the seat waits on a question" "$(popt w2 @agent_state)" question
+  refuses "done with open questions" as w2 command fleet report t4 done finished
+  tmux set -p -t $(pane w2) @agent_state idle
+  eq "clear refuses a task with open questions" "$(fleet clear w2 2>&1)" "fleet: t4 has 2 open questions; wait for the answers, or fleet abandon w2 to close it"
+  tmux set -p -t $(pane w2) @agent_state question
+  sed -i.bak -e 's/^- \[ \] Q1/- [x] Q1/' -e 's/^  - \[ \] left/  - [x] left/' \
+    -e 's/^- \[ \] Approve:/- [x] Approve:/' -e 's/^  - \[ \] approve$/  - [x] approve/' $n && rm $n.bak
+  check "fleet answer after approval" fleet answer t4
+  check "w2 gets the answers" within 3 received w2 "Questions in t4 are answered"
+  check "done once approved" as w2 command fleet report t4 done approved
+  tmux set -p -t $(pane w2) @agent_state idle
+  check "fleet clear after approval" fleet clear w2
+}
+
 test_migrate() {
   local f=$T/agents/demo/tasks/old.md
   printf '# old: an old note\n\nFleet: demo\nTask: old\nStatus: done\n\n## Todo\n\n- [x] a\n' > $f
@@ -396,6 +430,7 @@ run_test test_clear
 run_test test_follow_up
 run_test test_abandon
 run_test test_archive
+run_test test_review
 run_test test_migrate
 run_test test_kill
 run_test test_clean

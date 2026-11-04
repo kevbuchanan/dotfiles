@@ -30,7 +30,7 @@ fleet kill demo
 
 **Task note.** One markdown file per task under `$FLEET_HOME/<fleet>/tasks/<id>.md`, made from `templates/task.md`. The note is the record of the task, with these sections:
 
-- YAML frontmatter with the task's fields, one `key: value` per line: `fleet` and `task`, which name the note's fleet and id; `created` and `closed`, the dates the task was created and closed by `fleet clear` or `fleet abandon`; `guidance`; `ship`, what to do with finished work; `pr` once one is open; `follows` for a follow-up task; `worker`; `branch`; `base` and `end`, the commits that bound this task's changes on the worker's branch; and `status`
+- YAML frontmatter with the task's fields, one `key: value` per line: `fleet` and `task`, which name the note's fleet and id; `created` and `closed`, the dates the task was created and closed by `fleet clear` or `fleet abandon`; `guidance`; `ship`, what to do with finished work; `approve`, whether the result waits on your approval; `pr` once one is open; `follows` for a follow-up task; `worker`; `branch`; `base` and `end`, the commits that bound this task's changes on the worker's branch; and `status`
 - Goal, Scope and Verify: what to do, which files the worker may edit, and how to check the result
 - Todo: a checkbox list the worker checks off as it goes
 - Questions: decisions the worker needs from you
@@ -114,6 +114,30 @@ The worker also runs `fleet report T3 blocked "<the question>"`, so the orchestr
 - In nvim, saving a task note runs `fleet answer` for it. Answering in the notes pane and saving is enough. A save that doesn't meet those conditions does nothing and shows nothing, so ordinary edits are unaffected.
 
 The orchestrator may run `fleet answer` too. Edits made outside nvim need `fleet answer` by hand.
+
+### Results that need approval
+
+A research or planning task ends with your decision. The orchestrator sets `approve: yes` on such a task, and on any task you say needs sign-off. Its worker finishes the work and the Handoff, writes the questions the result leaves under `## Questions`, each naming who answers it, and runs `fleet report T3 review "<the result>"`. fleet then:
+
+1. refuses while todos are unchecked
+2. adds an approval question, last under `## Questions`, replacing any earlier one:
+
+   ```md
+   - [ ] Approve: is the result in the Handoff approved? Check one option, then this line.
+     - [ ] approve
+     - [ ] approve with the changes in my answers above
+     - [ ] cancel
+   ```
+
+3. sets `status: review` and tells the orchestrator, which tells you which note to answer
+
+The seat shows `question`, and the tree and board flag the note. Answer every question, check an option under `Approve:` and then its line, and save. The save runs `fleet answer`, as for any question:
+
+- **approve:** the worker writes the decision into the Handoff and reports `done`. The orchestrator records the decision in `decisions.md`, turns the approved work into `backlog.md` items, and clears the seat.
+- **approve with the changes:** the worker makes them, then reports `review` again if the result changed, or `done`.
+- **cancel:** the worker reports `done "cancelled: ..."`, and the orchestrator runs `fleet abandon`, so the note records `status: abandoned`.
+
+Two guards keep such a task open until you answer: `fleet report done` refuses while a question is open, and on an `approve: yes` note until `Approve:` is checked. `fleet clear` refuses a seat whose task has an open question. `fleet abandon` still closes it.
 
 ### Starting from the default branch
 
@@ -239,8 +263,8 @@ Two views show task notes' state, both through public APIs, from the frontmatter
 
 **In nvim-tree,** from `fleet/nvim/lua/fleet/tree.lua`:
 
-- **Sign:** each fleet note gets a status icon in the sign column, left of its name, so the name keeps its full width in a narrow tree. The icons are an empty circle for `assigned`, a spinner for `progress`, a question mark for `blocked`, a cross for `error`, a check for `done` and a no-entry sign for `abandoned`, each in its own color. nvim-tree's git icon stays beside the name.
-- **Name tint:** a blocked or errored note's name is highlighted.
+- **Sign:** each fleet note gets a status icon in the sign column, left of its name, so the name keeps its full width in a narrow tree. The icons are an empty circle for `assigned`, a spinner for `progress`, a question mark for `blocked`, an eye for `review`, a cross for `error`, a check for `done` and a no-entry sign for `abandoned`, each in its own color. nvim-tree's git icon stays beside the name.
+- **Name tint:** the name of a note that is blocked, in review or errored is highlighted.
 - **Details:** with the cursor on a note, the command line shows its id, worker, status, todos with any open questions, and PR link, cut to the window's width.
 - **Mechanics:** the icon and tint come from an nvim-tree decorator, registered in `vimrc` after Git, and the details from `api.tree.get_node_under_cursor()`. nvim-tree redraws when a file in the folder changes, and every status change is a write to the note, so the icon stays current.
 - **Sign names:** nvim-tree names each sign after its icon's highlight group, so fleet defines its own groups, `FleetTreeDone` and so on, linked to the diagnostic colors. A sign named `DiagnosticWarn` collides with nvim's own.
@@ -258,7 +282,7 @@ fleet shop  3 tasks
 ```
 
 - **Columns:** status with its icon (drawn as `?`, `~` and `*` here), task id, worker with the seat's live state from tmux, todos with open questions, a PR mark, the task's age in days from `created:`, and the note's title. Archived tasks, with `a`, are marked `[archived]`.
-- **Order:** error, blocked, progress and assigned come before done.
+- **Order:** error, then blocked and review, then progress and assigned come before done.
 - **Keys:** `<CR>` opens the note in the window the board came from, `d` opens the task's diff, `b` bumps its worker, `f` opens the note and runs `:FleetFollowUp`, `a` toggles archived tasks, `r` refreshes and `q` closes.
 - **Which fleet:** with no name, the board uses the fleet of the note in the current buffer, or of the current tmux session. Names complete from `fleet ls`.
 - **Refreshing:** it redraws when a note of that fleet is saved, and every five seconds while it's visible, because seat states live in tmux and change without a file write.
@@ -280,9 +304,9 @@ A task assigned before fleet recorded Base has none, and `fleet diff` says so. W
 
 ### Reports
 
-A worker reports on its task with `fleet report <id> <phase> "<one line>"`, where the phase is `progress`, `done`, `blocked` or `error`. fleet:
+A worker reports on its task with `fleet report <id> <phase> "<one line>"`, where the phase is `progress`, `review`, `done`, `blocked` or `error`. fleet:
 
-1. refuses unless the calling pane is the task's worker, and refuses `done` while the note has unchecked todos
+1. refuses unless the calling pane is the task's worker, refuses `review` and `done` while the note has unchecked todos, and refuses `done` while a question is open or, with `approve: yes`, until `Approve:` is answered
 2. writes the phase to the note's `status:` field and appends a dated line to a `## Log` section at the end of the note
 3. sends `Report: <id> <phase>: <text>` to the orchestrator, whose skill says what to do for each phase
 
@@ -341,14 +365,14 @@ Claude Code refuses rapid bursts of messages to one session. fleet sends one mes
 | `fleet status` | each seat's state, task and todo progress |
 | `fleet task <id> [--from <id>] <title>` | create a task note and print its path. `--from` starts a follow-up to a closed task. |
 | `fleet assign [--no-sync] <seat> <id>` | bring an idle worker's branch up to date with the default branch, then point it at a task note |
-| `fleet clear <seat>` | type `/clear` into an idle seat and drop its task |
+| `fleet clear <seat>` | type `/clear` into an idle seat and drop its task; refuses while the task has an open question |
 | `fleet interrupt <seat>` | send Escape |
 | `fleet restart <seat>` | kill the seat's process and relaunch its `claude` command; a seat on a task keeps it |
 | `fleet abandon <seat>` | close the seat's task from any state and clear the seat |
 | `fleet rename <seat> <title>` | change the pane title |
 | `fleet path <seat>` | print a worker's worktree path |
 | `fleet answer <id>` | tell a worker waiting on a question that the task's questions are answered |
-| `fleet report <id> <phase> <text>` | a worker's report on its task: `progress`, `done`, `blocked` or `error` |
+| `fleet report <id> <phase> <text>` | a worker's report on its task: `progress`, `review`, `done`, `blocked` or `error` |
 | `fleet bump <id>` | tell the worker still on the task that its note has new work |
 | `fleet diff [--rev] [<id> \| <seat>] [git diff args]` | show one task's changes, or a worker's whole branch. With neither, in a worker's pane, its branch. `--rev` prints the folder and revision `:FleetDiff` uses. |
 | `fleet shell <seat> [cmd]` | open window `<seat>-shell` in a worker's worktree, running `cmd` or a shell |

@@ -51,7 +51,7 @@ there shows what agents wrote since the last assignment.
                                note has new work
   fleet report <id> <phase> <text>
                                a worker's report on its task: progress,
-                               done, blocked or error
+                               review, done, blocked or error
   fleet diff [--rev] [<task id> | <seat>] [git diff args]
                                one task's changes, or a worker's whole
                                branch; with neither, the calling worker's

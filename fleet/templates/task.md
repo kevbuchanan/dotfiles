@@ -5,6 +5,7 @@ created: {{DATE}}
 closed:
 guidance: {{GUIDANCE}}
 ship: no
+approve: no
 worker:
 branch:
 base:
