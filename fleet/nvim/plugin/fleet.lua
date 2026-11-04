@@ -75,7 +75,7 @@ end, {
   end,
 })
 
-vim.keymap.set("n", "<Leader>d", "<cmd>FleetDiff<cr>", { desc = "fleet diff for this task note" })
+vim.keymap.set("n", "<Leader>d", "<cmd>FleetDiff<cr>", { desc = "fleet diff: this buffer's worker branch" })
 
 -- The fleet comes from the note's path, as in the save hook below, so this
 -- works from any nvim. It saves first: the worker reads the note from disk.

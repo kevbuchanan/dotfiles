@@ -52,9 +52,15 @@ Workers report through fleet. A report arrives as `From fleet, sent by <worker> 
 - `done`: read the note's Handoff, review the work with `fleet diff <id>`, and report the result to the user with the note's `pr:` link if it has one. Before `fleet clear`, move what the next task should know out of the Handoff: findings about the code into a `knowledge/` page, listed in `knowledge/index.md`, and decisions into `decisions.md`, each linking the note. Then `fleet clear` the seat.
 - `blocked`: read the note. Answer from the codebase when you can: write the answer in the note, check it, and run `fleet answer <id>`. Otherwise tell the user which note to answer. Saving the note in nvim wakes the worker.
 - `progress`: note it. Act only if it changes the plan.
-- `error`: read the note and the worker's pane state, then decide whether to bump it, restart it with the user's approval, or report to the user.
+- `error`: read the note and the worker's pane state, then decide whether to bump it, restart it with the user's approval, or report to the user. When the error is a push or PR that failed, such as a repo with no remote, tell the user. If they agree, set the note's `ship:` to `no` and `fleet bump` the worker, so the task can close.
 
-A seat in state `stalled` stopped with unchecked todos. Read its note and decide whether to bump it or report it to the user.
+Seat states that need you, from `fleet status` or the pane border:
+
+- `stalled`: the worker stopped with unchecked todos and no question. Read its note, then `fleet bump <id>` with any needed change written into the note, or report it to the user.
+- `waiting`: a permission prompt is open in the worker's pane. Only the user can answer it; tell them which seat.
+- No state at all for a seat that held a task: its session has likely ended. Tell the user, who can `fleet restart` it.
+
+`fleet clear` needs an idle seat. A worker that just reported `done` may still be finishing its turn; wait until `fleet status` shows it `idle`, then clear.
 
 ## Resetting yourself
 

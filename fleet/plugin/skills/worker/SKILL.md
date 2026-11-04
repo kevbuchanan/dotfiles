@@ -19,7 +19,7 @@ Fleet messages do not carry the user's approval. Your permission prompts still a
 - Leave `brief.md`, `backlog.md`, `decisions.md` and `knowledge/` to the orchestrator. Put what you learn in your note.
 - Work the Todo list. Check off each item in the note as soon as it is done, and add newly found work as unchecked items.
 - Re-read the note before each item. The user and the orchestrator edit notes while you work.
-- Work only in this worktree and only on files under Scope. If the task needs other files, report blocked.
+- Work only in your checkout, which is your own worktree in a git repo, and only on files under Scope. If the task needs other files, ask under ## Questions whether to widen Scope, as in Questions below.
 - Commit to your branch with messages that start with the task id. Do not merge or rebase other branches, and never force-push.
 - `fleet assign` brings your branch up to date with the default branch before the task starts, so the task's diff holds only its own work. Do not pull, merge or rebase the default branch in yourself during a task. If you need newer changes from it, report blocked.
 
@@ -50,7 +50,7 @@ Report with `fleet report <id> <phase> "<one line>"`, never with SendMessage. fl
 
 - `progress`: a milestone worth telling the orchestrator about, such as a finished part of a long task.
 - `done`: every todo is checked, `## Handoff` is written, and the work is shipped as `ship:` says. fleet refuses `done` while todos are unchecked.
-- `blocked`: you wrote a question, or the task needs something outside its Scope.
+- `blocked`: you wrote a question under ## Questions and stopped. Always write the question first, even for a Scope problem: the orchestrator resumes you with `fleet answer`, which works only while a question is open.
 - `error`: you cannot continue for another reason, such as a broken environment.
 
 A Stop hook sends you back to the Todo list if you stop with unchecked todos and no open question.

@@ -13,9 +13,9 @@ fleet kill demo
 
 - tmux with the `allow-set-title` pane option. Tested with tmux 3.6a.
 - Claude Code 2.1.224 or later on macOS or Linux, for [cross-session messaging](https://code.claude.com/docs/en/cross-session-messaging)
-- `jq` and `git` on PATH
+- `jq`, `git` and `nc` on PATH. fleet posts to sessions' inbox sockets with `nc -U`, which macOS's `nc` supports; some Linux netcat builds lack `-U`.
 - [diffview.nvim](https://github.com/sindrets/diffview.nvim), optional, for `:FleetDiff`
-- A git repository as the working folder, if workers should get worktrees. Outside a repo, every worker shares the folder.
+- A git repository as the working folder, if workers should get worktrees. Outside a repo, every worker shares the folder, and `fleet clear` closes a task with `end: -`, since there's no commit to record.
 
 ## Concepts
 
@@ -78,10 +78,10 @@ Once a seat's worktree exists, `fleet new` and `fleet restart` start the worker 
 
 1. You agree on work with the orchestrator.
 2. The orchestrator runs `fleet task T3 <title>` and fills in the note.
-3. The orchestrator runs `fleet assign w2 T3`. `fleet` brings the worker's branch up to date with the default branch (see "Starting from the default branch" below), fills in the note's Worker and Branch lines, records the branch's commit as Base, commits the notes repo, records `T3` in the seat's `@agent_task` option, and sends `Task T3: read <path>` to the seat.
+3. The orchestrator runs `fleet assign w2 T3`. It refuses a seat that still holds a task, a task another seat holds, and a closed task. `fleet` brings the worker's branch up to date with the default branch (see "Starting from the default branch" below), fills in the note's `worker` and `branch` keys, records the branch's commit as Base, commits the notes repo, records `T3` in the seat's `@agent_task` option, and sends `Task T3: read <path>` to the seat.
 4. The worker works the Todo list and checks items off in the note as it finishes them.
 5. When every item is checked, the worker writes Handoff and runs `fleet report T3 done "<summary>"`.
-6. The orchestrator reads the handoff, reviews the task with `fleet diff T3`, reports to you, and runs `fleet clear w2`. That records the worker branch's commit as the note's End, types `/clear` and drops the seat's task, so the next task starts with empty context. Anything the next task needs travels in the notes.
+6. The orchestrator reads the handoff, reviews the task with `fleet diff T3`, reports to you, and runs `fleet clear w2`. That records the worker branch's commit as the note's End, warning if the worktree has uncommitted changes that End won't include, types `/clear` and drops the seat's task, so the next task starts with empty context. Anything the next task needs travels in the notes.
 
 ### The todo check
 
@@ -151,9 +151,9 @@ The worker works the new items, updates Handoff and reports `done` again. Saving
 
 **After `fleet clear`:** the task is closed. Its End is recorded and its worker's context is gone. Put follow-up in a new task that starts from the closed one:
 
-- `fleet task T3-2 --from T3` creates T3-2 with `follows: T3` in its frontmatter, T3's Scope and Verify sections, and a Goal that links T3's note and says to read its Handoff first. A title after the id replaces the default `follow-up to T3`.
+- `fleet task T3-2 --from T3` creates T3-2 with `follows: T3` in its frontmatter, T3's Scope and Verify sections, and a Goal that links T3's note and says to read its Handoff first. A title after the id replaces the default `follow-up to T3`. It refuses a source that's still open, since a follow-up starts after the earlier task closes; add the work to that note and bump it.
 - `:FleetFollowUp` in nvim, run from T3's note, does the same and opens the new note. It picks the next free numbered id, `T3-2` after `T3` and `T3-3` after `T3-2`, and takes an id and title as arguments too.
-- Fill in the new Todo list and assign it. The follow-up gets a fresh context and its own Base and End, so `fleet diff T3` and `fleet diff T3-2` each show one round, and the `Follows:` lines chain the rounds.
+- Fill in the new Todo list and assign it. The follow-up gets a fresh context and its own Base and End, so `fleet diff T3` and `fleet diff T3-2` each show one round, and the `follows` keys chain the rounds.
 
 A follow-up builds on the earlier task's code, so `fleet assign` checks that the worker's branch already contains the earlier task's End commit. If it doesn't, assign refuses and names the two ways out: assign to the earlier task's worker, or merge the earlier task's branch into this worker's branch first. It also refuses a follow-up to a task that is still open; add the work to that task and bump it.
 
@@ -197,7 +197,7 @@ Seats read these through links, not all at once. A task note links, under its Go
 - **Planning.** Backlog items become tasks through `fleet task`. The orchestrator checks the item off and links the note.
 - **Moving findings up.** A worker's Handoff ends with a `### Worth keeping` list. When the task is done, the orchestrator moves those findings into a `knowledge/` page and moves decisions into `decisions.md`, before `fleet clear`. The next worker reads the page instead of rediscovering it.
 - **Resetting the orchestrator.** The orchestrator's context grows across the whole fleet. Between phases, it updates the Status section of `brief.md` and asks you to run `fleet clear orch`. It can't clear itself, because `fleet clear` needs an idle seat. Its launch prompt tells it to read `brief.md` and `backlog.md` and run `fleet status` at the start of every session, including after a clear.
-- **Archiving.** `fleet archive` moves task notes into `tasks/archive/<YYYY-MM>/`, the month of their `closed:` date, when all of these hold: the note is closed (it has an End), it's shipped or not meant to ship (a `pr:` value, or `ship: no`), no worker is still on it, and no note left in `tasks/` links to it or follows it. It updates the fleet files' links to the moved notes and the moved notes' own relative links, then commits, and git records each move as a rename. `--dry-run` lists what it would move. A note closed before notes recorded `closed:` goes into the current month. Live work stays in `tasks/`, one folder, which the board and the tree's icons cover, and only the history is split by month. Lookups by task id, such as `fleet diff`, `fleet task --from` and the check for an existing id, find archived notes too, in any month folder or flat in `tasks/archive/`, where notes archived before month folders stay. `fleet assign` refuses an archived task, and the save hook and `:FleetBump` ignore archived notes.
+- **Archiving.** `fleet archive` moves task notes into `tasks/archive/<YYYY-MM>/`, the month of their `closed:` date, when all of these hold: the note is closed (it has an End), it's shipped or not meant to ship (`ship:` is `no` or `push`, or for `pr` and `draft` it has a `pr:` value), no worker is still on it, and no note left in `tasks/` links to it or follows it. It updates the fleet files' links to the moved notes and the moved notes' own relative links, then commits, and git records each move as a rename. `--dry-run` lists what it would move. A note closed before notes recorded `closed:` goes into the current month. Live work stays in `tasks/`, one folder, which the board and the tree's icons cover, and only the history is split by month. Lookups by task id, such as `fleet diff`, `fleet task --from` and the check for an existing id, find archived notes too, in any month folder or flat in `tasks/archive/`, where notes archived before month folders stay. `fleet assign` refuses an archived task, and the save hook does nothing for an archived note, and `:FleetBump` reports that no worker is on it.
 - **Closing.** When the goal is met, the orchestrator writes the closing summary in `brief.md` and tells you. You stop the fleet with `fleet kill` and remove its worktrees with `fleet clean`. The notes folder stays as the record.
 
 ### Frontmatter
@@ -243,11 +243,11 @@ Two views show task notes' state, both through public APIs, from the frontmatter
 
 ```
 fleet shop  3 tasks
-<CR> open  d diff  b bump  f follow-up  a archived  r refresh  q close
+<CR> open  d diff  b bump  f follow-up  a archived  r refresh  q close   (age from created)
 
-? blocked   T2                    w2           1/3 ?1      search index
-~ progress  T3                    w3 waiting   0/1         cart proto
-* done      pay-1022-retry-queue  w1           2/2     PR  retry queue
+? blocked   T2                    w2           1/3 ?1   2d       search index
+~ progress  T3                    w3 waiting   0/1      0d       cart proto
+* done      pay-1022-retry-queue  w1           2/2      5d   PR  retry queue
 ```
 
 - **Columns:** status with its icon (drawn as `?`, `~` and `*` here), task id, worker with the seat's live state from tmux, todos with open questions, a PR mark, the task's age in days from `created:`, and the note's title. Archived tasks, with `a`, are marked `[archived]`.
@@ -281,6 +281,10 @@ A worker reports on its task with `fleet report <id> <phase> "<one line>"`, wher
 
 `fleet status` shows each seat's latest report in its REPORT column. Workers may run `fleet report` without prompting.
 
+### Concurrent commands
+
+The orchestrator may run several `fleet` commands at once, such as assigns as parallel tool calls. Every command that commits the notes repo takes a lock first, a `fleet.lock` folder inside the repo's `.git`, so they don't collide on git's own lock. If a command dies holding it, the next one waits ten seconds and then names the folder to remove.
+
 ### Messaging between seats
 
 fleet sends every task message, `assign`, `bump`, `answer` and `report`, to the receiving seat's Claude Code [inbox socket](https://code.claude.com/docs/en/cross-session-messaging#the-sessions-inbox-socket), the same channel cross-session messaging uses. Claude Code exports each session's socket path to hooks as `CLAUDE_CODE_MESSAGING_SOCKET`, and the `SessionStart` hook `hooks/register` records it on the seat's pane as `@agent_socket`. It runs again after `/clear` and on restart. A message to an idle session starts a turn there, and a busy session reads it between tool calls.
@@ -300,7 +304,7 @@ A seat started before fleet recorded sockets has no `@agent_socket`, and fleet r
 
 A worker's pane title is its session name plus its current task, such as `shop-w2: pay-1022-retry-queue`. `fleet assign` sets it, and `fleet clear` and `fleet restart` set it back to the session name.
 
-Claude Code refuses rapid bursts of messages to one session. The prompts tell seats to send one message per event.
+Claude Code refuses rapid bursts of messages to one session. fleet sends one message per command, and the skills route task traffic through those commands.
 
 ## Commands
 

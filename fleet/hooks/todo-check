@@ -26,7 +26,7 @@ elif [ "$checked" -lt "$total" ]; then
     "$here/agent-state" stalled
   else
     "$here/agent-state" busy
-    reason="$task has $((total - checked)) unchecked todos in $note. Re-read the note and continue with the next item. If you are blocked, add a question under ## Questions and stop."
+    reason="$task has $((total - checked)) unchecked todos in $note. Re-read the note and continue with the next item. If you are blocked, add a question under ## Questions, run fleet report $task blocked with the question, and stop."
     jq -cn --arg r "$reason" '{decision: "block", reason: $r}'
   fi
 else

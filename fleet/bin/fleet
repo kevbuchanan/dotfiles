@@ -201,6 +201,23 @@ note_migrate() {
 
 opt() { tmux display -p -t $1 "#{$2}" }
 
+# A value made safe for the replacement side of a sed s|...|...| command,
+# where &, | and \ are special: a task title such as "fix A & B" would
+# otherwise render as "fix A {{TITLE}} B".
+sedq() { print -r -- $1 | sed 's/[\\&|]/\\&/g' }
+
+# Commits everything in the notes repo under a lock, so commands running at
+# once, such as the orchestrator's parallel assigns, don't collide on git's
+# index.lock. mkdir is atomic, which makes the folder a lock.
+notes_commit() {
+  local lock=$notes/.git/fleet.lock tries=0
+  until mkdir $lock 2> /dev/null; do
+    (( ++tries > 100 )) && die "the notes repo stayed locked; remove $lock if no fleet command is running"
+    sleep 0.1
+  done
+  { git -C $notes add -A && git -C $notes commit -q --allow-empty -m $1 } always { rmdir $lock }
+}
+
 need_idle() {
   local st=$(opt $1 @agent_state)
   [[ $st == idle ]] || die "$2 is ${st:-starting}, not idle"
@@ -276,13 +293,11 @@ fleet_files() {
   mkdir -p $notes/knowledge $notes/guidance
   for f in brief.md backlog.md decisions.md knowledge/index.md; do
     [[ -e $notes/$f ]] && continue
-    sed "s|{{SESSION}}|$S|g" $root/templates/$f > $notes/$f
+    sed "s|{{SESSION}}|$(sedq $S)|g" $root/templates/$f > $notes/$f.tmp && mv $notes/$f.tmp $notes/$f
     added=1
   done
-  if (( added )); then
-    git -C $notes add -A
-    git -C $notes commit -q -m "fleet $S: brief, backlog, decisions and knowledge"
-  fi
+  (( added )) && notes_commit "fleet $S: brief, backlog, decisions and knowledge"
+  return 0
 }
 
 fleet_new() {
@@ -348,8 +363,8 @@ fleet_new() {
   for i in {1..$count}; do workers+=($S-w$i); done
 
   render() {
-    sed -e "s|{{NAME}}|$2|g" -e "s|{{SESSION}}|$S|g" -e "s|{{ORCHESTRATOR}}|$orch|g" \
-        -e "s|{{WORKERS}}|${(j:, :)workers}|g" -e "s|{{COUNT}}|$count|g" -e "s|{{NOTES}}|$notes|g" \
+    sed -e "s|{{NAME}}|$(sedq $2)|g" -e "s|{{SESSION}}|$(sedq $S)|g" -e "s|{{ORCHESTRATOR}}|$(sedq $orch)|g" \
+        -e "s|{{WORKERS}}|$(sedq ${(j:, :)workers})|g" -e "s|{{COUNT}}|$count|g" -e "s|{{NOTES}}|$(sedq $notes)|g" \
         $root/prompts/$1 > $rundir/$2.md
   }
 
@@ -389,7 +404,8 @@ fleet_new() {
 
   local -a panes
   panes=($(tmux new-window -d -t "=$S:" -n workers -c $dir -P -F '#{pane_id}'))
-  for i in {2..$count}; do
+  # zsh counts {2..1} down, as 2 1, so one worker needs no loop at all
+  (( count > 1 )) && for i in {2..$count}; do
     panes+=($(tmux split-window -d -t $panes[-1] -c $dir -P -F '#{pane_id}'))
     tmux select-layout -t "=$S:workers" tiled > /dev/null
   done
@@ -470,14 +486,18 @@ fleet_task() {
     prev=$note
     note=$notes/tasks/$id.md
     [[ -f $prev ]] || die "no task note for $from"
+    [[ -n $(note_get $prev end) ]] || die "$from is still open; add the work to its note and fleet bump $from"
     (( $#words )) || words=(follow-up to $from)
   fi
   local title=${(j: :)words}
   # a fleet's own guidance/default.md replaces the built-in one
   local guidance=$root/guidance/default.md
   [[ -f $notes/guidance/default.md ]] && guidance=$notes/guidance/default.md
-  sed -e "s|{{FLEET}}|$S|" -e "s|{{DATE}}|$(date +%F)|" -e "s|{{ID}}|$id|g" -e "s|{{TITLE}}|${title:-untitled}|" -e "s|{{GUIDANCE}}|$guidance|" \
-    $root/templates/task.md > $note
+  # written beside the note and moved into place, so a failed render leaves
+  # no half-made note to block a retry
+  sed -e "s|{{FLEET}}|$(sedq $S)|" -e "s|{{DATE}}|$(date +%F)|" -e "s|{{ID}}|$id|g" \
+      -e "s|{{TITLE}}|$(sedq ${title:-untitled})|" -e "s|{{GUIDANCE}}|$(sedq $guidance)|" \
+      $root/templates/task.md > $note.tmp && mv $note.tmp $note || { rm -f $note.tmp; die "could not render $note" }
 
   # A follow-up starts from the earlier task's handoff, with its scope and
   # checks, so the new worker needs none of the earlier conversation
@@ -488,7 +508,9 @@ fleet_task() {
       note_section $prev $sec > $body
       note_section_set $note $sec $body
     done
-    printf '\nFollow-up to [%s](%s.md). Read its Handoff first: it says what %s did and what is left.\n\n' $from $from $from > $body
+    # the link is relative to tasks/, where the new note lives, and reaches
+    # a source archived under archive/<month>/
+    printf '\nFollow-up to [%s](%s). Read its Handoff first: it says what %s did and what is left.\n\n' $from ${prev#$notes/tasks/} $from > $body
     note_section_set $note Goal $body
     rm $body
   fi
@@ -514,6 +536,22 @@ fleet_assign() {
   need_socket $pane
   # reassigning would overwrite Base, and `fleet diff` would lose the closed work
   [[ -z $(note_get $note end) ]] || die "$id is closed; put follow-up work in a new task, such as fleet task ${id}-2 --from $id"
+  # one task per seat and one seat per task: a second holder would overwrite
+  # base, and a seat's earlier task would never get its end
+  local current_task=$(opt $pane @agent_task)
+  [[ -z $current_task ]] || die "$seat still holds $current_task; fleet clear $seat first"
+  local holder=$(tmux list-panes -s -t "=$S:" -F '#{@agent_task} #{@agent_seat}' | awk -v t=$id '$1 == t { print $2 }')
+  [[ -z $holder ]] || die "$holder already holds $id"
+
+  # A follow-up builds on the earlier task's code; check it before touching
+  # the worktree, so a refusal leaves nothing changed
+  local follows=$(note_get $note follows) prev prev_end
+  if [[ -n $follows ]]; then
+    prev=$(note=; note_path $follows; print -r -- $note)
+    [[ -f $prev ]] || die "$id follows $follows, which has no note"
+    prev_end=$(note_get $prev end)
+    [[ -n $prev_end ]] || die "$follows is still open; add the work to its note and fleet bump $follows"
+  fi
 
   # Base is the worker branch's commit when the task starts, and End is set by
   # `fleet clear`, so `fleet diff` can show this task apart from the branch's
@@ -526,15 +564,8 @@ fleet_assign() {
     base=$(git -C $worktree rev-parse HEAD)
   fi
 
-  # A follow-up builds on the earlier task's code, so the worker's branch must
-  # already contain that task's End commit
-  local follows=$(note_get $note follows)
+  # after the update, the worker's branch must contain the earlier task's end
   if [[ -n $follows ]]; then
-    local prev prev_end
-    prev=$(note=; note_path $follows; print -r -- $note)
-    [[ -f $prev ]] || die "$id follows $follows, which has no note"
-    prev_end=$(note_get $prev end)
-    [[ -n $prev_end ]] || die "$follows is still open; add the work to its note and fleet bump $follows"
     if [[ -n $worktree && $prev_end != - ]] && ! git -C $worktree merge-base --is-ancestor $prev_end HEAD 2> /dev/null; then
       die "$seat's branch doesn't contain $follows's work (${prev_end[1,12]}); assign $id to ${$(note_get $prev worker)#$S-} or merge $(note_get $prev branch) into $branch first"
     fi
@@ -547,8 +578,7 @@ fleet_assign() {
   note_set $note status assigned
 
   # the commit is the baseline that `git diff` in the notes repo compares against
-  git -C $notes add -A
-  git -C $notes commit -q --allow-empty -m "assign $id to $seat"
+  notes_commit "assign $id to $seat"
 
   tmux set -p -t $pane @agent_task $id
   tmux select-pane -t $pane -T "$S-$seat: $id"
@@ -563,7 +593,15 @@ fleet_clear() {
   local task=$(opt $pane @agent_task) worktree
   if [[ -n $task && -f $notes/tasks/$task.md ]]; then
     seat_checkout $seat
-    [[ -n $worktree ]] && note_set $notes/tasks/$task.md end $(git -C $worktree rev-parse HEAD)
+    # end closes the task; a fleet outside a repo has no commit to record, so
+    # `-` closes it the same way for archive, follow-ups and reassign checks
+    if [[ -n $worktree ]]; then
+      [[ -n $(git -C $worktree status --porcelain) ]] &&
+        print -u2 "fleet: $seat has uncommitted changes; $task's end is its last commit, so they will show in its next task's diff"
+      note_set $notes/tasks/$task.md end $(git -C $worktree rev-parse HEAD)
+    else
+      note_set $notes/tasks/$task.md end -
+    fi
     note_set $notes/tasks/$task.md closed $(date +%F)
   fi
   tmux set -p -u -t $pane @agent_task
@@ -661,7 +699,7 @@ fleet_diff() {
   # a task note by that name wins, so a task can be called w2
   if [[ -z $id || $id == -* ]]; then
     [[ -n $id ]] && set -- $id "$@"
-    id=$(opt ${TMUX_PANE:-none} @agent_seat 2> /dev/null)
+    id=$(opt ${TMUX_PANE:-none} @agent_seat 2> /dev/null || true)
     [[ $id == w<-> ]] || die "usage: fleet diff [--rev] [<task id> | <seat>] [git diff args]"
   fi
   need_id $id
@@ -774,18 +812,19 @@ fleet_report() {
     counts=($($root/hooks/task-progress $note))
     (( counts[1] == counts[2] )) || die "$id has $(( counts[2] - counts[1] )) unchecked todos; check them or report blocked"
   fi
+  # find the orchestrator's socket before writing anything, so a report that
+  # can't be delivered (the orchestrator mid-/clear) changes nothing and a
+  # retry doesn't log the same line twice
+  local orch_pane
+  pane=; pane_of orch; orch_pane=$pane
+  need_socket $orch_pane
   note_set $note status $phase
   grep -q '^## Log$' $note || printf '\n## Log\n\n' >> $note
   print -r -- "- $(date '+%Y-%m-%d %H:%M') $phase: $text" >> $note
-  local orch_pane
-  pane=; pane_of orch; orch_pane=$pane
   post $orch_pane orchestrator "Report: $id $phase: $text"
   print "reported $id $phase to the orchestrator"
 }
 
-# A worker's branch since it left the default branch, through its working
-# tree, so uncommitted edits show. The default branch is origin's HEAD when
-# the repo has one, else main or master.
 # Sets $default_ref to the default branch as seen from checkout $1: origin's
 # HEAD when the repo has one, else main or master. Empty when none exists.
 default_branch() {
@@ -829,6 +868,8 @@ sync_checkout() {
   print "updated $seat's branch from $default_ref"
 }
 
+# A worker's branch since it left the default branch, through its working
+# tree, so uncommitted edits show.
 branch_diff() {
   local seat=$1 rev_only=$2 worktree pane default_ref
   shift 2
@@ -858,7 +899,8 @@ fleet_archive() {
     id=${f:t:r}
     [[ -n $(note_get $f end) ]] || continue
     ship=$(note_get $f ship)
-    [[ -z $ship || $ship == no || -n $(note_get $f pr) ]] || continue
+    # pr and draft ship through a PR the note records; no and push have none
+    [[ $ship != (pr|draft) || -n $(note_get $f pr) ]] || continue
     tmux list-panes -s -t "=$S:" -F '#{@agent_task}' | grep -qxF -- $id && continue
     # a link to the note, or a Follows line naming it, from another open note
     grep -lE -- "\]\($id\.md\)|\(tasks/$id\.md\)|^[Ff]ollows: *$id\$" ${open:#$f} /dev/null | grep -q . && continue
@@ -893,8 +935,7 @@ fleet_archive() {
       [[ -n $t && -f $notes/tasks/$t.md && ${moved[(Ie)$t]} -eq 0 ]] && sed -i '' "s|]($t\.md)|](../../$t.md)|g" $moved_note
     done
   done
-  git -C $notes add -A
-  git -C $notes commit -q -m "archive ${(j:, :)moved}"
+  notes_commit "archive ${(j:, :)moved}"
   print -l -- "archived:" $moved
 }
 
@@ -918,8 +959,7 @@ fleet_migrate() {
     return 0
   fi
   for f in $old; do note_migrate $f; done
-  git -C $notes add -A
-  git -C $notes commit -q -m "migrate ${#old} notes to frontmatter"
+  notes_commit "migrate ${#old} notes to frontmatter"
   print -l -- "migrated:" ${old:t:r}
 }
 
