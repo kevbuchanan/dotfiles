@@ -40,7 +40,7 @@ end
 local function collect(fleet, archived)
   local dir = notes_dir(fleet)
   local paths = vim.fn.glob(dir .. "/tasks/*.md", false, true)
-  if archived then vim.list_extend(paths, vim.fn.glob(dir .. "/tasks/archive/*.md", false, true)) end
+  if archived then vim.list_extend(paths, vim.fn.glob(dir .. "/tasks/archive/**/*.md", false, true)) end
   local tasks = {}
   for _, path in ipairs(paths) do
     local s = note.summary(path)
@@ -58,6 +58,14 @@ local function collect(fleet, archived)
   return tasks
 end
 
+-- Days since a note's created: date, as "3d"; empty for notes without one
+local function age(created)
+  local y, m, d = (created or ""):match("^(%d+)-(%d+)-(%d+)")
+  if not y then return "" end
+  local days = math.floor((os.time() - os.time({ year = y, month = m, day = d, hour = 12 })) / 86400 + 0.5)
+  return math.max(days, 0) .. "d"
+end
+
 local function pad(text, width)
   return text .. string.rep(" ", math.max(0, width - vim.fn.strdisplaywidth(text)))
 end
@@ -71,7 +79,7 @@ local function render(buf)
 
   local lines = {
     "fleet " .. b.fleet_board .. "  " .. #tasks .. " tasks" .. (b.fleet_board_archived and " (with archived)" or ""),
-    "<CR> open  d diff  b bump  f follow-up  a archived  r refresh  q close",
+    "<CR> open  d diff  b bump  f follow-up  a archived  r refresh  q close   (age from created)",
     "",
   }
   local marks = {}
@@ -86,6 +94,7 @@ local function render(buf)
       pad(t.task, idw + 2),
       pad(who, 13),
       pad(todos, 8),
+      pad(age(t.created), 5),
       pad((t.pr or "") ~= "" and "PR" or "", 4),
       (t.archived and "[archived] " or "") .. (t.title or ""),
     })

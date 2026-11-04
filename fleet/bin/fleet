@@ -126,11 +126,15 @@ worktree_of() {
   [[ -n $worktree ]] || die "no worktree yet at $(< $statedir/$S/repo)/.claude/worktrees/$S-$1"
 }
 
-# Sets $note to task $1's note: tasks/<id>.md, or tasks/archive/<id>.md once
-# fleet archive has moved it. With neither, the tasks/ path, for creating it.
+# Sets $note to task $1's note: tasks/<id>.md, or wherever fleet archive moved
+# it under tasks/archive/, by month (archive/2026-11/<id>.md) or, for notes
+# archived before months, flat. With none, the tasks/ path, for creating it.
 note_path() {
   note=$notes/tasks/$1.md
-  [[ ! -f $note && -f $notes/tasks/archive/$1.md ]] && note=$notes/tasks/archive/$1.md
+  [[ -f $note ]] && return 0
+  local -a found
+  found=($notes/tasks/archive/**/$1.md(N))
+  (( $#found )) && note=$found[1]
   return 0
 }
 
@@ -440,7 +444,7 @@ fleet_task() {
   # a fleet's own guidance/default.md replaces the built-in one
   local guidance=$root/guidance/default.md
   [[ -f $notes/guidance/default.md ]] && guidance=$notes/guidance/default.md
-  sed -e "s|{{FLEET}}|$S|" -e "s|{{ID}}|$id|g" -e "s|{{TITLE}}|${title:-untitled}|" -e "s|{{GUIDANCE}}|$guidance|" \
+  sed -e "s|{{FLEET}}|$S|" -e "s|{{DATE}}|$(date +%F)|" -e "s|{{ID}}|$id|g" -e "s|{{TITLE}}|${title:-untitled}|" -e "s|{{GUIDANCE}}|$guidance|" \
     $root/templates/task.md > $note
 
   # A follow-up starts from the earlier task's handoff, with its scope and
@@ -528,6 +532,7 @@ fleet_clear() {
   if [[ -n $task && -f $notes/tasks/$task.md ]]; then
     seat_checkout $seat
     [[ -n $worktree ]] && note_set $notes/tasks/$task.md end $(git -C $worktree rev-parse HEAD)
+    note_set $notes/tasks/$task.md closed $(date +%F)
   fi
   tmux set -p -u -t $pane @agent_task
   tmux select-pane -t $pane -T $S-$seat
@@ -817,7 +822,6 @@ fleet_archive() {
   local -a open moved
   local f id ship
   open=($notes/tasks/*.md(N))
-  mkdir -p $notes/tasks/archive
   for f in $open; do
     id=${f:t:r}
     [[ -n $(note_get $f end) ]] || continue
@@ -839,16 +843,22 @@ fleet_archive() {
   # the fleet-level files link notes as tasks/<id>.md; follow them to archive/
   local -a docs
   docs=($notes/{brief,backlog,decisions}.md(N) $notes/knowledge/*.md(N))
-  local moved_note t
+  # Each note goes into the month it closed, tasks/archive/<YYYY-MM>/, or
+  # this month for a note closed before notes recorded `closed:`
+  local moved_note t month closed
   for id in $moved; do
-    mv $notes/tasks/$id.md $notes/tasks/archive/$id.md
-    (( $#docs )) && sed -i '' "s|tasks/$id\.md|tasks/archive/$id.md|g" $docs
-    # the note is now one folder deeper: links up to the fleet's files gain a
-    # level, and links to notes staying in tasks/ go up one
-    moved_note=$notes/tasks/archive/$id.md
-    sed -i '' 's|](\.\./|](../../|g' $moved_note
+    closed=$(note_get $notes/tasks/$id.md closed)
+    month=${closed[1,7]}
+    [[ $month == <->-<-> ]] || month=$(date +%Y-%m)
+    mkdir -p $notes/tasks/archive/$month
+    mv $notes/tasks/$id.md $notes/tasks/archive/$month/$id.md
+    (( $#docs )) && sed -i '' "s|tasks/$id\.md|tasks/archive/$month/$id.md|g" $docs
+    # the note is now two folders deeper: links up to the fleet's files gain
+    # two levels, and links to notes staying in tasks/ go up two
+    moved_note=$notes/tasks/archive/$month/$id.md
+    sed -i '' 's|](\.\./|](../../../|g' $moved_note
     for t in ${(u)${(f)"$(grep -oE '\]\([A-Za-z0-9_-]+\.md\)' $moved_note | sed -E 's/^\]\(//; s/\.md\)$//')"}}; do
-      [[ -n $t && -f $notes/tasks/$t.md && ${moved[(Ie)$t]} -eq 0 ]] && sed -i '' "s|]($t\.md)|](../$t.md)|g" $moved_note
+      [[ -n $t && -f $notes/tasks/$t.md && ${moved[(Ie)$t]} -eq 0 ]] && sed -i '' "s|]($t\.md)|](../../$t.md)|g" $moved_note
     done
   done
   git -C $notes add -A
@@ -864,7 +874,7 @@ fleet_migrate() {
   local dry=0 f
   [[ ${1:-} == --dry-run ]] && dry=1
   local -a old
-  for f in $notes/tasks/*.md(N) $notes/tasks/archive/*.md(N); do
+  for f in $notes/tasks/*.md(N) $notes/tasks/archive/**/*.md(N); do
     has_frontmatter $f || old+=($f)
   done
   if (( ! $#old )); then

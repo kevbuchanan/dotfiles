@@ -1,6 +1,8 @@
 ---
 fleet: {{FLEET}}
 task: {{ID}}
+created: {{DATE}}
+closed:
 guidance: {{GUIDANCE}}
 ship: no
 worker:

@@ -111,13 +111,17 @@ vim.api.nvim_create_user_command("FleetFollowUp", function(o)
     return
   end
   local fleet, from = meta.fleet, meta.task
-  -- the tasks folder, from a note in it or in its archive/
-  local dir = vim.fn.expand("%:p:h")
-  if vim.fn.fnamemodify(dir, ":t") == "archive" then dir = vim.fn.fnamemodify(dir, ":h") end
-  -- an id is taken if a note by that name is in tasks/ or tasks/archive/
+  -- the tasks folder: the nearest folder named tasks above the note, which
+  -- reaches it from tasks/archive/<month>/; else the note's own folder
+  local here = vim.fn.expand("%:p:h")
+  local dir = here
+  while vim.fn.fnamemodify(dir, ":t") ~= "tasks" and dir ~= "/" do dir = vim.fn.fnamemodify(dir, ":h") end
+  if dir == "/" then dir = here end
+  -- an id is taken if a note by that name is in tasks/ or anywhere under
+  -- tasks/archive/
   local function taken(name)
     return vim.fn.filereadable(dir .. "/" .. name .. ".md") == 1
-      or vim.fn.filereadable(dir .. "/archive/" .. name .. ".md") == 1
+      or vim.fn.glob(dir .. "/archive/**/" .. name .. ".md") ~= ""
   end
   local id, title = o.fargs[1], table.concat(vim.list_slice(o.fargs, 2), " ")
   if not id then

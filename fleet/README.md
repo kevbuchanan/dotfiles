@@ -29,7 +29,7 @@ fleet kill demo
 
 **Task note.** One markdown file per task under `$FLEET_HOME/<fleet>/tasks/<id>.md`, made from `templates/task.md`. The note is the record of the task, with these sections:
 
-- YAML frontmatter with the task's fields, one `key: value` per line: `fleet` and `task`, which name the note's fleet and id; `guidance`; `ship`, what to do with finished work; `pr` once one is open; `follows` for a follow-up task; `worker`; `branch`; `base` and `end`, the commits that bound this task's changes on the worker's branch; and `status`
+- YAML frontmatter with the task's fields, one `key: value` per line: `fleet` and `task`, which name the note's fleet and id; `created` and `closed`, the dates the task was created and closed by `fleet clear`; `guidance`; `ship`, what to do with finished work; `pr` once one is open; `follows` for a follow-up task; `worker`; `branch`; `base` and `end`, the commits that bound this task's changes on the worker's branch; and `status`
 - Goal, Scope and Verify: what to do, which files the worker may edit, and how to check the result
 - Todo: a checkbox list the worker checks off as it goes
 - Questions: decisions the worker needs from you
@@ -187,7 +187,7 @@ Each fleet's notes folder, `$FLEET_HOME/<fleet>/`, holds the fleet's own record 
 | `knowledge/` | durable findings about the code and environment, one topic per page, listed in `knowledge/index.md` | the orchestrator, from task Handoffs |
 | `guidance/` | this fleet's working rules | you or the orchestrator |
 | `tasks/` | one note per task | the orchestrator and the task's worker |
-| `tasks/archive/` | closed notes moved out by `fleet archive` | fleet |
+| `tasks/archive/<YYYY-MM>/` | closed notes moved out by `fleet archive`, by the month they closed | fleet |
 
 Seats read these through links, not all at once. A task note links, under its Goal, only the knowledge pages and decisions that task needs. The worker skill tells workers to read what their note links and leave the fleet-level files to the orchestrator. That keeps each worker's context to its task and what it depends on.
 
@@ -197,7 +197,7 @@ Seats read these through links, not all at once. A task note links, under its Go
 - **Planning.** Backlog items become tasks through `fleet task`. The orchestrator checks the item off and links the note.
 - **Moving findings up.** A worker's Handoff ends with a `### Worth keeping` list. When the task is done, the orchestrator moves those findings into a `knowledge/` page and moves decisions into `decisions.md`, before `fleet clear`. The next worker reads the page instead of rediscovering it.
 - **Resetting the orchestrator.** The orchestrator's context grows across the whole fleet. Between phases, it updates the Status section of `brief.md` and asks you to run `fleet clear orch`. It can't clear itself, because `fleet clear` needs an idle seat. Its launch prompt tells it to read `brief.md` and `backlog.md` and run `fleet status` at the start of every session, including after a clear.
-- **Archiving.** `fleet archive` moves task notes into `tasks/archive/` when all of these hold: the note is closed (it has an End), it's shipped or not meant to ship (a `pr:` value, or `ship: no`), no worker is still on it, and no note left in `tasks/` links to it or follows it. It updates the fleet files' links to the moved notes and the moved notes' own relative links, then commits, and git records each move as a rename. `--dry-run` lists what it would move. Lookups by task id, such as `fleet diff`, `fleet task --from` and the check for an existing id, find archived notes too. `fleet assign` refuses an archived task, and the save hook and `:FleetBump` ignore archived notes.
+- **Archiving.** `fleet archive` moves task notes into `tasks/archive/<YYYY-MM>/`, the month of their `closed:` date, when all of these hold: the note is closed (it has an End), it's shipped or not meant to ship (a `pr:` value, or `ship: no`), no worker is still on it, and no note left in `tasks/` links to it or follows it. It updates the fleet files' links to the moved notes and the moved notes' own relative links, then commits, and git records each move as a rename. `--dry-run` lists what it would move. A note closed before notes recorded `closed:` goes into the current month. Live work stays in `tasks/`, one folder, which the board and the tree's icons cover, and only the history is split by month. Lookups by task id, such as `fleet diff`, `fleet task --from` and the check for an existing id, find archived notes too, in any month folder or flat in `tasks/archive/`, where notes archived before month folders stay. `fleet assign` refuses an archived task, and the save hook and `:FleetBump` ignore archived notes.
 - **Closing.** When the goal is met, the orchestrator writes the closing summary in `brief.md` and tells you. You stop the fleet with `fleet kill` and remove its worktrees with `fleet clean`. The notes folder stays as the record.
 
 ### Frontmatter
@@ -208,6 +208,8 @@ A note's fields live in YAML frontmatter at the top:
 ---
 fleet: shop
 task: pay-1022-retry-queue
+created: 2026-11-03
+closed:
 guidance: /Users/kbuchanan/dotfiles/fleet/guidance/default.md
 ship: pr
 worker: shop-w6
@@ -248,7 +250,7 @@ fleet shop  3 tasks
 * done      pay-1022-retry-queue  w1           2/2     PR  retry queue
 ```
 
-- **Columns:** status with its icon (drawn as `?`, `~` and `*` here), task id, worker with the seat's live state from tmux, todos with open questions, a PR mark, and the note's title.
+- **Columns:** status with its icon (drawn as `?`, `~` and `*` here), task id, worker with the seat's live state from tmux, todos with open questions, a PR mark, the task's age in days from `created:`, and the note's title. Archived tasks, with `a`, are marked `[archived]`.
 - **Order:** error, blocked, progress and assigned come before done.
 - **Keys:** `<CR>` opens the note in the window the board came from, `d` opens the task's diff, `b` bumps its worker, `f` opens the note and runs `:FleetFollowUp`, `a` toggles archived tasks, `r` refreshes and `q` closes.
 - **Which fleet:** with no name, the board uses the fleet of the note in the current buffer, or of the current tmux session. Names complete from `fleet ls`.
