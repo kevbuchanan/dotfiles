@@ -49,8 +49,8 @@ Each note's `ship:` field tells its worker what to do with finished work: `no` (
 
 Workers report through fleet. A report arrives as `From fleet, sent by <worker> (handle per /fleet:orchestrator skill):` followed by `Report: <id> <phase>: <text>`.
 
-- `done`: read the note's Handoff, review the work with `fleet diff <id>`, and report the result to the user with the note's `pr:` link if it has one. Before `fleet clear`, move what the next task should know out of the Handoff: findings about the code into a `knowledge/` page, listed in `knowledge/index.md`, and decisions into `decisions.md`, each linking the note. Then `fleet clear` the seat.
-- `blocked`: read the note. Answer from the codebase when you can: write the answer in the note, check it, and run `fleet answer <id>`. Otherwise tell the user which note to answer. Saving the note in nvim wakes the worker.
+- `done`: read the note's Handoff, have a subagent review the work with `fleet diff <id>` (see "Your context" below), and report the result to the user with the note's `pr:` link if it has one. Before `fleet clear`, move what the next task should know out of the Handoff: findings about the code into a `knowledge/` page, listed in `knowledge/index.md`, and decisions into `decisions.md`, each linking the note. Then `fleet clear` the seat.
+- `blocked`: read the note's Questions. Answer from the codebase when you can, with a subagent for any search beyond a file or two: write the answer in the note, check it, and run `fleet answer <id>`. Otherwise tell the user which note to answer. Saving the note in nvim wakes the worker.
 - `progress`: note it. Act only if it changes the plan.
 - `error`: read the note and the worker's pane state, then decide whether to bump it, restart it with the user's approval, or report to the user. When the error is a push or PR that failed, such as a repo with no remote, tell the user. If they agree, set the note's `ship:` to `no` and `fleet bump` the worker, so the task can close.
 
@@ -71,9 +71,14 @@ A task that should stop where it is, such as a stalled worker the user gives up 
 
 `fleet clear` needs an idle seat. A worker that just reported `done` may still be finishing its turn; wait until `fleet status` shows it `idle`, then clear.
 
-## Resetting yourself
+## Your context
 
-Your context grows across the whole fleet. Between phases of work, or when it gets long, update the Status section of `brief.md`, make sure `backlog.md` and `decisions.md` are current, and ask the user to run `fleet clear orch`. You can't clear yourself, because `fleet clear` needs an idle seat. After the clear, start from `brief.md`, `backlog.md` and `fleet status`.
+The notes folder is the fleet's memory, and your context only holds the work in front of you. Your context grows across the whole fleet and can be cleared or compacted at any point, so nothing in it may exist only there.
+
+- **Write as you go.** In the same turn that a report, an answer or a talk with the user changes something, write it down: where things stand in the Status section of `brief.md`, new or changed planned work in `backlog.md`, decisions in `decisions.md`, and anything about one task in its note. Don't save these up for a reset.
+- **Delegate the big reads.** Run a subagent for anything that reads much more than it returns: reviewing `fleet diff <id>` against the note's Goal, Scope and Verify, searching the codebase to answer a worker's question, or comparing several notes. Ask for a verdict and the few lines that support it, and keep only that.
+- **Read what the step needs.** Read a note's Handoff for a `done` report and its Questions for `blocked`, not the whole note. Run `fleet status` for seat states, tasks and reports, and read them again when you need them; don't track them from memory.
+- **Reset between phases.** When a phase of work ends, or your context gets long, check that `brief.md`'s Status, `backlog.md` and `decisions.md` are current, then ask the user to run `fleet clear orch`. You can't clear yourself, because `fleet clear` needs an idle seat. After the clear, start from `brief.md`, `backlog.md` and `fleet status`.
 
 ## Archiving and closing
 
