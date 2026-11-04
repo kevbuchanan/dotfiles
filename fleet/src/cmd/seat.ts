@@ -11,6 +11,7 @@ import * as note from "../note.ts"
 import {
   die,
   exists,
+  fill,
   isFile,
   isSocket,
   output,
@@ -82,12 +83,13 @@ export function task(fleet: Fleet, args: string[]) {
   // no half-made note to block a retry
   writeAtomic(
     path,
-    readText(join(root, "templates", "task.md"))
-      .replaceAll("{{FLEET}}", fleet.name)
-      .replaceAll("{{DATE}}", today())
-      .replaceAll("{{ID}}", id)
-      .replaceAll("{{TITLE}}", words.join(" ") || "untitled")
-      .replaceAll("{{GUIDANCE}}", guidance),
+    fill(readText(join(root, "templates", "task.md")), {
+      FLEET: fleet.name,
+      DATE: today(),
+      ID: id,
+      TITLE: words.join(" ") || "untitled",
+      GUIDANCE: guidance,
+    }),
   )
 
   // A follow-up starts from the earlier task's handoff, with its scope and

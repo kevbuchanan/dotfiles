@@ -5,6 +5,7 @@ import { Fleet, home, isFleet, opt, root, statedir, target, tmux } from "../flee
 import {
   die,
   exists,
+  fill,
   isDir,
   isFile,
   output,
@@ -15,12 +16,20 @@ import {
   removeIfAny,
   run,
   shq,
+  succeeds,
   test,
   warn,
   writeAtomic,
 } from "../run.ts"
 
 const env = (name: string) => Deno.env.get(name) ?? ""
+
+// The folder as the shell named it: $PWD keeps a symlinked folder's own name,
+// which a fleet takes as its default name, where Deno.cwd() resolves it
+function logicalCwd(): string {
+  const pwd = env("PWD")
+  return pwd && realPath(pwd) === realPath(Deno.cwd()) ? pwd : Deno.cwd()
+}
 
 // an absolute path with symlinks resolved, or as given when it doesn't exist
 function realPath(path: string): string {
@@ -60,7 +69,9 @@ export async function launchLine(fleet: Fleet, pane: string): Promise<string> {
   const repo = fleet.repo
   if (!/^w\d+$/.test(seat) || !repo) return cmd
   const wt = join(repo, ".claude", "worktrees", `${fleet.name}-${seat}`)
-  const list = await run("git", ["-C", repo, "worktree", "list", "--porcelain"])
+  // a repo that moved or went away lists nothing, so the seat asks for -w
+  // again and Claude Code reports the problem in the pane
+  const list = await output("git", ["-C", repo, "worktree", "list", "--porcelain"])
   if (list.split("\n").includes(`worktree ${wt}`)) return `cd ${shq(wt)} && ${cmd}`
   return `${cmd}${suffix}`
 }
@@ -100,7 +111,7 @@ async function fleetFiles(fleet: Fleet) {
   for (const f of ["brief.md", "backlog.md", "decisions.md", "knowledge/index.md"]) {
     const dest = join(fleet.notes, f)
     if (exists(dest)) continue
-    writeAtomic(dest, readText(join(root, "templates", f)).replaceAll("{{SESSION}}", fleet.name))
+    writeAtomic(dest, fill(readText(join(root, "templates", f)), { SESSION: fleet.name }))
     added = true
   }
   if (added) await fleet.commit(`fleet ${fleet.name}: brief, backlog, decisions and knowledge`)
@@ -150,11 +161,11 @@ export async function create(args: string[]) {
     die(`worker mode must be acceptEdits, auto, bypassPermissions, manual, dontAsk or plan: ${workerMode}`)
   }
 
-  const name = (positional[0] || basename(Deno.cwd())).replaceAll(/[.:]/g, "-")
+  const name = (positional[0] || basename(logicalCwd())).replaceAll(/[.:]/g, "-")
   // the name becomes a tmux session, a notes folder and a state folder, so a
   // path would nest folders under the notes root
   if (!/^[A-Za-z0-9_-]+$/.test(name)) die(`fleet names use letters, digits, - and _: ${name}`)
-  const dir = realPath(resolve(positional[1] || Deno.cwd()))
+  const dir = realPath(resolve(positional[1] || logicalCwd()))
   if (await test("tmux", ["has-session", "-t", target(name)])) {
     if (!(await isFleet(name))) die(`${name} is a tmux session but not a fleet`)
     // a fleet started before the fleet-level files existed gets them here
@@ -183,19 +194,20 @@ export async function create(args: string[]) {
 
   const workerNames = Array.from({ length: count }, (_, i) => `${name}-w${i + 1}`)
   const render = (prompt: string, seat: string) => {
-    const text = readText(join(root, "prompts", prompt))
-      .replaceAll("{{NAME}}", seat)
-      .replaceAll("{{SESSION}}", name)
-      .replaceAll("{{ORCHESTRATOR}}", orch)
-      .replaceAll("{{WORKERS}}", workerNames.join(", "))
-      .replaceAll("{{COUNT}}", String(count))
-      .replaceAll("{{NOTES}}", notes)
+    const text = fill(readText(join(root, "prompts", prompt)), {
+      NAME: seat,
+      SESSION: name,
+      ORCHESTRATOR: orch,
+      WORKERS: workerNames.join(", "),
+      COUNT: String(count),
+      NOTES: notes,
+    })
     Deno.writeTextFileSync(join(rundir, `${seat}.md`), text)
   }
 
   // every seat may edit the notes; the orchestrator may also run seat commands
   const edit = `Edit(/${notes}/**)`
-  const settingsText = readText(join(root, "settings.json")).replaceAll("{{ROOT}}", root)
+  const settingsText = fill(readText(join(root, "settings.json")), { ROOT: root })
   Deno.writeTextFileSync(join(rundir, "settings.json"), settingsText)
   const base = JSON.parse(settingsText)
   const withAllow = (allow: string[]) =>
@@ -226,7 +238,7 @@ export async function create(args: string[]) {
   // Sessions find each other only within one config dir, so every seat gets
   // the same one. It is part of each pane's @agent_cmd, so restart keeps it.
   if (env("CLAUDE_CONFIG_DIR")) {
-    claude = `CLAUDE_CONFIG_DIR=${shq(resolve(env("CLAUDE_CONFIG_DIR")))} ${claude}`
+    claude = `CLAUDE_CONFIG_DIR=${shq(realPath(resolve(env("CLAUDE_CONFIG_DIR"))))} ${claude}`
   }
   // If this call starts the tmux server, the server's environment would carry
   // CLAUDE_CONFIG_DIR into every later pane, fleet or not
@@ -401,7 +413,7 @@ export async function clean(args: string[]) {
       // read the branch before removal; it is the one Claude Code created
       const branch = await output("git", ["-C", wt, "symbolic-ref", "-q", "--short", "HEAD"])
       // git refuses to remove a worktree with uncommitted or untracked changes
-      if (!(await test("git", ["-C", repo, "worktree", "remove", wt], { quiet: false }))) {
+      if (!(await succeeds("git", ["-C", repo, "worktree", "remove", wt]))) {
         warn(`kept ${wt}`)
         kept = true
         continue
@@ -409,7 +421,7 @@ export async function clean(args: string[]) {
       print(`removed ${wt}`)
       // git branch -d refuses a branch that is not merged, so unmerged work stays
       if (
-        branches && branch && !(await test("git", ["-C", repo, "branch", "-d", branch], { quiet: false }))
+        branches && branch && !(await succeeds("git", ["-C", repo, "branch", "-d", branch]))
       ) {
         warn(`kept unmerged branch ${branch}`)
       }

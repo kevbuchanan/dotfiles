@@ -135,5 +135,5 @@ try {
 } catch (e) {
   if (!(e instanceof FleetError)) throw e
   console.error(`fleet: ${e.message}`)
-  Deno.exit(1)
+  Deno.exit(e.code)
 }

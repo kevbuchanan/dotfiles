@@ -2,8 +2,9 @@
 # fleet's entrypoint: runs src/main.ts with its import map and permissions.
 # Deno looks for deno.jsonc next to the script it runs, and this wrapper is
 # reached through the ~/.local/bin/fleet symlink, so it resolves its own
-# folder and passes --config explicitly. fleet runs tmux, git and nc, and
-# hooks/task-progress to count todos the way the hooks do.
+# folder and passes --config explicitly. --allow-run is unrestricted because
+# Deno refuses any spawn under a narrowed list while a DYLD_* or LD_*
+# variable is set, as conda and nix shells do.
 D=$(cd "$(dirname "$(realpath "$0")")/.." && pwd)
-exec deno run --quiet --no-prompt --config "$D/deno.jsonc" --allow-env --allow-read --allow-write \
-  --allow-run=tmux,git,nc,"$D/hooks/task-progress" "$D/src/main.ts" "$@"
+exec deno run --quiet --no-prompt --config "$D/deno.jsonc" --allow-env --allow-read --allow-write --allow-run \
+  "$D/src/main.ts" "$@"

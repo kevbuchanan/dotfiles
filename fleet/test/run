@@ -160,6 +160,13 @@ test_new_flags() {
   refuses "an unknown flag" command fleet new bad --colour blue
   refuses "a flag with no value" command fleet new bad --workers
   refuses "a name with a slash" command fleet new a/b
+  # the default name comes from the folder as the shell names it, so a
+  # symlinked folder gives its own name; both names here are invalid, so
+  # nothing starts either way
+  mkdir -p "$T/re al" && ln -s "$T/re al" "$T/li nk"
+  eq "the default name follows a symlinked folder's own name" \
+    "$(cd "$T/li nk" && PWD="$T/li nk" command fleet new 2>&1)" "fleet: fleet names use letters, digits, - and _: li nk"
+  check "a library path variable doesn't stop fleet" env LD_LIBRARY_PATH=$T command fleet ls
   check "a refused fleet leaves no session" eval "! tmux has-session -t '=bad:'"
   check "a refused fleet leaves no notes" test ! -e $T/agents/bad
 }
@@ -168,6 +175,10 @@ test_task() {
   check "fleet task creates a note" fleet task t1 first task
   eq "the note names its fleet" "$(field $(note t1) fleet)" demo
   eq "the note has its title" "$(grep -m1 '^# ' $(note t1))" "# t1: first task"
+  check "a title with \$ patterns" fleet task tz 'charge $$5 for $& and' "\$'x"
+  eq "the title is kept as written" "$(grep -m1 '^# ' $(note tz))" "# tz: charge \$\$5 for \$& and \$'x"
+  eq "the note has one Goal section" "$(grep -c '^## Goal$' $(note tz))" 1
+  rm $(note tz)
   refuses "a duplicate id" fleet task t1 again
   refuses "an id with a slash" fleet task a/b bad
   refuses "a follow-up to an open task" fleet task t1b --from t1
@@ -320,13 +331,14 @@ test_archive() {
   local last=$(date -v-1m +%Y-%m 2> /dev/null || date -d '-1 month' +%Y-%m)
   sed -i.bak "s/^closed: .*/closed: $last-15/" $(note t1) && rm $(note t1).bak
   print -- "- [t1](tasks/t1.md) and [t2](tasks/t2.md)" >> $n/backlog.md
-  print -- "See [t1](t1.md) and the [brief](../brief.md)." >> $(note t2)
+  print -- "See [t1](t1.md) and the [brief](../brief.md), and [this month](archive/$(date +%Y-%m))." >> $(note t2)
   eq "an open follow-up keeps its source" "$(fleet archive --dry-run | tail -n +2)" t2
   check "fleet archive" fleet archive
   local a2=$n/tasks/archive/$(date +%Y-%m)/t2.md
   check "t2 moves into this month" test -f $a2
   check "t2's link to t1, still open, goes up two folders" has $a2 '\[t1\]\(\.\./\.\./t1\.md\)'
   check "t2's link to the brief goes up three" has $a2 '\[brief\]\(\.\./\.\./\.\./brief\.md\)'
+  check "t2's link to its own new folder keeps the folder's name" has $a2 "\[this month\]\(\.\./$(date +%Y-%m)\)"
   check "the backlog follows t2" has $n/backlog.md "\(tasks/archive/$(date +%Y-%m)/t2\.md\)"
 
   check "fleet clear w1 closes t3" fleet clear w1
@@ -357,6 +369,7 @@ test_kill() {
 
 test_clean() {
   check "fleet clean --branches" eval "command fleet clean demo --branches > $T/clean.log 2>&1"
+  check "git's branch deletion shows" has $T/clean.log '^Deleted branch demo-w2' 
   check "w2's worktree is removed" test ! -d $(wt w2)
   check "w1's worktree is removed" test ! -d $(wt w1)
   eq "w2's branch, merged into main, is deleted" "$(git -C $T/repo branch --list demo-w2)" ""

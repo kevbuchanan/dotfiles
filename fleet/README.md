@@ -13,7 +13,7 @@ fleet kill demo
 
 - tmux with the `allow-set-title` pane option. Tested with tmux 3.6a.
 - Claude Code 2.1.224 or later on macOS or Linux, for [cross-session messaging](https://code.claude.com/docs/en/cross-session-messaging)
-- [Deno](https://deno.com) 2 to run `fleet`, which prose also needs. The first run downloads the locked `@std/path` into Deno's cache.
+- [Deno](https://deno.com) 2 to run `fleet`, which prose also needs, from Homebrew (`brew.txt`) so that it is on PATH in shells that don't activate mise, such as a seat's Bash tool. The first run downloads the locked `@std/path` into Deno's cache.
 - `jq`, `git` and `nc` on PATH. fleet and its hooks post to sessions' inbox sockets with `nc -U`, which macOS's `nc` supports; some Linux netcat builds lack `-U`. The hooks use `jq`.
 - [diffview.nvim](https://github.com/sindrets/diffview.nvim), optional, for `:FleetDiff`
 - A git repository as the working folder, if workers should get worktrees. Outside a repo, every worker shares the folder, and `fleet clear` closes a task with `end: -`, since there's no commit to record.
@@ -432,7 +432,7 @@ test/run                  end-to-end tests, see "Tests"
 test/claude-stub          the claude the tests' seats run
 ```
 
-`bin/fleet` resolves its own folder through the `~/.local/bin/fleet` symlink. Deno looks for `deno.jsonc` next to the script it runs, so a bare symlink to `src/main.ts` fails with `Import "@std/path" not a dependency`. fleet posts to inbox sockets through `lib/claude/session.ts` at the dotfiles root, which prose uses too.
+`bin/fleet` resolves its own folder through the `~/.local/bin/fleet` symlink. Deno resolves `src/main.ts`'s relative imports, and its `deno.jsonc`, from the path it is given, so a bare symlink to `src/main.ts` fails with `Module not found` for the modules beside it. fleet posts to inbox sockets through `lib/claude/session.ts` at the dotfiles root, which prose uses too.
 
 Run state lives outside this folder:
 
@@ -463,7 +463,7 @@ A fleet started before fleet kept a repo record shows `-` for its repo and workt
 
 ## Tests
 
-`test/run` starts a fleet with two workers on its own tmux server, `tmux -L fleet-test-<pid>`, in a scratch repo, notes folder and state folder, then runs every command and hook against it. It never touches a running fleet or your notes. A run takes about 20 seconds and removes everything it made. `test/run -k` keeps the scratch folder and tmux server and prints how to attach.
+`test/run` starts a fleet with two workers on its own tmux server, `tmux -L fleet-test-<pid>`, in a scratch repo, notes folder and state folder, then runs every command and hook against it. It never touches a running fleet or your notes. A run takes about 10 seconds and removes everything it made. `test/run -k` keeps the scratch folder and tmux server and prints how to attach.
 
 Each seat runs `test/claude-stub` in place of `claude`. The stub does what fleet relies on a seat doing:
 

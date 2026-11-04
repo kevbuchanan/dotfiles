@@ -48,7 +48,10 @@ export class Fleet {
       name = await run("tmux", ["display", "-p", "-t", pane, "#S"])
     }
     if (!(await isFleet(name))) die(`${name} is not a fleet`)
-    return new Fleet(name, await output("tmux", ["show", "-qv", "-t", target(name), "@fleet_notes"]))
+    // an empty path would point git -C and the notes lock at the caller's folder
+    const notes = await output("tmux", ["show", "-qv", "-t", target(name), "@fleet_notes"])
+    if (!notes) die(`${name} has no notes folder recorded in @fleet_notes`)
+    return new Fleet(name, notes)
   }
 
   static at(name: string, notes: string) {

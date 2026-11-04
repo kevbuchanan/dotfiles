@@ -3,11 +3,27 @@
 // test() answers whether it succeeded, and passthrough() hands the terminal
 // to it, for attach and diff.
 
-export class FleetError extends Error {}
-
-export function die(message: string): never {
-  throw new FleetError(message)
+export class FleetError extends Error {
+  constructor(message: string, readonly code = 1) {
+    super(message)
+  }
 }
+
+export function die(message: string, code = 1): never {
+  throw new FleetError(message, code)
+}
+
+// A template with each {{KEY}} replaced by its value. A replacement string
+// would read $&, $' and $$ in a value as patterns, so a title such as
+// "charge $$5" goes through a function.
+export function fill(template: string, values: Record<string, string>): string {
+  let text = template
+  for (const [key, value] of Object.entries(values)) text = text.replaceAll(`{{${key}}}`, () => value)
+  return text
+}
+
+// git's subcommand comes after -C <dir>
+const subcommand = (args: string[]) => args[0] === "-C" ? args[2] ?? "" : args[0] ?? ""
 
 type Options = {
   cwd?: string
@@ -51,7 +67,9 @@ async function exec(cmd: string, args: string[], opts: Options) {
 
 export async function run(cmd: string, args: string[], opts: Options = {}): Promise<string> {
   const { code, out } = await exec(cmd, args, opts)
-  if (code !== 0) die(`${cmd} ${args[0] ?? ""} exited ${code}`)
+  // exits with the command's own status, as the shell did; its stderr has
+  // already shown why
+  if (code !== 0) die(`${cmd} ${subcommand(args)} exited ${code}`, code)
   return out
 }
 
@@ -63,6 +81,12 @@ export async function output(cmd: string, args: string[], opts: Options = {}): P
 
 export async function test(cmd: string, args: string[], opts: Options = {}): Promise<boolean> {
   return (await exec(cmd, args, { quiet: true, ...opts })).code === 0
+}
+
+// Whether the command succeeds, with its output shown, for steps whose output
+// the user reads, such as git's "Deleted branch"
+export async function succeeds(cmd: string, args: string[], opts: Options = {}): Promise<boolean> {
+  return (await passthrough(cmd, args, opts)) === 0
 }
 
 export async function passthrough(cmd: string, args: string[], opts: Options = {}): Promise<number> {

@@ -121,12 +121,11 @@ export function setSection(note: string, name: string, body: string[]) {
   writeAtomic(note, join_(out))
 }
 
+// Appends, without rewriting the note, so a worker's edit made meanwhile
+// stays
 export function appendLog(note: string, entry: string) {
-  let text = readText(note)
-  if (!lines(text).includes("## Log")) {
-    text += "\n## Log\n\n"
-  }
-  Deno.writeTextFileSync(note, `${text}- ${entry}\n`)
+  const heading = lines(readText(note)).includes("## Log") ? "" : "\n## Log\n\n"
+  Deno.writeTextFileSync(note, `${heading}- ${entry}\n`, { append: true })
 }
 
 // [checked todos, total todos, open questions], counted by hooks/task-progress,
@@ -151,15 +150,16 @@ function archived(dir: string, name: string): string | undefined {
   return markdown(dir).filter((p) => basename(p) === name).sort()[0]
 }
 
-// Every .md file under a folder, recursively, sorted, skipping .git
+// Every .md file under a folder, recursively, sorted. Like zsh's ** glob, it
+// skips dot folders, such as .git, and follows a symlink to a file.
 export function markdown(dir: string): string[] {
   const out: string[] = []
   if (!isDir(dir)) return out
   for (const e of [...Deno.readDirSync(dir)].sort((a, b) => a.name < b.name ? -1 : 1)) {
-    if (e.name === ".git") continue
+    if (e.name.startsWith(".")) continue
     const p = join(dir, e.name)
     if (e.isDirectory) out.push(...markdown(p))
-    else if (e.isFile && e.name.endsWith(".md")) out.push(p)
+    else if (e.name.endsWith(".md") && isFile(p)) out.push(p)
   }
   return out
 }
@@ -169,7 +169,7 @@ export function open(notes: string): string[] {
   const dir = join(notes, "tasks")
   if (!isDir(dir)) return []
   return [...Deno.readDirSync(dir)]
-    .filter((e) => e.isFile && e.name.endsWith(".md"))
+    .filter((e) => !e.name.startsWith(".") && e.name.endsWith(".md") && isFile(join(dir, e.name)))
     .map((e) => join(dir, e.name))
     .sort()
 }

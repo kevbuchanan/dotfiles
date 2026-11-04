@@ -9,6 +9,20 @@ import { print, readText, today } from "../run.ts"
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 const id = (path: string) => basename(path).replace(/\.md$/, "")
 
+// The path from folder <from> to <to>, both relative to the notes repo. The
+// target's last part always stays, so a link to a folder that holds the
+// linking note reads ../2026-11 where @std/path's relative() gives "", an
+// empty link.
+function rel(to: string, from: string): string {
+  const t = to.split("/").filter((p) => p && p !== ".")
+  const f = from.split("/").filter((p) => p && p !== ".")
+  while (t.length > 1 && f.length && t[0] === f[0]) {
+    t.shift()
+    f.shift()
+  }
+  return [...f.map(() => ".."), ...t].join("/")
+}
+
 // Rewrites the relative markdown links in the notes repo after the moves,
 // old path to new path, both relative to the repo: a link from a moved file
 // is resolved from where the file was, a link to a moved file follows it,
@@ -33,7 +47,7 @@ export function relink(notes: string, moves: Map<string, string>) {
       const abs = normalize(join(fromDir, target))
       if (abs.startsWith("../") || abs === "..") return whole
       if (!moved && !moves.has(abs)) return whole
-      return `](${relative(toDir, moves.get(abs) ?? abs)}${frag})`
+      return `](${rel(moves.get(abs) ?? abs, toDir)}${frag})`
     })
     if (out !== text) Deno.writeTextFileSync(file, out)
   }
