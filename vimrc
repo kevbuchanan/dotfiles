@@ -157,8 +157,25 @@ end
 -- "- [ ] ". render-markdown hides the bullet and draws the checkbox in three,
 -- so padding brings the drawn prefix back to six and wrapped text lines up
 -- under the item's text.
+-- A checked box is the filled checkbox-marked glyph, which reads larger than
+-- the default outline one at the same cell size, in tomorrow-night's green;
+-- glyphs are escapes because private-use characters don't survive every tool.
 local ok_rm, render_markdown = pcall(require, 'render-markdown')
-if ok_rm then render_markdown.setup({ checkbox = { left_pad = 2, right_pad = 2 } }) end
+if ok_rm then
+  render_markdown.setup({
+    checkbox = {
+      left_pad = 2,
+      right_pad = 2,
+      unchecked = { icon = '\u{f0131} ' },
+      checked = { icon = '\u{f0132} ' },
+    },
+  })
+  local function checked_color()
+    vim.api.nvim_set_hl(0, 'RenderMarkdownChecked', { fg = '#b5bd68', ctermfg = 143 })
+  end
+  checked_color()
+  vim.api.nvim_create_autocmd('ColorScheme', { callback = checked_color })
+end
 
 -- Markdown: treesitter highlighting, which render-markdown.nvim builds on
 -- (nvim ships the parsers), and soft wrapping. Lines wrap at word boundaries
