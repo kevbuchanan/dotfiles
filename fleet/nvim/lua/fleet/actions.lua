@@ -11,6 +11,14 @@ local function fleet_cmd(fleet, ...)
   return args
 end
 
+-- A fleet's notes folder: the one its tmux session records while it runs, or
+-- else $FLEET_HOME/<fleet>
+function M.notes_dir(fleet)
+  local out = vim.trim(vim.fn.system({ "tmux", "show", "-qv", "-t", "=" .. fleet .. ":", "@fleet_notes" }))
+  if vim.v.shell_error == 0 and out ~= "" then return out end
+  return (vim.env.FLEET_HOME or (vim.env.HOME .. "/agents")) .. "/" .. fleet
+end
+
 -- Opens a task's or a worker branch's changes as a unified diff: `fleet diff`
 -- in a terminal in a new tab, where git's pager, delta, renders it with
 -- syntax colors. Quitting the pager closes the tab. delta's default pager,
@@ -48,6 +56,9 @@ function M.diffview(fleet, target)
   if vim.trim(r.stderr) ~= "" then vim.notify(vim.trim(r.stderr), vim.log.levels.WARN) end
   -- -C makes diffview use the worker's repo, not the notes repo
   vim.cmd("DiffviewOpen -C" .. vim.fn.fnameescape(dir) .. " " .. rev)
+  -- :FleetComment reads these to find the task a comment belongs to
+  vim.t.fleet_name = fleet
+  vim.t.fleet_target = target
 end
 
 -- Runs a fleet command in the background and reports its output.

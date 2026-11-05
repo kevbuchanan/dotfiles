@@ -16,6 +16,8 @@ root=${0:A:h:h}
 keep=0
 [[ ${1:-} == -k ]] && keep=1
 
+# the real nvim, for the review test; $T/bin's nvim is a stub for the notes pane
+real_nvim=$(command -v nvim)
 T=$(mktemp -d)
 T=${T:A}
 server=fleet-test-$$
@@ -235,6 +237,22 @@ test_seat_commands() {
   refuses "a seat command on a session that isn't a fleet" command fleet -s nope status
 }
 
+# :FleetComment and :FleetReview in a headless nvim with only fleet's plugin,
+# on a file in w1's worktree: the seat's task comes from tmux
+test_nvim_review() {
+  local f=$(wt w1)/review.txt lua=$T/review.lua
+  print -l 'first line' '  if (token == null) return' > $f
+  print -r -- "vim.cmd('edit $f')
+vim.cmd('2')
+vim.cmd('FleetComment use the shared guard')
+vim.cmd('FleetReview')
+vim.wait(3000, function() return false end)" > $lua
+  $real_nvim --clean --headless --cmd "set rtp+=$root/nvim" --cmd 'runtime plugin/fleet.lua' -c "luafile $lua" -c 'qa!' > /dev/null 2>&1
+  check "the comment is a review todo in t1's note" has $(note t1) '^- \[ \] Review review\.txt:2 `if \(token == null\) return`: use the shared guard$'
+  check "w1 gets the bump" within 3 received w1 "Task t1 was updated"
+  rm $f
+}
+
 test_report() {
   refuses "a report from outside the worker's pane" fleet report t1 progress hi
   refuses "done with unchecked todos" as w1 command fleet report t1 done all done
@@ -421,6 +439,7 @@ run_test test_new
 run_test test_task
 run_test test_assign
 run_test test_seat_commands
+run_test test_nvim_review
 run_test test_report
 run_test test_todo_check
 run_test test_diff

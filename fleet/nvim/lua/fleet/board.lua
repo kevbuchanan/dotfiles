@@ -17,13 +17,7 @@ local REFRESH_MS = 5000
 -- needs attention first, finished last
 local rank = { error = 1, blocked = 2, review = 2, progress = 3, assigned = 4, [""] = 5, done = 6, abandoned = 6 }
 
--- A running fleet records its notes folder on its tmux session; a stopped
--- one is found under $FLEET_HOME.
-local function notes_dir(fleet)
-  local out = vim.trim(vim.fn.system({ "tmux", "show", "-qv", "-t", "=" .. fleet .. ":", "@fleet_notes" }))
-  if vim.v.shell_error == 0 and out ~= "" then return out end
-  return (vim.env.FLEET_HOME or (vim.env.HOME .. "/agents")) .. "/" .. fleet
-end
+local notes_dir = actions.notes_dir
 
 -- task id -> { seat, state } for the fleet's seats that hold a task
 local function seat_states(fleet)

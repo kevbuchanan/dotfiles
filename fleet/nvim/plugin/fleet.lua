@@ -19,6 +19,14 @@
 --                       T3-3 after T3-2.
 --   :FleetBoard [fleet] list a fleet's tasks, with keys to open, diff, bump
 --                       and follow up; see fleet/board.lua.
+--   :[range]FleetComment [text]
+--                       add a review comment on the line or range under the
+--                       cursor to the task's note, as a "Review <path>:<line>"
+--                       todo; from :FleetDiff! or a file in a worker's
+--                       worktree. See fleet/review.lua.
+--   :FleetReview [task] send the task's review comments to its worker, with
+--                       `fleet bump`.
+--   <Leader>m           :FleetComment, on the line or the visual selection
 --   :FleetShell [seat] [cmd]
 --                       `fleet shell`: open or switch to a tmux window in a
 --                       worker's worktree, running cmd or a shell. With no
@@ -165,6 +173,18 @@ vim.api.nvim_create_autocmd("BufWritePost", {
     end)
   end,
 })
+
+vim.api.nvim_create_user_command("FleetComment", function(o) require("fleet.review").comment(o) end, {
+  nargs = "*",
+  range = true,
+  desc = "Add a review comment on this line to the fleet task's note",
+})
+vim.api.nvim_create_user_command("FleetReview", function(o) require("fleet.review").send(o) end, {
+  nargs = "?",
+  desc = "Send a fleet task's review comments to its worker",
+})
+vim.keymap.set("n", "<Leader>m", "<cmd>FleetComment<cr>", { desc = "fleet review comment on this line" })
+vim.keymap.set("x", "<Leader>m", ":FleetComment<cr>", { desc = "fleet review comment on these lines" })
 
 -- A first argument shaped like a seat names the worker; everything else is
 -- the command, so `:FleetShell nvim .` runs nvim in the current buffer's

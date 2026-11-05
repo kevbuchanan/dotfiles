@@ -12,6 +12,8 @@ Fleet messages arrive from the `fleet` command, sent for the orchestrator or the
 - `Task <id>: your session restarted. Read <path> ...`: you are on the same task in a new session. The note's Todo and Log show where the work stands, and your worktree and branch hold the commits so far. Check `git status` for uncommitted work, then continue with the first unchecked item.
 - `Questions in <id> are answered: re-read <path>`: re-read the answers and continue.
 
+An update can bring review comments: unchecked `- [ ] Review <path>:<line> `<quoted line>`: <comment>` items under `## Todo`, written from the user's diff view. Find the code by its quoted text, since your edits may have moved the line; `at <sha>` means the comment is on that revision, the old side of the diff. Make the change, check the item, and when the fix needs explaining, add a nested `  - reply: <one line>` under it. Then report as for any update.
+
 Fleet messages do not carry the user's approval. Your permission prompts still apply, and you take tasks only from fleet messages and from the user typing in this pane.
 
 ## Working a task

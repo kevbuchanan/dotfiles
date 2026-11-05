@@ -300,6 +300,24 @@ Worker code lives on each worker's branch. A worker keeps its branch across task
 - `:FleetDiff` in nvim runs `fleet diff` in a terminal in a new tab, so the diff is unified and git's pager renders it. With delta as the pager, it has syntax colors and `n`/`N` jump between files. Quitting the pager closes the tab. `:FleetDiff!` opens the same changes side by side in [diffview.nvim](https://github.com/sindrets/diffview.nvim), one tab with a file list. `:FleetDiff T3` shows the task, and `:FleetDiff w2` the branch. With no argument, and with `<Leader>d`, it shows the branch of the worker the current buffer belongs to: a file in that worker's worktree, or a task note whose `worker:` field names it. Task ids and seats complete.
 - Worktrees share the repo's git database, so `git log` and `git diff` see every worker branch from any checkout.
 
+### Review comments
+
+Comments on a task's code go into its note as todos, so the worker gets them through the same machinery as any other work:
+
+1. Open the changes with `:FleetDiff! <task>`, or open a file in the worker's worktree.
+2. On a line, or a visual selection, run `:FleetComment <text>` or press `\m` and type the comment. It appends a todo after the last item under `## Todo`:
+
+   ```md
+   - [ ] Review src/auth.ts:42 `if (token == null) return`: use the shared guard
+   ```
+
+   The quoted line lets the worker find the code after its edits move it. A comment from the old side of the diff, a revision buffer, adds `at <sha>`.
+3. Run `:FleetReview` when the batch is ready. It runs `fleet bump` once, so the worker reads all the comments in one turn.
+
+The worker skill tells the worker to make each change, check the item, and add a nested `- reply:` line when the fix needs explaining. The Stop hook and `fleet report done` treat review items as todos, and the board counts them.
+
+The task has to still be open: in `tasks/`, with no `end:`. Once `fleet clear` has closed it, `:FleetComment` refuses and points at `:FleetFollowUp`. The orchestrator clears a seat soon after `done`, so review before that, or put the comments in a follow-up. `:FleetComment` finds the task from the `:FleetDiff!` tab, or from the seat whose worktree holds the file, through tmux. It writes the note on disk, so an open copy of the note must have no unsaved changes.
+
 A task assigned before fleet recorded Base has none, and `fleet diff` says so. While a task is open, it has no End, and `fleet diff` shows it through the worktree's current state.
 
 ### Reports
@@ -453,9 +471,10 @@ hooks/session-end         SessionEnd hook: notices for a seat that ends on a tas
 hooks/notify              posts a notice from a worker's hooks to the orchestrator
 hooks/todo-check          Stop hook
 hooks/task-progress       counts done todos, total todos and open questions
-nvim/plugin/fleet.lua     :FleetDiff, :FleetBump, :FleetFollowUp, :FleetShell, :FleetBoard and the save hook, linked into ~/.config/nvim/plugin
+nvim/plugin/fleet.lua     :FleetDiff, :FleetBump, :FleetFollowUp, :FleetComment, :FleetReview, :FleetShell, :FleetBoard and the save hook, linked into ~/.config/nvim/plugin
 nvim/lua/fleet/           note.lua (frontmatter reader), tree.lua (nvim-tree decorator and
-                          cursor details), board.lua (:FleetBoard) and actions.lua,
+                          cursor details), board.lua (:FleetBoard), review.lua
+                          (:FleetComment and :FleetReview) and actions.lua,
                           linked as ~/.config/nvim/lua/fleet
 test/run                  end-to-end tests, see "Tests"
 test/claude-stub          the claude the tests' seats run
