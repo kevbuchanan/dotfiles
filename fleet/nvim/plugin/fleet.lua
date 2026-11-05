@@ -17,6 +17,10 @@
 --                       T3-3 after T3-2.
 --   :FleetBoard [fleet] list a fleet's tasks, with keys to open, diff, bump
 --                       and follow up; see fleet/board.lua.
+--   :FleetShell [seat] [cmd]
+--                       `fleet shell`: open or switch to a tmux window in a
+--                       worker's worktree, running cmd or a shell. With no
+--                       seat, the worker the current buffer belongs to.
 --
 -- Saving a task note runs `fleet answer` for it. fleet answers only when the
 -- note's worker is waiting in state `question` and no question is left open,
@@ -155,6 +159,35 @@ vim.api.nvim_create_autocmd("BufWritePost", {
         vim.schedule(function() vim.notify(vim.trim(r.stdout)) end)
       end
     end)
+  end,
+})
+
+-- A first argument shaped like a seat names the worker; everything else is
+-- the command, so `:FleetShell nvim .` runs nvim in the current buffer's
+-- worker's worktree.
+vim.api.nvim_create_user_command("FleetShell", function(o)
+  local fleet, seat = nil, o.fargs[1]
+  local cmd = vim.list_slice(o.fargs, 2)
+  if not (seat and seat:match("^w%d+$")) then
+    fleet, seat = buffer_worker()
+    cmd = o.fargs
+    if not seat then
+      vim.notify("FleetShell: name a seat, or run it from a worker's file or an assigned task note", vim.log.levels.ERROR)
+      return
+    end
+  end
+  require("fleet.actions").run(fleet, "shell", seat, unpack(cmd))
+end, {
+  nargs = "*",
+  desc = "Open a tmux window in a fleet worker's worktree",
+  complete = function(lead, line)
+    -- seats complete only as the first argument
+    if line:match("^%S+%s+%S+%s") then return {} end
+    local seats = {}
+    for seat in vim.fn.system({ "tmux", "list-panes", "-s", "-F", "#{@agent_seat}" }):gmatch("(w%d+)") do
+      if vim.startswith(seat, lead) then table.insert(seats, seat) end
+    end
+    return seats
   end,
 })
 

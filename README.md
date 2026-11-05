@@ -103,6 +103,7 @@ vim-test runs tests in a neoterm split.
 | `:FleetDiff [task \| seat]`, `\d` | open changes in diffview: a task's, or a worker's whole branch. With no argument, the branch of the worker the current buffer belongs to. See [fleet](fleet/README.md#reviewing-progress). |
 | `:FleetBoard [fleet]` | list a fleet's tasks with their status, worker and todos, with keys to open, diff, bump and follow up. See [fleet](fleet/README.md#note-state-in-nvim). |
 | `:FleetFollowUp [id] [title]` | from a closed task's note, create a follow-up task and open it. See [fleet](fleet/README.md#follow-up-work). |
+| `:FleetShell [seat] [cmd]` | open or switch to a tmux window in a worker's worktree, running `cmd` or a shell. With no seat, the worker the current buffer belongs to. See [fleet](fleet/README.md#working-in-a-workers-checkout). |
 | `:FleetBump [task]`, `\b` | save the task note and tell its worker the note has new work. See [fleet](fleet/README.md#follow-up-work). |
 | saving a task note | runs `fleet answer` for it, which wakes a worker waiting on a question once none is left open |
 | `:Prose [session]` | open a [prose](prose/README.md) review of the current file |

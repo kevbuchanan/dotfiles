@@ -195,7 +195,7 @@ The orchestrator owns follow-up. Tell it what's needed, and it writes the items 
 Each worker's Claude session runs in its worktree, `<repo>/.claude/worktrees/<fleet>-w<n>`. The pane's shell does not: it starts in the repo root, because `-w` moves only Claude's own working folder.
 
 - `fleet path w2` prints the worktree path, such as `cd "$(fleet path w2)"` in a shell or ``:e `fleet path w2`/docs/design.md`` in nvim.
-- `fleet shell w2` opens a tmux window named `w2-shell` in the worktree and switches to it. `fleet shell w2 nvim .` opens an editor there, and any other command works the same way. The window is not a seat, so `fleet status` and the seat commands skip it. Running `fleet shell w2` again switches to the open window.
+- `fleet shell w2` opens a tmux window named `w2-shell` in the worktree and switches to it. `fleet shell w2 nvim .` opens an editor there, and any other command works the same way. The window is not a seat, so `fleet status` and the seat commands skip it. Running `fleet shell w2` again switches to the open window. In nvim, `:FleetShell w2` runs it, and `:FleetShell` with no seat uses the worker the current buffer belongs to: a file in its worktree, or a task note that names it. `:FleetShell nvim .` opens nvim in that worker's worktree.
 - `:Prose <fleet>-w2` in nvim, on a file in that worktree, opens a [prose](../prose/README.md) review whose comments go to that worker.
 
 Typing `! <command>` in a worker's Claude pane also runs a command in its worktree, but the output becomes part of that worker's conversation and uses context it needs for its task. `fleet shell` keeps your inspection out of the worker's context.
@@ -453,7 +453,7 @@ hooks/session-end         SessionEnd hook: notices for a seat that ends on a tas
 hooks/notify              posts a notice from a worker's hooks to the orchestrator
 hooks/todo-check          Stop hook
 hooks/task-progress       counts done todos, total todos and open questions
-nvim/plugin/fleet.lua     :FleetDiff, :FleetBump, :FleetFollowUp and the save hook, linked into ~/.config/nvim/plugin
+nvim/plugin/fleet.lua     :FleetDiff, :FleetBump, :FleetFollowUp, :FleetShell, :FleetBoard and the save hook, linked into ~/.config/nvim/plugin
 nvim/lua/fleet/           note.lua (frontmatter reader), tree.lua (nvim-tree decorator and
                           cursor details), board.lua (:FleetBoard) and actions.lua,
                           linked as ~/.config/nvim/lua/fleet
