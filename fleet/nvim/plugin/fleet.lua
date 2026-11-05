@@ -1,11 +1,13 @@
 -- nvim commands for fleet task review.
 --
---   :FleetDiff [task | seat]
---                       open changes in diffview: a task's, or a worker's
---                       whole branch through its working tree. With no
---                       argument, the branch of the worker the current buffer
---                       belongs to: a file in its worktree, or a task note
---                       whose frontmatter names it as worker.
+--   :FleetDiff[!] [task | seat]
+--                       open changes as a unified diff, `fleet diff` in a
+--                       terminal tab: a task's, or a worker's whole branch
+--                       through its working tree. With !, side by side in
+--                       diffview. With no argument, the branch of the worker
+--                       the current buffer belongs to: a file in its
+--                       worktree, or a task note whose frontmatter names it
+--                       as worker.
 --   <Leader>d           :FleetDiff
 --   :FleetBump [task]   tell the task's worker its note has new work. With
 --                       no task, uses the task note in the current buffer.
@@ -26,9 +28,9 @@
 -- note's worker is waiting in state `question` and no question is left open,
 -- so most saves do nothing, and those are silent.
 --
--- `fleet diff --rev` picks the folder and revision: the worker's worktree
--- from Base while the task is in progress, or the repo with Base..End once
--- `fleet clear` has recorded End.
+-- For diffview, `fleet diff --rev` picks the folder and revision: the
+-- worker's worktree from Base while the task is in progress, or the repo with
+-- Base..End once `fleet clear` has recorded End.
 
 local function fleet_notes()
   local pane = vim.env.TMUX_PANE
@@ -59,10 +61,12 @@ vim.api.nvim_create_user_command("FleetDiff", function(o)
       return
     end
   end
-  require("fleet.actions").diff(fleet, target)
+  local actions = require("fleet.actions")
+  if o.bang then actions.diffview(fleet, target) else actions.diff(fleet, target) end
 end, {
   nargs = "?",
-  desc = "Open a fleet task's or worker branch's changes in diffview",
+  bang = true,
+  desc = "Open a fleet task's or worker branch's changes, unified or with ! in diffview",
   complete = function(lead)
     local notes = fleet_notes()
     if not notes then return {} end

@@ -143,7 +143,15 @@ if ok_gs then gitsigns.setup() end
 
 -- file icons need nvim-web-devicons, which is not installed
 local ok_dv, diffview = pcall(require, 'diffview')
-if ok_dv then diffview.setup({ use_icons = false }) end
+-- q closes diffview from its diff buffers and file panels, as q quits the
+-- pager in :FleetDiff's unified view
+local dv_close = { "n", "q", "<cmd>DiffviewClose<cr>", { desc = "Close diffview" } }
+if ok_dv then
+  diffview.setup({
+    use_icons = false,
+    keymaps = { view = { dv_close }, file_panel = { dv_close }, file_history_panel = { dv_close } },
+  })
+end
 
 -- breakindent indents a wrapped list item by its raw prefix, six columns for
 -- "- [ ] ". render-markdown hides the bullet and draws the checkbox in three,
@@ -224,6 +232,20 @@ autocmd ColorScheme * highlight ExtraWhitespace ctermbg=red guibg=red
 autocmd FileType swift setlocal tabstop=2
 autocmd FileType swift setlocal softtabstop=2
 autocmd FileType swift setlocal shiftwidth=2
+
+" Diff mode tints only the background, so changed lines keep their syntax
+" colors. nvim's default diff groups also set a foreground, which paints over
+" syntax, and tomorrow-night defines none of them.
+function! s:DiffColors()
+  highlight DiffAdd    ctermbg=22  guibg=#1e3a28 ctermfg=NONE guifg=NONE cterm=NONE gui=NONE
+  highlight DiffDelete ctermbg=52  guibg=#3a1e22 ctermfg=NONE guifg=NONE cterm=NONE gui=NONE
+  highlight DiffChange ctermbg=236 guibg=#262a33 ctermfg=NONE guifg=NONE cterm=NONE gui=NONE
+  highlight DiffText   ctermbg=24  guibg=#2c4a6e ctermfg=NONE guifg=NONE cterm=NONE gui=NONE
+endfunction
+autocmd ColorScheme * call s:DiffColors()
+" histogram aligns moved blocks, and indent-heuristic keeps a re-indented
+" block in one hunk
+set diffopt+=algorithm:histogram,indent-heuristic
 
 if !has('nvim')
   set t_Co=256

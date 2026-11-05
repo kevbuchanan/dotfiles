@@ -79,7 +79,7 @@ local function render(buf)
 
   local lines = {
     "fleet " .. b.fleet_board .. "  " .. #tasks .. " tasks" .. (b.fleet_board_archived and " (with archived)" or ""),
-    "<CR> open  d diff  b bump  f follow-up  a archived  r refresh  q close   (age from created)",
+    "<CR> open  d diff  D side by side  b bump  f follow-up  a archived  r refresh  q close   (age from created)",
     "",
   }
   local marks = {}
@@ -167,6 +167,7 @@ function M.open(fleet)
   end
   map("<CR>", function(t) open_note(buf, t) end)
   map("d", function(t) actions.diff(fleet, t.task) end)
+  map("D", function(t) actions.diffview(fleet, t.task) end)
   map("b", function(t) actions.run(fleet, "bump", t.task) end)
   map("f", function(t)
     open_note(buf, t)

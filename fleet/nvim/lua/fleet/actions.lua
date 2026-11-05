@@ -11,9 +11,29 @@ local function fleet_cmd(fleet, ...)
   return args
 end
 
--- Opens a task's or a worker branch's changes in diffview. `fleet diff --rev`
--- picks the folder and revision; see bin/fleet.
+-- Opens a task's or a worker branch's changes as a unified diff: `fleet diff`
+-- in a terminal in a new tab, where git's pager, delta, renders it with
+-- syntax colors. Quitting the pager closes the tab. delta's default pager,
+-- and git's own less, quit at once on a diff that fits one screen, which
+-- would close the tab before it is read, so the pager here waits for q.
 function M.diff(fleet, target)
+  vim.cmd("tabnew")
+  local buf = vim.api.nvim_get_current_buf()
+  vim.fn.jobstart(fleet_cmd(fleet, "diff", target), {
+    term = true,
+    env = { DELTA_PAGER = "less -R", LESS = "R" },
+    on_exit = function(_, code)
+      vim.schedule(function()
+        if code == 0 and vim.api.nvim_buf_is_valid(buf) then vim.api.nvim_buf_delete(buf, { force = true }) end
+      end)
+    end,
+  })
+  vim.cmd("startinsert")
+end
+
+-- Opens a task's or a worker branch's changes side by side in diffview.
+-- `fleet diff --rev` picks the folder and revision; see src/cmd/diff.ts.
+function M.diffview(fleet, target)
   if vim.fn.exists(":DiffviewOpen") ~= 2 then
     vim.notify("fleet: diffview.nvim is not installed", vim.log.levels.ERROR)
     return

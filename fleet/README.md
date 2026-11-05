@@ -15,7 +15,7 @@ fleet kill demo
 - Claude Code 2.1.224 or later on macOS or Linux, for [cross-session messaging](https://code.claude.com/docs/en/cross-session-messaging)
 - [Deno](https://deno.com) 2 to run `fleet`, which prose also needs, from Homebrew (`brew.txt`) so that it is on PATH in shells that don't activate mise, such as a seat's Bash tool. The first run downloads the locked `@std/path` into Deno's cache.
 - `jq`, `git` and `nc` on PATH. fleet and its hooks post to sessions' inbox sockets with `nc -U`, which macOS's `nc` supports; some Linux netcat builds lack `-U`. The hooks use `jq`.
-- [diffview.nvim](https://github.com/sindrets/diffview.nvim), optional, for `:FleetDiff`
+- [diffview.nvim](https://github.com/sindrets/diffview.nvim), optional, for `:FleetDiff!`
 - A git repository as the working folder, if workers should get worktrees. Outside a repo, every worker shares the folder, and `fleet clear` closes a task with `end: -`, since there's no commit to record.
 
 ## Concepts
@@ -283,7 +283,7 @@ fleet shop  3 tasks
 
 - **Columns:** status with its icon (drawn as `?`, `~` and `*` here), task id, worker with the seat's live state from tmux, todos with open questions, a PR mark, the task's age in days from `created:`, and the note's title. Archived tasks, with `a`, are marked `[archived]`.
 - **Order:** error, then blocked and review, then progress and assigned come before done.
-- **Keys:** `<CR>` opens the note in the window the board came from, `d` opens the task's diff, `b` bumps its worker, `f` opens the note and runs `:FleetFollowUp`, `a` toggles archived tasks, `r` refreshes and `q` closes.
+- **Keys:** `<CR>` opens the note in the window the board came from, `d` opens the task's unified diff, `D` the side-by-side diffview, `b` bumps its worker, `f` opens the note and runs `:FleetFollowUp`, `a` toggles archived tasks, `r` refreshes and `q` closes.
 - **Which fleet:** with no name, the board uses the fleet of the note in the current buffer, or of the current tmux session. Names complete from `fleet ls`.
 - **Refreshing:** it redraws when a note of that fleet is saved, and every five seconds while it's visible, because seat states live in tmux and change without a file write.
 
@@ -297,7 +297,7 @@ Worker code lives on each worker's branch. A worker keeps its branch across task
 
 - `fleet diff T3` shows task T3's changes. While T3 is still its seat's current task, the diff runs in the worktree from Base, so it includes edits the worker hasn't committed. Untracked new files don't show until the worker commits them. After `fleet clear`, it is `Base..End`, so later tasks on the same branch stay out of it. Other arguments go to `git diff`, such as `fleet diff T3 --stat`.
 - `fleet diff w2` shows worker w2's whole branch: everything since it left the default branch, through its working tree, so uncommitted edits show too. The default branch is `origin`'s HEAD when the repo has one, else `main` or `master`. Run in a worker's own pane, `fleet diff` with no argument shows that worker's branch. A task note named like a seat wins, so a task can be called `w2`.
-- `:FleetDiff` in nvim opens either diff in [diffview.nvim](https://github.com/sindrets/diffview.nvim), one tab with a file list. `:FleetDiff T3` shows the task, and `:FleetDiff w2` the branch. With no argument, and with `<Leader>d`, it shows the branch of the worker the current buffer belongs to: a file in that worker's worktree, or a task note whose `worker:` field names it. Task ids and seats complete.
+- `:FleetDiff` in nvim runs `fleet diff` in a terminal in a new tab, so the diff is unified and git's pager renders it. With delta as the pager, it has syntax colors and `n`/`N` jump between files. Quitting the pager closes the tab. `:FleetDiff!` opens the same changes side by side in [diffview.nvim](https://github.com/sindrets/diffview.nvim), one tab with a file list. `:FleetDiff T3` shows the task, and `:FleetDiff w2` the branch. With no argument, and with `<Leader>d`, it shows the branch of the worker the current buffer belongs to: a file in that worker's worktree, or a task note whose `worker:` field names it. Task ids and seats complete.
 - Worktrees share the repo's git database, so `git log` and `git diff` see every worker branch from any checkout.
 
 A task assigned before fleet recorded Base has none, and `fleet diff` says so. While a task is open, it has no End, and `fleet diff` shows it through the worktree's current state.
