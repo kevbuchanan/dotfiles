@@ -330,7 +330,10 @@ test_follow_up() {
   check "a follow-up to a closed task" fleet task t3 --from t1
   eq "the follow-up records what it follows" "$(field $(note t3) follows)" t1
   check "the follow-up links its source" has $(note t3) '\[t1\]\(t1\.md\)'
+  # w1's branch has commits of its own, so moving main makes assign merge
+  git -C $T/repo commit -q --allow-empty -m "main moves again"
   check "the follow-up goes to the same worker" fleet assign w1 t3
+  eq "the sync merge's message names no worker" "$(git -C $(wt w1) log -1 --format=%s)" "Merge branch 'main'"
 }
 
 test_abandon() {
@@ -407,6 +410,37 @@ test_review() {
   check "fleet clear after approval" fleet clear w2
 }
 
+# :FleetFollowUp and :FleetAssign in a headless nvim on t4, which w2 closed
+nv() {
+  local note=$1
+  shift
+  local lua=$T/nv.lua cmd
+  : > $lua
+  for cmd in "$@"; do print -r -- "vim.cmd([[$cmd]])" >> $lua; done
+  print -r -- "vim.wait(2000, function() return false end)" >> $lua
+  $real_nvim --clean --headless --cmd "set rtp+=$root/nvim" --cmd 'runtime plugin/fleet.lua' \
+    -c "edit $note" -c "luafile $lua" -c 'qa!' > /dev/null 2>&1
+}
+
+test_nvim_follow_up() {
+  nv $(note t4) FleetFollowUp
+  check "FleetFollowUp creates t4-2" test -f $(note t4-2)
+  nv $(note t4) FleetFollowUp
+  check "a second FleetFollowUp opens t4-2 again" test ! -e $(note t4-3)
+  nv $(note t4-2) FleetAssign
+  eq "FleetAssign refuses a blank Todo" "$(field $(note t4-2) worker)" ""
+  todos t4-2 '[ ] the follow-up work'
+  nv $(note t4-2) FleetAssign
+  eq "FleetAssign picks t4's seat" "$(popt w2 @agent_task)" t4-2
+  check "w2 gets the task" within 3 received w2 "Task t4-2: read $(note t4-2)"
+  todos t4-2 '[x] the follow-up work'
+  tmux set -p -t $(pane w2) @agent_state idle
+  fleet clear w2 > /dev/null
+  nv $(note t4) FleetFollowUp
+  check "a taken follow-up doesn't block a new one" test -f $(note t4-3)
+  rm $(note t4-3)
+}
+
 test_migrate() {
   local f=$T/agents/demo/tasks/old.md
   printf '# old: an old note\n\nFleet: demo\nTask: old\nStatus: done\n\n## Todo\n\n- [x] a\n' > $f
@@ -450,6 +484,7 @@ run_test test_follow_up
 run_test test_abandon
 run_test test_archive
 run_test test_review
+run_test test_nvim_follow_up
 run_test test_migrate
 run_test test_kill
 run_test test_clean

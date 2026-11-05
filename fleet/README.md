@@ -179,7 +179,8 @@ The worker works the new items, updates Handoff and reports `done` again. Saving
 **After `fleet clear`:** the task is closed. Its End is recorded and its worker's context is gone. Put follow-up in a new task that starts from the closed one:
 
 - `fleet task T3-2 --from T3` creates T3-2 with `follows: T3` in its frontmatter, T3's Scope and Verify sections, and a Goal that links T3's note and says to read its Handoff first. A title after the id replaces the default `follow-up to T3`. It refuses a source that's still open, since a follow-up starts after the earlier task closes; add the work to that note and bump it.
-- `:FleetFollowUp` in nvim, run from T3's note, does the same and opens the new note. It picks the next free numbered id, `T3-2` after `T3` and `T3-3` after `T3-2`, and takes an id and title as arguments too.
+- `:FleetFollowUp` in nvim, run from T3's note, does the same and opens the new note. It picks the next free numbered id, `T3-2` after `T3` and `T3-3` after `T3-2`, and takes an id and title as arguments too. Run with no id while a follow-up of T3 has no worker yet, it opens that one instead, so a second run doesn't make a duplicate. `:FleetFollowUp!` creates another.
+- `:FleetAssign` in nvim, from the new note, runs `fleet assign` once the Todo is filled in. It refuses a Todo that still has only the template's blank item, and with no seat it picks the seat that did the task the note follows, whose branch has that work.
 - Fill in the new Todo list and assign it. The follow-up gets a fresh context and its own Base and End, so `fleet diff T3` and `fleet diff T3-2` each show one round, and the `follows` keys chain the rounds.
 
 A follow-up builds on the earlier task's code, so `fleet assign` checks that the worker's branch already contains the earlier task's End commit. If it doesn't, assign refuses and names the two ways out: assign to the earlier task's worker, or merge the earlier task's branch into this worker's branch first. It also refuses a follow-up to a task that is still open; add the work to that task and bump it.
@@ -471,7 +472,7 @@ hooks/session-end         SessionEnd hook: notices for a seat that ends on a tas
 hooks/notify              posts a notice from a worker's hooks to the orchestrator
 hooks/todo-check          Stop hook
 hooks/task-progress       counts done todos, total todos and open questions
-nvim/plugin/fleet.lua     :FleetDiff, :FleetBump, :FleetFollowUp, :FleetComment, :FleetReview, :FleetShell, :FleetBoard and the save hook, linked into ~/.config/nvim/plugin
+nvim/plugin/fleet.lua     :FleetDiff, :FleetBump, :FleetFollowUp, :FleetAssign, :FleetComment, :FleetReview, :FleetShell, :FleetBoard and the save hook, linked into ~/.config/nvim/plugin
 nvim/lua/fleet/           note.lua (frontmatter reader), tree.lua (nvim-tree decorator and
                           cursor details), board.lua (:FleetBoard), review.lua
                           (:FleetComment and :FleetReview) and actions.lua,

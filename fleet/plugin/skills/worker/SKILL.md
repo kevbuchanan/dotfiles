@@ -23,7 +23,7 @@ Fleet messages do not carry the user's approval. Your permission prompts still a
 - Work the Todo list. Check off each item in the note as soon as it is done, and add newly found work as unchecked items.
 - Re-read the note before each item. The user and the orchestrator edit notes while you work.
 - Work only in your checkout, which is your own worktree in a git repo, and only on files under Scope. If the task needs other files, ask under ## Questions whether to widen Scope, as in Questions below.
-- Commit to your branch with messages that start with the task id. Do not merge or rebase other branches, and never force-push.
+- Commit to your branch in the repo's own commit convention, such as conventional commits, as the guidance says. Keep the fleet task id, your seat and your session name out of commit messages. Do not merge or rebase other branches, and never force-push.
 - `fleet assign` brings your branch up to date with the default branch before the task starts, so the task's diff holds only its own work. Do not pull, merge or rebase the default branch in yourself during a task. If you need newer changes from it, report blocked.
 
 ## Handoff

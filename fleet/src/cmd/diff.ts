@@ -38,7 +38,13 @@ export async function sync(worktree: string, seat: string) {
   if (await test("git", ["-C", worktree, "merge-base", "--is-ancestor", ref, "HEAD"])) return
   if (await test("git", ["-C", worktree, "merge-base", "--is-ancestor", "HEAD", ref])) {
     await run("git", ["-C", worktree, "merge", "-q", "--ff-only", ref])
-  } else if (!(await test("git", ["-C", worktree, "merge", "-q", "--no-edit", ref], { quiet: false }))) {
+  } else if (
+    // git's default message names the worker's branch, worktree-<fleet>-w<n>,
+    // which then lands in the repo's history when the branch merges upstream
+    !(await test("git", ["-C", worktree, "merge", "-q", "--no-edit", "-m", `Merge branch '${ref}'`, ref], {
+      quiet: false,
+    }))
+  ) {
     await run("git", ["-C", worktree, "merge", "--abort"])
     die(
       `merging ${ref} into ${seat}'s branch conflicts; resolve it with fleet shell ${seat}, or assign with --no-sync`,

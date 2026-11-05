@@ -12,11 +12,15 @@
 --   :FleetBump [task]   tell the task's worker its note has new work. With
 --                       no task, uses the task note in the current buffer.
 --   <Leader>b           :FleetBump
---   :FleetFollowUp [id] [title]
+--   :FleetFollowUp[!] [id] [title]
 --                       from a task note, create a follow-up task with
 --                       `fleet task --from` and open it. The id defaults to
 --                       the next free number, such as T3-2 after T3 and
---                       T3-3 after T3-2.
+--                       T3-3 after T3-2. With no id, a follow-up no worker
+--                       has taken yet opens instead; ! creates another.
+--   :FleetAssign [seat] from a task note with its Todo filled in, run
+--                       `fleet assign`. The seat defaults to the worker of
+--                       the task the note follows.
 --   :FleetBoard [fleet] list a fleet's tasks, with keys to open, diff, bump
 --                       and follow up; see fleet/board.lua.
 --   :[range]FleetComment [text]
@@ -120,6 +124,16 @@ end, { nargs = "?", desc = "Tell a fleet task's worker its note has new work" })
 
 vim.keymap.set("n", "<Leader>b", "<cmd>FleetBump<cr>", { desc = "fleet bump for this task note" })
 
+-- The tasks folder of the note in the current buffer: the nearest folder
+-- named tasks above it, which reaches it from tasks/archive/<month>/; else
+-- the note's own folder
+local function tasks_dir()
+  local here = vim.fn.expand("%:p:h")
+  local dir = here
+  while vim.fn.fnamemodify(dir, ":t") ~= "tasks" and dir ~= "/" do dir = vim.fn.fnamemodify(dir, ":h") end
+  return dir == "/" and here or dir
+end
+
 vim.api.nvim_create_user_command("FleetFollowUp", function(o)
   local meta = note.buffer()
   if not meta then
@@ -127,12 +141,19 @@ vim.api.nvim_create_user_command("FleetFollowUp", function(o)
     return
   end
   local fleet, from = meta.fleet, meta.task
-  -- the tasks folder: the nearest folder named tasks above the note, which
-  -- reaches it from tasks/archive/<month>/; else the note's own folder
-  local here = vim.fn.expand("%:p:h")
-  local dir = here
-  while vim.fn.fnamemodify(dir, ":t") ~= "tasks" and dir ~= "/" do dir = vim.fn.fnamemodify(dir, ":h") end
-  if dir == "/" then dir = here end
+  local dir = tasks_dir()
+  -- a follow-up nobody has taken yet is the one to fill in, so running this
+  -- twice opens the first one again
+  if #o.fargs == 0 and not o.bang then
+    for _, f in ipairs(vim.fn.glob(dir .. "/*.md", false, true)) do
+      local s = note.summary(f)
+      if s and s.follows == from and (s.worker or "") == "" then
+        vim.cmd.edit(vim.fn.fnameescape(f))
+        vim.notify(("FleetFollowUp: %s already follows %s and has no worker; :FleetFollowUp! creates another"):format(s.task, from))
+        return
+      end
+    end
+  end
   -- an id is taken if a note by that name is in tasks/ or anywhere under
   -- tasks/archive/
   local function taken(name)
@@ -157,7 +178,50 @@ vim.api.nvim_create_user_command("FleetFollowUp", function(o)
     return
   end
   vim.cmd.edit(vim.fn.fnameescape(vim.trim(r.stdout)))
-end, { nargs = "*", desc = "Create a follow-up to this fleet task and open it" })
+end, { nargs = "*", bang = true, desc = "Create a follow-up to this fleet task and open it" })
+
+-- Assigning a note whose Todo is still the template's blank item starts a
+-- worker with nothing to do, so this refuses one. It saves first: the worker
+-- reads the note from disk.
+vim.api.nvim_create_user_command("FleetAssign", function(o)
+  local meta = note.buffer()
+  if not meta then
+    vim.notify("FleetAssign: run it from a task note", vim.log.levels.ERROR)
+    return
+  end
+  local section, items = nil, 0
+  for _, line in ipairs(vim.api.nvim_buf_get_lines(0, 0, -1, false)) do
+    local h = line:match("^## (.+)")
+    if h then section = h elseif section == "Todo" and line:match("^%- %[ %]%s+%S") then items = items + 1 end
+  end
+  if items == 0 then
+    vim.notify("FleetAssign: " .. meta.task .. " has no unchecked todos; fill in its Todo list first", vim.log.levels.ERROR)
+    return
+  end
+  local seat = o.args ~= "" and o.args or nil
+  if not seat and (meta.follows or "") ~= "" then
+    local dir = tasks_dir()
+    local prev = dir .. "/" .. meta.follows .. ".md"
+    if vim.fn.filereadable(prev) == 0 then prev = vim.fn.glob(dir .. "/archive/**/" .. meta.follows .. ".md", false, true)[1] end
+    seat = prev and ((note.summary(prev) or {}).worker or ""):match("%-(w%d+)$")
+  end
+  if not seat then
+    vim.notify("FleetAssign: name a seat; " .. meta.task .. " follows no task with a worker", vim.log.levels.ERROR)
+    return
+  end
+  vim.cmd("silent update")
+  require("fleet.actions").run(meta.fleet, "assign", seat, meta.task)
+end, {
+  nargs = "?",
+  desc = "Assign this fleet task note to a worker seat",
+  complete = function(lead)
+    local seats = {}
+    for seat in vim.fn.system({ "tmux", "list-panes", "-s", "-F", "#{@agent_seat}" }):gmatch("(w%d+)") do
+      if vim.startswith(seat, lead) then table.insert(seats, seat) end
+    end
+    return seats
+  end,
+})
 
 -- A note's frontmatter names its fleet and task, so this works from any
 -- nvim, inside a fleet or not, and ignores markdown that isn't a fleet note.
