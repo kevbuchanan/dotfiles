@@ -59,6 +59,9 @@ there shows what agents wrote since the last assignment.
                                instead, for :FleetDiff
   fleet shell <seat> [cmd]     open a window in a worker's worktree, running
                                cmd or a shell
+  fleet pair <task id | seat>  open a window in a task's checkout with nvim
+                               and an interactive claude that has read the
+                               task's note
 
 Seat commands act on the fleet named by -s <fleet>, or else on the fleet
 that owns the calling pane.
@@ -95,6 +98,7 @@ const SEAT_COMMANDS: Record<string, (fleet: Fleet, args: string[]) => Promise<vo
   rename: seat.rename,
   path: seat.path,
   shell: seat.shell,
+  pair: seat.pair,
   bump: seat.bump,
   answer: seat.answer,
   report: seat.report,

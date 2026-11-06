@@ -4,7 +4,7 @@
 # .claude/worktrees/<name>; it binds an inbox socket and runs the real
 # register hook on it, as SessionStart would; and it records what reaches
 # it. Socket messages go to <socket>.inbox and typed lines to <socket>.typed,
-# one per line. A typed /clear runs register again, as a new session would.
+# one per line, and its arguments to <socket>.argv, one per line. A typed /clear runs register again, as a new session would.
 import os, socket, subprocess, sys, threading
 
 hooks = os.path.join(os.environ["FLEET_ROOT"], "hooks")
@@ -18,6 +18,8 @@ if "-w" in args:
     os.chdir(wt)
 
 sock = os.path.join(os.environ["FLEET_TEST_SOCKS"], "%d.sock" % os.getpid())
+with open(sock + ".argv", "w") as f:
+    f.write("\n".join(args) + "\n")
 server = socket.socket(socket.AF_UNIX)
 server.bind(sock)
 server.listen(8)

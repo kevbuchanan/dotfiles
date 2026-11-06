@@ -197,6 +197,7 @@ Each worker's Claude session runs in its worktree, `<repo>/.claude/worktrees/<fl
 
 - `fleet path w2` prints the worktree path, such as `cd "$(fleet path w2)"` in a shell or ``:e `fleet path w2`/docs/design.md`` in nvim.
 - `fleet shell w2` opens a tmux window named `w2-shell` in the worktree and switches to it. `fleet shell w2 nvim .` opens an editor there, and any other command works the same way. The window is not a seat, so `fleet status` and the seat commands skip it. Running `fleet shell w2` again switches to the open window. In nvim, `:FleetShell w2` runs it, and `:FleetShell` with no seat uses the worker the current buffer belongs to: a file in its worktree, or a task note that names it. `:FleetShell nvim .` opens nvim in that worker's worktree.
+- `fleet pair T3`, or `:FleetPair` in nvim, opens a window named `T3-pair` for working the task with an agent yourself. The left pane runs `nvim .` and the right pane an interactive `claude`, both in T3's checkout: its worker's worktree, or the repo before any worker holds it. Claude starts from a prompt that has it read T3's note and say where the task stands. It runs under the fleet's config folder, taken from the orchestrator's launch line, without fleet's settings or hooks, and the window has no seat, so `fleet status` skips it. While the worker still holds T3, fleet warns that both agents share the checkout, and the prompt tells Claude to check `git status` before editing. `fleet pair w2` opens the task w2 holds. Running it again switches to the open window.
 - `:Prose <fleet>-w2` in nvim, on a file in that worktree, opens a [prose](../prose/README.md) review whose comments go to that worker.
 
 Typing `! <command>` in a worker's Claude pane also runs a command in its worktree, but the output becomes part of that worker's conversation and uses context it needs for its task. `fleet shell` keeps your inspection out of the worker's context.
@@ -394,6 +395,7 @@ Claude Code refuses rapid bursts of messages to one session. fleet sends one mes
 | `fleet report <id> <phase> <text>` | a worker's report on its task: `progress`, `review`, `done`, `blocked` or `error` |
 | `fleet bump <id>` | tell the worker still on the task that its note has new work |
 | `fleet diff [--rev] [<id> \| <seat>] [git diff args]` | show one task's changes, or a worker's whole branch. With neither, in a worker's pane, its branch. `--rev` prints the folder and revision `:FleetDiff` uses. |
+| `fleet pair <task id \| seat>` | open window `<task>-pair` in the task's checkout, with nvim and an interactive claude that has read the task's note |
 | `fleet shell <seat> [cmd]` | open window `<seat>-shell` in a worker's worktree, running `cmd` or a shell |
 
 Seat commands act on the fleet that owns the calling pane, or on the fleet named with `-s <fleet>` placed before the command, such as `fleet -s demo status`.
@@ -442,7 +444,7 @@ Fleet's `--settings` file adds to the config folder's own settings. If that fold
 
 - **Messages:** task messages arrive over the inbox socket, and Claude Code treats a message from another session as never counting as your approval. It cannot answer a permission prompt ([how a session treats an incoming message](https://code.claude.com/docs/en/cross-session-messaging#how-a-session-treats-an-incoming-message)).
 - **Typed input:** `fleet` still types three things into panes with `tmux send-keys`: the launch line, `/clear` and Escape. Commands sent over the socket arrive as plain text and don't run, so `/clear` has to be typed. Claude Code treats typed input as yours, so `clear` and `interrupt` send only that fixed text, and `clear` acts only on an `idle` seat. Task ids must be letters, digits, `-` and `_`.
-- **Orchestrator allow rules:** its settings allow `fleet status`, `task`, `assign`, `clear`, `interrupt`, `rename`, `path`, `diff`, `answer`, `bump` and `archive`. Workers' settings allow `fleet report`. `fleet new`, `kill`, `restart`, `abandon`, `clean` and `shell` still prompt you, so the orchestrator can't open windows on its own. See [permissions](https://code.claude.com/docs/en/permissions).
+- **Orchestrator allow rules:** its settings allow `fleet status`, `task`, `assign`, `clear`, `interrupt`, `rename`, `path`, `diff`, `answer`, `bump` and `archive`. Workers' settings allow `fleet report`. `fleet new`, `kill`, `restart`, `abandon`, `clean`, `shell` and `pair` still prompt you, so the orchestrator can't open windows on its own. See [permissions](https://code.claude.com/docs/en/permissions).
 - **Workers:** each worker runs in auto mode, so Claude Code's classifier approves routine actions and you review work through notes and branches.
 - **Notes:** every seat may edit files under the fleet's notes folder through an `Edit` allow rule.
 
@@ -472,7 +474,7 @@ hooks/session-end         SessionEnd hook: notices for a seat that ends on a tas
 hooks/notify              posts a notice from a worker's hooks to the orchestrator
 hooks/todo-check          Stop hook
 hooks/task-progress       counts done todos, total todos and open questions
-nvim/plugin/fleet.lua     :FleetDiff, :FleetBump, :FleetFollowUp, :FleetAssign, :FleetComment, :FleetReview, :FleetShell, :FleetBoard and the save hook, linked into ~/.config/nvim/plugin
+nvim/plugin/fleet.lua     :FleetDiff, :FleetBump, :FleetFollowUp, :FleetAssign, :FleetComment, :FleetReview, :FleetPair, :FleetShell, :FleetBoard and the save hook, linked into ~/.config/nvim/plugin
 nvim/lua/fleet/           note.lua (frontmatter reader), tree.lua (nvim-tree decorator and
                           cursor details), board.lua (:FleetBoard), review.lua
                           (:FleetComment and :FleetReview) and actions.lua,

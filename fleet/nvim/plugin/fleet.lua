@@ -31,6 +31,11 @@
 --   :FleetReview [task] send the task's review comments to its worker, with
 --                       `fleet bump`.
 --   <Leader>m           :FleetComment, on the line or the visual selection
+--   :FleetPair [task]   `fleet pair`: a window in the task's checkout with
+--                       nvim and an interactive claude that has read the
+--                       note. With no task, the note in the current buffer,
+--                       the :FleetDiff! tab's target, or the worker the
+--                       current buffer's file belongs to.
 --   :FleetShell [seat] [cmd]
 --                       `fleet shell`: open or switch to a tmux window in a
 --                       worker's worktree, running cmd or a shell. With no
@@ -249,6 +254,25 @@ vim.api.nvim_create_user_command("FleetReview", function(o) require("fleet.revie
 })
 vim.keymap.set("n", "<Leader>m", "<cmd>FleetComment<cr>", { desc = "fleet review comment on this line" })
 vim.keymap.set("x", "<Leader>m", ":FleetComment<cr>", { desc = "fleet review comment on these lines" })
+
+vim.api.nvim_create_user_command("FleetPair", function(o)
+  local fleet, target = nil, o.args ~= "" and o.args or nil
+  if not target then
+    local meta = note.buffer()
+    if meta then
+      fleet, target = meta.fleet, meta.task
+    elseif vim.t.fleet_target then
+      fleet, target = vim.t.fleet_name, vim.t.fleet_target
+    else
+      fleet, target = buffer_worker()
+    end
+  end
+  if not target then
+    vim.notify("FleetPair: name a task, or run it from a task note, :FleetDiff! or a worker's file", vim.log.levels.ERROR)
+    return
+  end
+  require("fleet.actions").run(fleet, "pair", target)
+end, { nargs = "?", desc = "Open a fleet task in a window with nvim and an interactive claude" })
 
 -- A first argument shaped like a seat names the worker; everything else is
 -- the command, so `:FleetShell nvim .` runs nvim in the current buffer's

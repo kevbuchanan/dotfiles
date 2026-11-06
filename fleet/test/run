@@ -253,6 +253,26 @@ vim.wait(3000, function() return false end)" > $lua
   rm $f
 }
 
+test_pair() {
+  eq "fleet pair warns that the worker shares the checkout" "$(fleet pair t1 2>&1 >/dev/null)" "fleet: w1 still holds t1 and may be editing $(wt w1) too"
+  local win='=demo:t1-pair'
+  eq "the pair window has two panes" "$(tmux list-panes -t $win | wc -l | tr -d ' ')" 2
+  local agent=$(tmux list-panes -t $win -F '#{pane_id} #{pane_title}' | awk '$2 == "demo-t1-claude" { print $1 }')
+  check "the agent pane starts in w1's worktree" within 3 eval "[[ \$(tmux display -p -t $agent '#{pane_current_path}') == $(wt w1) ]]"
+  check "claude starts" within 5 eval "[[ -S \$(tmux display -p -t $agent '#{@agent_socket}') ]]"
+  local argv=$(tmux display -p -t $agent '#{@agent_socket}').argv
+  check "claude gets its own session name" eval "grep -qx demo-t1-pair $argv"
+  check "the prompt names the task's note" eval "grep -qF 'Its note is $(note t1).' $argv"
+  check "the prompt says the worker may be working there" eval "grep -qF 'w1, the fleet' $argv"
+  eq "the pair panes are no seats" "$(tmux list-panes -t $win -F '#{@agent_seat}' | tr -d '\n')" ""
+  eq "fleet pair by seat opens the same window" "$(fleet pair w1)" "opened demo:t1-pair; fleet attach demo to use it"
+  eq "it stays one window" "$(tmux list-windows -t '=demo:' -F '#{window_name}' | grep -c '^t1-pair$')" 1
+  check "fleet pair on an unassigned task" fleet pair t2
+  check "an unassigned task opens in the repo" within 3 eval "[[ \$(tmux display -p -t '=demo:t2-pair.0' '#{pane_current_path}') == $T/repo ]]"
+  tmux kill-window -t '=demo:t1-pair'
+  tmux kill-window -t '=demo:t2-pair'
+}
+
 test_report() {
   refuses "a report from outside the worker's pane" fleet report t1 progress hi
   refuses "done with unchecked todos" as w1 command fleet report t1 done all done
@@ -474,6 +494,7 @@ run_test test_task
 run_test test_assign
 run_test test_seat_commands
 run_test test_nvim_review
+run_test test_pair
 run_test test_report
 run_test test_todo_check
 run_test test_diff

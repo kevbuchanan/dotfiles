@@ -18,6 +18,7 @@ import {
   print,
   readText,
   run,
+  shq,
   sleep,
   stamp,
   test,
@@ -431,4 +432,88 @@ export async function report(fleet: Fleet, args: string[]) {
   note.appendLog(path, `${stamp()} ${phase}: ${text}`)
   await fleet.post(orch, "orchestrator", `Report: ${id} ${phase}: ${text}`)
   print(`reported ${id} ${phase} to the orchestrator`)
+}
+
+// A window for working a task with an agent yourself: nvim on the left and an
+// interactive claude on the right, both in the task's checkout, the worker's
+// worktree, or the repo before anyone holds the task. The session is not a
+// seat: it has no @agent_seat, runs without fleet's settings and hooks, and
+// starts from a prompt that has it read the task note. It runs under the
+// fleet's config folder, taken from the orchestrator's launch line, so a
+// fleet started with CLAUDE_CONFIG_DIR keeps it.
+export async function pair(fleet: Fleet, args: string[]) {
+  let id = args[0] || die("usage: fleet pair <task id | seat>")
+  if (isWorker(id) && !isFile(note.path(fleet.notes, id))) {
+    id = await opt(await fleet.pane(id), "@agent_task") || die(`${id} holds no task`)
+  }
+  needId(id)
+  const path = note.path(fleet.notes, id)
+  if (!isFile(path)) die(`no task note ${path}`)
+  const seat = fleet.seatOf(note.get(path, "worker"))
+  const dir = (seat && fleet.checkout(seat)) || fleet.repo || fleet.notes
+  const win = `${id}-pair`
+  const windows = (await run("tmux", ["list-windows", "-t", fleet.target, "-F", "#{window_name}"])).split(
+    "\n",
+  )
+  if (!windows.includes(win)) {
+    let holding = false
+    if (seat) {
+      holding = (await opt(await fleet.pane(seat), "@agent_task")) === id
+      if (holding) warn(`${seat} still holds ${id} and may be editing ${dir} too`)
+    }
+    const where = seat
+      ? `This folder is ${seat}'s worktree, on branch ${note.get(path, "branch") || "its seat branch"}.` +
+        (holding
+          ? ` ${seat}, the fleet's worker on this task, may be working here too, so check git status before editing.`
+          : "")
+      : "No worker holds this task yet, and this folder is the fleet's repo checkout."
+    const prompt = [
+      `You are pairing with the user on fleet task ${id}. Its note is ${path}.`,
+      "Read the note first: Goal, Scope, Verify, Todo, Questions, Handoff and Log.",
+      where,
+      "You are not a fleet seat, so do not run fleet report or message the workers.",
+      "Then say in a few lines where the task stands and wait for the user's direction.",
+    ].join(" ")
+    const orchCmd = await opt(await fleet.pane("orch"), "@agent_cmd")
+    const configDir = orchCmd.match(/^(CLAUDE_CONFIG_DIR=\S+ )claude /)?.[1] ?? ""
+    const claude = `${configDir}claude -n ${fleet.name}-${id}-pair --add-dir ${shq(fleet.notes)} ${
+      shq(prompt)
+    }`
+
+    const editor = await run("tmux", [
+      "new-window",
+      "-d",
+      "-t",
+      fleet.target,
+      "-n",
+      win,
+      "-c",
+      dir,
+      "-P",
+      "-F",
+      "#{pane_id}",
+    ])
+    const agent = await run("tmux", [
+      "split-window",
+      "-h",
+      "-d",
+      "-t",
+      editor,
+      "-c",
+      dir,
+      "-P",
+      "-F",
+      "#{pane_id}",
+    ])
+    await borders(`=${fleet.name}:${win}`)
+    for (const [pane, title] of [[editor, `${fleet.name}-${id}`], [agent, `${fleet.name}-${id}-claude`]]) {
+      await tmux("set", "-p", "-t", pane, "allow-set-title", "off")
+      await tmux("select-pane", "-t", pane, "-T", title)
+    }
+    await tmux("send-keys", "-t", editor, "nvim .", "Enter")
+    await tmux("send-keys", "-t", agent, claude, "Enter")
+    await tmux("select-pane", "-t", agent)
+  }
+  if (env("TMUX")) await tmux("switch-client", "-t", `=${fleet.name}:${win}`)
+  else print(`opened ${fleet.name}:${win}; fleet attach ${fleet.name} to use it`)
 }
