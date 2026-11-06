@@ -267,10 +267,34 @@ test_pair() {
   eq "the pair panes are no seats" "$(tmux list-panes -t $win -F '#{@agent_seat}' | tr -d '\n')" ""
   eq "fleet pair by seat opens the same window" "$(fleet pair w1)" "opened demo:t1-pair; fleet attach demo to use it"
   eq "it stays one window" "$(tmux list-windows -t '=demo:' -F '#{window_name}' | grep -c '^t1-pair$')" 1
+  local wts=$T/repo/.claude/worktrees main=$(git -C $T/repo rev-parse main)
   check "fleet pair on an unassigned task" fleet pair t2
-  check "an unassigned task opens in the repo" within 3 eval "[[ \$(tmux display -p -t '=demo:t2-pair.0' '#{pane_current_path}') == $T/repo ]]"
-  tmux kill-window -t '=demo:t1-pair'
-  tmux kill-window -t '=demo:t2-pair'
+  check "it gets a worktree of its own" within 3 eval "[[ \$(tmux display -p -t '=demo:t2-pair.0' '#{pane_current_path}') == $wts/demo-pair-t2 ]]"
+  eq "detached at the default branch" "$(git -C $wts/demo-pair-t2 rev-parse HEAD)" $main
+  check "a detached head" test -z "$(git -C $wts/demo-pair-t2 symbolic-ref -q HEAD)"
+
+  # a closed task whose branch is free and contains its end, and one whose
+  # branch moved past it
+  git -C $T/repo branch featx main
+  fleet task t9 closed one > /dev/null
+  sed -i.bak -e "s/^end:.*/end: $main/" -e "s/^branch:.*/branch: featx/" $(note t9) && rm $(note t9).bak
+  check "fleet pair on a closed task" fleet pair t9
+  eq "it checks out the task's branch" "$(git -C $wts/demo-pair-t9 symbolic-ref -q --short HEAD)" featx
+  local agent9=$(tmux list-panes -t '=demo:t9-pair' -F '#{pane_id} #{pane_title}' | awk '$2 == "demo-t9-claude" { print $1 }')
+  check "the prompt names the end it starts from" within 5 eval "grep -qF \"That is this task's end, ${main[1,12]}\" \$(tmux display -p -t $agent9 '#{@agent_socket}').argv"
+  fleet task t10 --from t9 > /dev/null
+  tmux kill-window -t '=demo:t9-pair'
+  git -C $T/repo worktree remove $wts/demo-pair-t9
+  git -C $T/repo branch -f featx $(git -C $T/repo commit-tree -p $main -m "after t9" "$main^{tree}")
+  check "fleet pair on a follow-up nobody started" fleet pair t10
+  eq "it starts from the followed task's branch" "$(git -C $wts/demo-pair-t10 symbolic-ref -q --short HEAD)" featx
+  local agent10=$(tmux list-panes -t '=demo:t10-pair' -F '#{pane_id} #{pane_title}' | awk '$2 == "demo-t10-claude" { print $1 }')
+  check "the prompt counts the commits past that end" within 5 eval "grep -qF '1 commits past ${main[1,12]}, the end of t9' \$(tmux display -p -t $agent10 '#{@agent_socket}').argv"
+
+  for w in t1 t2 t10; do tmux kill-window -t "=demo:$w-pair"; done
+  for w in t2 t10; do git -C $T/repo worktree remove --force $wts/demo-pair-$w; done
+  git -C $T/repo branch -q -D featx
+  rm $(note t9) $(note t10)
 }
 
 test_report() {

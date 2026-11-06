@@ -5,13 +5,14 @@
 // them between tool calls. Only /clear, Escape and the launch line are typed
 // into panes, because commands that arrive over the socket don't run.
 
-import { join, relative } from "@std/path"
+import { basename, join, relative } from "@std/path"
 import { Fleet, isWorker, needId, opt, root, tmux } from "../fleet.ts"
 import * as note from "../note.ts"
 import {
   die,
   exists,
   fill,
+  isDir,
   isFile,
   isSocket,
   output,
@@ -27,7 +28,7 @@ import {
   writeAtomic,
 } from "../run.ts"
 import { borders, launchLine } from "./lifecycle.ts"
-import { sync } from "./diff.ts"
+import { defaultBranch, sync } from "./diff.ts"
 
 const env = (name: string) => Deno.env.get(name) ?? ""
 const pad = (text: string, width: number) => text.padEnd(width)
@@ -450,23 +451,28 @@ export async function pair(fleet: Fleet, args: string[]) {
   const path = note.path(fleet.notes, id)
   if (!isFile(path)) die(`no task note ${path}`)
   const seat = fleet.seatOf(note.get(path, "worker"))
-  const dir = (seat && fleet.checkout(seat)) || fleet.repo || fleet.notes
   const win = `${id}-pair`
   const windows = (await run("tmux", ["list-windows", "-t", fleet.target, "-F", "#{window_name}"])).split(
     "\n",
   )
   if (!windows.includes(win)) {
-    let holding = false
-    if (seat) {
-      holding = (await opt(await fleet.pane(seat), "@agent_task")) === id
-      if (holding) warn(`${seat} still holds ${id} and may be editing ${dir} too`)
+    // the worker's worktree holds the task's state only while the worker
+    // holds the task; after that the worker moves on there
+    const holding = seat !== "" && (await opt(await fleet.pane(seat), "@agent_task")) === id
+    let dir: string
+    let where: string
+    if (holding) {
+      dir = fleet.checkout(seat) || fleet.repo || fleet.notes
+      warn(`${seat} still holds ${id} and may be editing ${dir} too`)
+      where =
+        `This folder is ${seat}'s worktree, where ${seat}, the fleet's worker on this task, may be working ` +
+        "too, so check git status before editing."
+    } else if (fleet.repo) {
+      ;({ dir, where } = await pairCheckout(fleet, id, path))
+    } else {
+      dir = fleet.notes
+      where = "The fleet has no repo, and this folder is its notes folder."
     }
-    const where = seat
-      ? `This folder is ${seat}'s worktree, on branch ${note.get(path, "branch") || "its seat branch"}.` +
-        (holding
-          ? ` ${seat}, the fleet's worker on this task, may be working here too, so check git status before editing.`
-          : "")
-      : "No worker holds this task yet, and this folder is the fleet's repo checkout."
     const prompt = [
       `You are pairing with the user on fleet task ${id}. Its note is ${path}.`,
       "Read the note first: Goal, Scope, Verify, Todo, Questions, Handoff and Log.",
@@ -516,4 +522,56 @@ export async function pair(fleet: Fleet, args: string[]) {
   }
   if (env("TMUX")) await tmux("switch-client", "-t", `=${fleet.name}:${win}`)
   else print(`opened ${fleet.name}:${win}; fleet attach ${fleet.name} to use it`)
+}
+
+// A worktree of its own for a pairing session on a task no worker holds,
+// .claude/worktrees/<fleet>-pair-<id>, at the state the note records: the
+// task's end, or for a follow-up nobody has started, the end of the task it
+// follows, or else the default branch. It checks out the note's branch when
+// that branch contains the end and no other worktree has it, so new commits
+// continue the branch; otherwise it is detached at that commit. A worktree an
+// earlier pair made is reused as it is, since it may hold the user's work.
+async function pairCheckout(fleet: Fleet, id: string, path: string) {
+  const repo = fleet.repo
+  const dir = join(repo, ".claude", "worktrees", `${fleet.name}-pair-${id}`)
+  const closed = (p: string) => {
+    const end = note.get(p, "end")
+    return end && end !== "-" ? end : ""
+  }
+  let source = path
+  let end = closed(path)
+  const follows = note.get(path, "follows")
+  if (!end && follows) {
+    const prev = note.path(fleet.notes, follows)
+    if (isFile(prev) && closed(prev)) {
+      source = prev
+      end = closed(prev)
+    }
+  }
+  if (!isDir(dir)) {
+    const rev = end || (await defaultBranch(repo)) || "HEAD"
+    const branch = end ? note.get(source, "branch") : ""
+    const checkedOut = (await output("git", ["-C", repo, "worktree", "list", "--porcelain"])).split("\n")
+    const free = branch !== "" &&
+      await test("git", ["-C", repo, "rev-parse", "-q", "--verify", `refs/heads/${branch}`]) &&
+      await test("git", ["-C", repo, "merge-base", "--is-ancestor", rev, branch]) &&
+      !checkedOut.includes(`branch refs/heads/${branch}`)
+    if (free) await run("git", ["-C", repo, "worktree", "add", "-q", dir, branch])
+    else await run("git", ["-C", repo, "worktree", "add", "-q", "--detach", dir, rev])
+  }
+  const head = await run("git", ["-C", dir, "rev-parse", "--short", "HEAD"])
+  const branch = await output("git", ["-C", dir, "symbolic-ref", "-q", "--short", "HEAD"])
+  let where = `This folder is a worktree made for this session, ${
+    branch ? `on branch ${branch} at ${head}` : `detached at ${head}`
+  }.`
+  if (end) {
+    const what = source === path
+      ? `this task's end, ${end.slice(0, 12)}`
+      : `${end.slice(0, 12)}, the end of ${basename(source).replace(/\.md$/, "")}, which this task follows`
+    const past = Number(await output("git", ["-C", dir, "rev-list", "--count", `${end}..HEAD`])) || 0
+    where += past ? ` It is ${past} commits past ${what}.` : ` That is ${what}.`
+  } else {
+    where += " The note records no end, so it starts from the default branch."
+  }
+  return { dir, where }
 }

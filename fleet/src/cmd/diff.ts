@@ -7,7 +7,7 @@ import { die, isFile, output, passthrough, print, run, test, warn } from "../run
 
 // The default branch as seen from checkout <dir>: origin's HEAD when the repo
 // has one, else main or master. Empty when none exists.
-async function defaultBranch(dir: string): Promise<string> {
+export async function defaultBranch(dir: string): Promise<string> {
   const origin = await output("git", ["-C", dir, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"])
   for (const ref of [...(origin ? [origin] : []), "main", "master"]) {
     if (await test("git", ["-C", dir, "rev-parse", "-q", "--verify", `${ref}^{commit}`])) return ref

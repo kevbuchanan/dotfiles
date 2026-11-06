@@ -425,7 +425,7 @@ export async function clean(args: string[]) {
   const wtdir = join(repo, ".claude", "worktrees")
   if (repo && isDir(wtdir)) {
     const wts = [...Deno.readDirSync(wtdir)]
-      .filter((e) => e.isDirectory && new RegExp(`^${name}-w\\d+$`).test(e.name))
+      .filter((e) => e.isDirectory && new RegExp(`^${name}-(w\\d+|pair-.+)$`).test(e.name))
       .map((e) => join(wtdir, e.name))
       .sort()
     for (const wt of wts) {
