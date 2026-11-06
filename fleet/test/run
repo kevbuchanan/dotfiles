@@ -263,12 +263,21 @@ test_pair() {
   local argv=$(tmux display -p -t $agent '#{@agent_socket}').argv
   check "claude gets its own session name" eval "grep -qx demo-t1-pair $argv"
   check "the prompt names the task's note" eval "grep -qF 'Its note is $(note t1).' $argv"
+  check "the prompt comes after --, past --add-dir" eval "[[ \$(grep -A1 -x -- -- $argv | tail -1) == 'You are pairing'* ]]"
+  check "the session loads the fleet plugin" eval "grep -qx $root/plugin $argv"
+  check "the prompt points at the pair skill" eval "grep -qF /fleet:pair $argv"
   check "the prompt says the worker may be working there" eval "grep -qF 'w1, the fleet' $argv"
   eq "the pair panes are no seats" "$(tmux list-panes -t $win -F '#{@agent_seat}' | tr -d '\n')" ""
   eq "fleet pair by seat opens the same window" "$(fleet pair w1)" "opened demo:t1-pair; fleet attach demo to use it"
   eq "it stays one window" "$(tmux list-windows -t '=demo:' -F '#{window_name}' | grep -c '^t1-pair$')" 1
   local wts=$T/repo/.claude/worktrees main=$(git -C $T/repo rev-parse main)
+  # a fleet started with CLAUDE_CONFIG_DIR gives its pair panes the folder
+  local orch_cmd=$(popt orch @agent_cmd)
+  tmux set -p -t $(pane orch) @agent_cmd "CLAUDE_CONFIG_DIR='$T/my config' $orch_cmd"
   check "fleet pair on an unassigned task" fleet pair t2
+  tmux set -p -t $(pane orch) @agent_cmd $orch_cmd
+  local agent2=$(tmux list-panes -t '=demo:t2-pair' -F '#{pane_id} #{pane_title}' | awk '$2 == "demo-t2-claude" { print $1 }')
+  check "the pane's claude gets the fleet's config folder" within 5 eval "grep -qx 'CLAUDE_CONFIG_DIR=$T/my config' \$(tmux display -p -t $agent2 '#{@agent_socket}').env"
   check "it gets a worktree of its own" within 3 eval "[[ \$(tmux display -p -t '=demo:t2-pair.0' '#{pane_current_path}') == $wts/demo-pair-t2 ]]"
   eq "detached at the default branch" "$(git -C $wts/demo-pair-t2 rev-parse HEAD)" $main
   check "a detached head" test -z "$(git -C $wts/demo-pair-t2 symbolic-ref -q HEAD)"

@@ -38,7 +38,7 @@ fleet kill demo
 
 Decisions go into the note, not chat. That keeps a task's history in one file you can read, edit and diff, and it keeps chat between seats short.
 
-**Skills.** The protocol each seat follows lives in two [skills](https://code.claude.com/docs/en/skills), `fleet:orchestrator` and `fleet:worker`, in a plugin under `plugin/` that every seat loads with `--plugin-dir`. Each launch prompt in `prompts/` only names the seat, the fleet and its notes folder, and points at the skill. Every fleet message ends its first line with `(handle per /fleet:worker skill)` or the orchestrator equivalent. A seat reads the skill when it uses it, so an edit to a skill reaches running seats from their next message, without a restart. Loading the plugin with `--plugin-dir` works under any config folder.
+**Skills.** The protocol each seat follows lives in two [skills](https://code.claude.com/docs/en/skills), `fleet:orchestrator` and `fleet:worker`, in a plugin under `plugin/`. Every seat loads the plugin with `--plugin-dir`, and so does a session `fleet pair` opens, which follows a third skill, `fleet:pair`. Each launch prompt in `prompts/` only names the seat, the fleet and its notes folder, and points at the skill. Every fleet message ends its first line with `(handle per /fleet:worker skill)` or the orchestrator equivalent. A seat reads the skill when it uses it, so an edit to a skill reaches running seats from their next message, without a restart. Loading the plugin with `--plugin-dir` works under any config folder.
 
 **Guidance.** A markdown file of working rules that a task note links in its `guidance:` field. `guidance/default.md` in this folder is the starting set. A fleet's own `<notes>/guidance/default.md`, when present, replaces it for that fleet's new tasks. Workers re-read the note before each todo item, so an edit to the note or its guidance applies from the worker's next item. Write a new guidance file to try a different process on one task without changing the prompts.
 
@@ -201,7 +201,11 @@ Each worker's Claude session runs in its worktree, `<repo>/.claude/worktrees/<fl
   - **While T3's worker holds it:** the worker's worktree, where the work is in progress.
   - **Otherwise:** a worktree of its own, `.claude/worktrees/<fleet>-pair-T3`. A worker's worktree moves on to its next task, so it no longer shows T3. The new worktree checks out the note's `branch:` when that branch contains `end:` and no other worktree has it, so new commits continue the branch. Otherwise it is detached at `end:`. A follow-up nobody has started starts from the end of the task it follows, and a task with no end from the default branch. A pair worktree made earlier is reused as it is, since it may hold your work.
 
-  Claude starts from a prompt that has it read T3's note and say where the task stands, and that names the commit the checkout is on and how many commits it is past `end:`. It runs under the fleet's config folder, taken from the orchestrator's launch line, without fleet's settings or hooks, and the window has no seat, so `fleet status` skips it. While the worker still holds T3, fleet warns that both agents share the checkout, and the prompt tells Claude to check `git status` before editing. `fleet pair w2` opens the task w2 holds. Running it again switches to the open window.
+  Claude starts with the fleet plugin loaded and a prompt that names T3's note, the commit the checkout is on, and how many commits it is past `end:`, and points it at the `fleet:pair` skill. The skill describes the notes folder and how the session sends work back: planned work as `backlog.md` items the orchestrator can turn into tasks cold, findings as `knowledge/` pages, decisions in `decisions.md`, and a `pair:` line in the task note's Log. It leaves seat commands, other tasks' notes and the notes repo's commits to fleet. The prompt follows `--`, because `--add-dir` takes any number of folders and would read the prompt as one.
+
+  The pair panes get the fleet's config folder in their environment, taken from the orchestrator's launch line, so a `claude` started there again by hand runs under it too. The session runs without fleet's settings or hooks, and the window has no seat, so `fleet status` skips it.
+
+  While the worker still holds T3, fleet warns that both agents share the checkout, and the prompt tells Claude to check `git status` before editing. `fleet pair w2` opens the task w2 holds. Running it again switches to the open window.
 - `:Prose <fleet>-w2` in nvim, on a file in that worktree, opens a [prose](../prose/README.md) review whose comments go to that worker.
 
 Typing `! <command>` in a worker's Claude pane also runs a command in its worktree, but the output becomes part of that worker's conversation and uses context it needs for its task. `fleet shell` keeps your inspection out of the worker's context.
@@ -466,7 +470,7 @@ src/cmd/                  lifecycle.ts (new, attach, ls, kill, clean), seat.ts (
 deno.jsonc, deno.lock     import map and locked dependency versions
 prompts/orchestrator.md   orchestrator identity, appended to Claude Code's system prompt
 prompts/worker.md         worker identity, appended to Claude Code's system prompt
-plugin/                   the fleet plugin: skills/orchestrator and skills/worker
+plugin/                   the fleet plugin: skills/orchestrator, skills/worker and skills/pair
 templates/task.md         task note template
 templates/brief.md, backlog.md, decisions.md, knowledge/index.md
                           fleet-level files fleet new creates in a notes folder

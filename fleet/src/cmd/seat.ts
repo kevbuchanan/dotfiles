@@ -474,17 +474,23 @@ export async function pair(fleet: Fleet, args: string[]) {
       where = "The fleet has no repo, and this folder is its notes folder."
     }
     const prompt = [
-      `You are pairing with the user on fleet task ${id}. Its note is ${path}.`,
-      "Read the note first: Goal, Scope, Verify, Todo, Questions, Handoff and Log.",
+      `You are pairing with the user on task ${id} of fleet ${fleet.name}. Its note is ${path}.`,
+      "Use the /fleet:pair skill for how this session works with the fleet's notes.",
       where,
-      "You are not a fleet seat, so do not run fleet report or message the workers.",
+      "Read the note first: Goal, Scope, Verify, Todo, Questions, Handoff and Log.",
       "Then say in a few lines where the task stands and wait for the user's direction.",
     ].join(" ")
+    // --add-dir takes any number of folders, so -- ends the options and keeps
+    // the prompt from being read as one
+    const claude = `claude -n ${fleet.name}-${id}-pair --plugin-dir ${shq(root)}/plugin --add-dir ${
+      shq(fleet.notes)
+    } -- ${shq(prompt)}`
+    // The fleet's config folder, from the orchestrator's launch line, is set
+    // in the panes' environment, so a claude started there again by hand
+    // gets it too
     const orchCmd = await opt(await fleet.pane("orch"), "@agent_cmd")
-    const configDir = orchCmd.match(/^(CLAUDE_CONFIG_DIR=\S+ )claude /)?.[1] ?? ""
-    const claude = `${configDir}claude -n ${fleet.name}-${id}-pair --add-dir ${shq(fleet.notes)} ${
-      shq(prompt)
-    }`
+    const configDir = orchCmd.match(/^CLAUDE_CONFIG_DIR=('(?:[^']|'\\'')*'|\S+) claude /)?.[1]
+    const env = configDir ? ["-e", `CLAUDE_CONFIG_DIR=${unquote(configDir)}`] : []
 
     const editor = await run("tmux", [
       "new-window",
@@ -495,6 +501,7 @@ export async function pair(fleet: Fleet, args: string[]) {
       win,
       "-c",
       dir,
+      ...env,
       "-P",
       "-F",
       "#{pane_id}",
@@ -507,6 +514,7 @@ export async function pair(fleet: Fleet, args: string[]) {
       editor,
       "-c",
       dir,
+      ...env,
       "-P",
       "-F",
       "#{pane_id}",
@@ -522,6 +530,11 @@ export async function pair(fleet: Fleet, args: string[]) {
   }
   if (env("TMUX")) await tmux("switch-client", "-t", `=${fleet.name}:${win}`)
   else print(`opened ${fleet.name}:${win}; fleet attach ${fleet.name} to use it`)
+}
+
+// A value shq quoted, as it was typed into a launch line
+function unquote(value: string): string {
+  return value.startsWith("'") ? value.slice(1, -1).replaceAll(`'\\''`, "'") : value
 }
 
 // A worktree of its own for a pairing session on a task no worker holds,
