@@ -30,7 +30,7 @@ fleet kill demo
 
 **Task note.** One markdown file per task under `$FLEET_HOME/<fleet>/tasks/<id>.md`, made from `templates/task.md`. The note is the record of the task, with these sections:
 
-- YAML frontmatter with the task's fields, one `key: value` per line: `fleet` and `task`, which name the note's fleet and id; `created` and `closed`, the dates the task was created and closed by `fleet clear` or `fleet abandon`; `guidance`; `ship`, what to do with finished work; `approve`, whether the result waits on your approval; `pr` once one is open; `follows` for a follow-up task; `worker`; `branch`; `base` and `end`, the commits that bound this task's changes on the worker's branch; and `status`
+- YAML frontmatter with the task's fields, one `key: value` per line: `fleet` and `task`, which name the note's fleet and id; `created` and `closed`, the dates the task was created and closed by `fleet clear` or `fleet abandon`; `guidance`; `ship`, what to do with finished work; `wip`, the ref holding work the task left uncommitted when it closed; `approve`, whether the result waits on your approval; `pr` once one is open; `follows` for a follow-up task; `worker`; `branch`; `base` and `end`, the commits that bound this task's changes on the worker's branch; and `status`
 - Goal, Scope and Verify: what to do, which files the worker may edit, and how to check the result
 - Todo: a checkbox list the worker checks off as it goes
 - Questions: decisions the worker needs from you
@@ -222,6 +222,7 @@ Each fleet's notes folder, `$FLEET_HOME/<fleet>/`, holds the fleet's own record 
 | `backlog.md` | planned work not yet turned into tasks, each item linking its task once created | the orchestrator |
 | `decisions.md` | dated decisions that apply beyond one task | the orchestrator |
 | `knowledge/` | durable findings about the code and environment, one topic per page, listed in `knowledge/index.md` | the orchestrator, from task Handoffs |
+| `artifacts/<id>/` | a task's deliverables that are not committed to the repo, such as a review page or a report, linked from its Handoff | the task's worker, or a pairing session |
 | `guidance/` | this fleet's working rules | you or the orchestrator |
 | `tasks/` | one note per task | the orchestrator and the task's worker |
 | `tasks/archive/<YYYY-MM>/` | closed notes moved out by `fleet archive`, by the month they closed | fleet |
@@ -328,6 +329,18 @@ The worker skill tells the worker to make each change, check the item, and add a
 
 The task has to still be open: in `tasks/`, with no `end:`. Once `fleet clear` has closed it, `:FleetComment` refuses and points at `:FleetFollowUp`. The orchestrator clears a seat soon after `done`, so review before that, or put the comments in a follow-up. `:FleetComment` finds the task from the `:FleetDiff!` tab, or from the seat whose worktree holds the file, through tmux. It writes the note on disk, so an open copy of the note must have no unsaved changes.
 
+### Uncommitted work at the close
+
+A worker's worktree is reused for its next task, so files left uncommitted there would be lost to the next assign or to whoever cleans the worktree. When `fleet clear` or `fleet abandon` closes a task whose worktree has uncommitted changes, fleet:
+
+1. commits them, tracked edits and untracked files that aren't gitignored, to `refs/fleet/<fleet>/<id>`, on top of the task's End. It builds the commit in a temporary index, so the worker's branch doesn't move. The ref sits outside `refs/heads`, so `git push --all` and branch lists skip it, and git keeps the commit from garbage collection.
+2. leaves in place any top-level untracked folder with more than 100 files, such as an unignored `node_modules`, and names it in the Log. It refuses the close when the files to save come to more than 50 MB.
+3. records `wip: refs/fleet/<fleet>/<id> <sha>` in the note's frontmatter and a Log line listing the files, then resets the worktree to its last commit.
+
+`git show <sha>:<path>` reads a saved file, and `git checkout <sha> -- <path>` restores one. `fleet pair` on the task applies the saved work to its checkout as uncommitted changes. `fleet clean` leaves the refs, which are part of the record. `git for-each-ref refs/fleet/<fleet>` lists them, and `git update-ref -d <ref>` drops one.
+
+Output meant for you to read or publish, not to merge, belongs in `artifacts/<id>/` in the notes folder from the start. The orchestrator and worker skills say so.
+
 A task assigned before fleet recorded Base has none, and `fleet diff` says so. While a task is open, it has no End, and `fleet diff` shows it through the worktree's current state.
 
 ### Reports
@@ -393,7 +406,7 @@ Claude Code refuses rapid bursts of messages to one session. fleet sends one mes
 | `fleet status` | each seat's state, task and todo progress |
 | `fleet task <id> [--from <id>] <title>` | create a task note and print its path. `--from` starts a follow-up to a closed task. |
 | `fleet assign [--no-sync] <seat> <id>` | bring an idle worker's branch up to date with the default branch, then point it at a task note |
-| `fleet clear <seat>` | type `/clear` into an idle seat and drop its task; refuses while the task has an open question |
+| `fleet clear <seat>` | save any uncommitted work to `refs/fleet/<fleet>/<id>`, type `/clear` into an idle seat and drop its task; refuses while the task has an open question |
 | `fleet interrupt <seat>` | send Escape |
 | `fleet restart <seat>` | kill the seat's process and relaunch its `claude` command; a seat on a task keeps it |
 | `fleet abandon <seat>` | close the seat's task from any state and clear the seat |

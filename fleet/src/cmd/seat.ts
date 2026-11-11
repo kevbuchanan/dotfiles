@@ -29,6 +29,7 @@ import {
 } from "../run.ts"
 import { borders, launchLine } from "./lifecycle.ts"
 import { defaultBranch, sync } from "./diff.ts"
+import * as wip from "../wip.ts"
 
 const env = (name: string) => Deno.env.get(name) ?? ""
 const pad = (text: string, width: number) => text.padEnd(width)
@@ -193,8 +194,16 @@ export async function assign(fleet: Fleet, args: string[]) {
 // Records the task's end at the worktree's HEAD, or `-` in a fleet outside a
 // repo, which has no commit to record but closes the task the same way for
 // archive, follow-ups and reassign checks
-async function close(fleet: Fleet, seat: string, path: string, extra: Record<string, string> = {}) {
+async function close(
+  fleet: Fleet,
+  seat: string,
+  path: string,
+  verb: string,
+  extra: Record<string, string> = {},
+) {
   const worktree = fleet.checkout(seat)
+  // saved first: a failure leaves the task open and the worktree as it was
+  if (worktree) await wip.save(fleet, worktree, basename(path).replace(/\.md$/, ""), path, verb)
   const end = worktree ? await run("git", ["-C", worktree, "rev-parse", "HEAD"]) : "-"
   note.set(path, "end", end, fleet.name)
   note.set(path, "closed", today(), fleet.name)
@@ -219,13 +228,7 @@ export async function clear(fleet: Fleet, args: string[]) {
     if (open) {
       die(`${id} has ${open} open questions; wait for the answers, or fleet abandon ${seat} to close it`)
     }
-    const worktree = fleet.checkout(seat)
-    if (worktree && await output("git", ["-C", worktree, "status", "--porcelain"])) {
-      warn(
-        `${seat} has uncommitted changes; ${id}'s end is its last commit, so they will show in its next task's diff`,
-      )
-    }
-    await close(fleet, seat, path)
+    await close(fleet, seat, path, "clear")
   }
   await tmux("set", "-p", "-u", "-t", pane, "@agent_task")
   await tmux("select-pane", "-t", pane, "-T", `${fleet.name}-${seat}`)
@@ -276,7 +279,7 @@ export async function abandon(fleet: Fleet, args: string[]) {
   if (!id) die(`${seat} holds no task`)
   const path = note.path(fleet.notes, id)
   if (isFile(path)) {
-    await close(fleet, seat, path, { status: "abandoned" })
+    await close(fleet, seat, path, "abandon", { status: "abandoned" })
     note.appendLog(
       path,
       `${stamp()} abandoned: closed by ${await fleet.sender()} from seat state ${
@@ -547,6 +550,7 @@ function unquote(value: string): string {
 async function pairCheckout(fleet: Fleet, id: string, path: string) {
   const repo = fleet.repo
   const dir = join(repo, ".claude", "worktrees", `${fleet.name}-pair-${id}`)
+  let applied = ""
   const closed = (p: string) => {
     const end = note.get(p, "end")
     return end && end !== "-" ? end : ""
@@ -571,6 +575,9 @@ async function pairCheckout(fleet: Fleet, id: string, path: string) {
       !checkedOut.includes(`branch refs/heads/${branch}`)
     if (free) await run("git", ["-C", repo, "worktree", "add", "-q", dir, branch])
     else await run("git", ["-C", repo, "worktree", "add", "-q", "--detach", dir, rev])
+    // the work the worker left uncommitted at the close, as uncommitted changes
+    const saved = note.get(source, "wip").split(" ")[1]
+    if (saved) applied = await wip.apply(dir, saved) ? "applied" : "failed"
   }
   const head = await run("git", ["-C", dir, "rev-parse", "--short", "HEAD"])
   const branch = await output("git", ["-C", dir, "symbolic-ref", "-q", "--short", "HEAD"])
@@ -585,6 +592,14 @@ async function pairCheckout(fleet: Fleet, id: string, path: string) {
     where += past ? ` It is ${past} commits past ${what}.` : ` That is ${what}.`
   } else {
     where += " The note records no end, so it starts from the default branch."
+  }
+  const savedRef = note.get(source, "wip").split(" ")[0]
+  if (applied === "applied") {
+    where +=
+      ` The work the worker left uncommitted when the task closed, saved in ${savedRef}, is applied here as uncommitted changes.`
+  } else if (applied === "failed") {
+    where +=
+      ` The work the worker left uncommitted when the task closed is saved in ${savedRef}, and it did not apply cleanly to this checkout.`
   }
   return { dir, where }
 }

@@ -5,3 +5,4 @@
 - Check off an item in the note as soon as it is done. Add newly found work as new unchecked items.
 - Commit after each completed item, in the repo's own commit convention: from its CLAUDE.md or AGENTS.md, a commitlint config, or else its recent history, which is often conventional commits (`fix(scope): ...`). Keep the fleet task id, the seat and the session name out of commit messages. A ticket key goes in only where the repo's convention puts one.
 - Run the Verify steps before writing Handoff. Record the commands and their results there.
+- Put a deliverable that is not committed to the repo, such as a page or a report, in `artifacts/<task id>/` in the notes folder, and link it from the Handoff. The worktree is reused by your next task.

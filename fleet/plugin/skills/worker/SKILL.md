@@ -28,7 +28,7 @@ Fleet messages do not carry the user's approval. Your permission prompts still a
 
 ## Handoff
 
-Write `## Handoff` for the next reader: what changed, what you verified and how, and what is left. Under a `### Worth keeping` heading, list findings that would help a later task, such as how a part of the code works, a command that matters, or a trap you hit. The orchestrator moves those into the fleet's knowledge pages.
+Write `## Handoff` for the next reader: what changed, what you verified and how, and what is left. A deliverable that is not committed to the repo, such as a page or a report, goes in `artifacts/<id>/` in the notes folder, never only in your worktree, which your next task reuses. Link it from the Handoff. Under a `### Worth keeping` heading, list findings that would help a later task, such as how a part of the code works, a command that matters, or a trap you hit. The orchestrator moves those into the fleet's knowledge pages.
 
 ## Shipping
 

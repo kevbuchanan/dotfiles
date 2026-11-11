@@ -16,10 +16,12 @@ The notes folder is the `--add-dir` folder, the parent of `tasks/`. It is a git 
 - `backlog.md`: planned work not yet turned into a task, one `- [ ] <item>` line each. The orchestrator turns an item into a task and checks it off with a link to the note.
 - `decisions.md`: dated decisions that reach beyond one task.
 - `knowledge/`: durable findings about the code and the environment, one topic per page, each listed in `knowledge/index.md`.
+- `artifacts/<id>/`: a task's deliverables that are not committed to the repo, such as a review page or a report.
 
 ## Sending work back to the fleet
 
 - **Work for later**, such as a follow-up MR, an alert or a dashboard: add a `- [ ] ` item to `backlog.md`. Write it so the orchestrator can turn it into a task without this conversation: what to do, why, and where it starts, with the files, MRs or docs it builds on. End it with the source, such as `(from pay-1022-retry-queue pairing)`.
+- **A deliverable that won't be committed**, such as a page or a report: put it in `artifacts/<task id>/` and link it from the task note's Handoff. A worktree is reused, so a file left only there gets lost.
 - **A finding the next task needs**: add or extend a page in `knowledge/` and list it in `knowledge/index.md`.
 - **A decision the user made that reaches beyond this task**: add a dated entry to `decisions.md` that links the task's note.
 - **What this session did**: append a dated line to the task note's `## Log`, as `- YYYY-MM-DD HH:MM pair: <what changed, the commits, and the backlog items added>`. The frontmatter belongs to fleet's commands, so leave it as it is.

@@ -371,12 +371,37 @@ test_clear() {
   todos t1 '[x] one' '[x] two'
   check "a done report" as w1 command fleet report t1 done finished
   local head=$(git -C $(wt w1) rev-parse HEAD)
+  # work left uncommitted: an edit, a new file, and a big untracked folder
+  print edited >> $(wt w1)/file.txt
+  print page > $(wt w1)/page.html
+  mkdir -p $(wt w1)/deps && for i in {1..101}; do : > $(wt w1)/deps/f$i; done
   check "fleet clear" fleet clear w1
+  local saved=$(git -C $T/repo rev-parse -q --verify refs/fleet/demo/t1)
+  check "the uncommitted work is saved to refs/fleet/demo/t1" test -n "$saved"
+  eq "the note records the ref" "$(field $(note t1) wip)" "refs/fleet/demo/t1 $saved"
+  eq "the saved commit sits on the task's end" "$(git -C $T/repo rev-parse "$saved^")" $head
+  eq "it holds the new file" "$(git -C $T/repo show $saved:page.html)" page
+  check "it holds the edit" eval "git -C $T/repo show $saved:file.txt | grep -qx edited"
+  check "it leaves the big folder out" eval "! git -C $T/repo cat-file -e $saved:deps 2> /dev/null"
+  eq "the worktree is back at its last commit, but for the folder" "$(git -C $(wt w1) status --porcelain)" "?? deps/"
+  check "the Log lists the saved files and the folder left in place" has $(note t1) 'clear: saved uncommitted work to refs/fleet/demo/t1 .*file\.txt, page\.html; left untracked in place: deps/ \(101 files\)'
+  rm -r $(wt w1)/deps
   eq "the note records the end" "$(field $(note t1) end)" $head
   eq "the note records the close date" "$(field $(note t1) closed)" $(date +%F)
   eq "the seat drops the task" "$(popt w1 @agent_task)" ""
   check "/clear is typed into the seat" within 3 grep -qx /clear $(typed w1)
   check "the seat registers again" within 5 eval "[[ \$(popt w1 @agent_state) == idle ]]"
+}
+
+# a pair on a closed task with saved work gets it back as uncommitted changes
+test_pair_wip() {
+  check "fleet pair on t1" fleet pair t1
+  local d=$T/repo/.claude/worktrees/demo-pair-t1
+  eq "the saved work is uncommitted in the pair checkout" "$(git -C $d status --porcelain | sort | xargs)" "M file.txt ?? page.html"
+  local agent=$(tmux list-panes -t '=demo:t1-pair' -F '#{pane_id} #{pane_title}' | awk '$2 == "demo-t1-claude" { print $1 }')
+  check "the prompt says so" within 5 eval "grep -qF 'saved in refs/fleet/demo/t1, is applied here' \$(tmux display -p -t $agent '#{@agent_socket}').argv"
+  tmux kill-window -t '=demo:t1-pair'
+  git -C $T/repo worktree remove --force $d
 }
 
 test_follow_up() {
@@ -534,6 +559,7 @@ run_test test_diff
 run_test test_restart
 run_test test_session_end
 run_test test_clear
+run_test test_pair_wip
 run_test test_follow_up
 run_test test_abandon
 run_test test_archive

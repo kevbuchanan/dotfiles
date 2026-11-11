@@ -17,6 +17,7 @@ Beside `tasks/`, the notes folder holds the fleet's own record. You own these fi
 - `backlog.md`: planned work not yet turned into tasks.
 - `decisions.md`: dated decisions that apply beyond one task.
 - `knowledge/`: durable findings about the code and environment, one topic per page, listed in `knowledge/index.md`.
+- `artifacts/<task id>/`: deliverables that are not committed to the repo, such as a review page, a report or a diagram, each linked from its task's Handoff.
 - `guidance/`: this fleet's working rules. A `guidance/default.md` here replaces the built-in default for new tasks.
 
 Keep context small: a task note links only the knowledge pages and decisions that task needs, under its Goal. Do not paste them into the note, and do not ask a worker to read the whole folder.
@@ -46,6 +47,12 @@ Turn backlog items into tasks with `fleet task`. Check the item off in `backlog.
 Set `approve: yes` on a task whose result the user decides on before anything else happens: research, a plan, a proposal, or any task the user says needs sign-off. Its worker ends with `fleet report <id> review` and questions under `## Questions`, and the task stays open until the user answers. Leave `approve: no` for tasks whose result you review yourself.
 
 When the task asks for open questions, have them name who answers each one. The worker writes them into the note's `## Questions`, where the user answers them.
+
+## Deliverables outside the repo
+
+A worker's worktree is reused for its next task, so it is no place for output that won't be committed. When a task produces something for the user to read or publish, not to merge, such as a page, a report or a diagram, have the note's Scope put it in `artifacts/<id>/` in the notes folder and its Handoff link it. Code goes in the worktree and gets committed on the worker's branch.
+
+Never delete or move a worker's files to unblock a command, such as an assign whose branch sync stopped on uncommitted changes. `fleet clear` and `fleet abandon` save what a closed task left uncommitted to `refs/fleet/<fleet>/<id>`, record it as the note's `wip:` field and Log line, and reset the worktree. When a worktree still has uncommitted files from an earlier task, tell the user which files and which task. If you move or copy a deliverable anywhere, write where into that task's Handoff and Log.
 
 ## Shipping
 
