@@ -12,14 +12,12 @@ import {
   die,
   exists,
   fill,
-  isDir,
   isFile,
   isSocket,
   output,
   print,
   readText,
   run,
-  shq,
   sleep,
   stamp,
   test,
@@ -29,7 +27,6 @@ import {
 } from "../run.ts"
 import { borders, launchLine } from "./lifecycle.ts"
 import { sync } from "./diff.ts"
-import { defaultBranch } from "../git.ts"
 import * as wip from "../wip.ts"
 
 const env = (name: string) => Deno.env.get(name) ?? ""
@@ -461,170 +458,4 @@ export async function report(fleet: Fleet, args: string[]) {
   note.appendLog(path, `${stamp()} ${phase}: ${text}`)
   await fleet.post(orch, "orchestrator", `Report: ${id} ${phase}: ${text}`)
   print(`reported ${id} ${phase} to the orchestrator`)
-}
-
-// A window for working a task with an agent yourself: nvim on the left and an
-// interactive claude on the right, both in the task's checkout, the worker's
-// worktree, or the repo before anyone holds the task. The session is not a
-// seat: it has no @agent_seat, runs without fleet's settings and hooks, and
-// starts from a prompt that has it read the task note. It runs under the
-// fleet's config folder, taken from the orchestrator's launch line, so a
-// fleet started with CLAUDE_CONFIG_DIR keeps it.
-export async function pair(fleet: Fleet, args: string[]) {
-  let id = args[0] || die("usage: fleet pair <task id | seat>")
-  if (isWorker(id) && !isFile(note.path(fleet.notes, id))) {
-    id = await opt(await fleet.pane(id), "@agent_task") || die(`${id} holds no task`)
-  }
-  needId(id)
-  const path = note.path(fleet.notes, id)
-  if (!isFile(path)) die(`no task note ${path}`)
-  const seat = fleet.seatOf(note.get(path, "worker"))
-  const win = `${id}-pair`
-  const windows = (await run("tmux", ["list-windows", "-t", fleet.target, "-F", "#{window_name}"])).split(
-    "\n",
-  )
-  if (!windows.includes(win)) {
-    // the worker's worktree holds the task's state only while the worker
-    // holds the task; after that the worker moves on there
-    const holding = seat !== "" && (await opt(await fleet.pane(seat), "@agent_task")) === id
-    let dir: string
-    let where: string
-    if (holding) {
-      dir = fleet.checkout(seat, fleet.repoOf(path)) || fleet.repoOf(path) || fleet.notes
-      warn(`${seat} still holds ${id} and may be editing ${dir} too`)
-      where =
-        `This folder is ${seat}'s worktree, where ${seat}, the fleet's worker on this task, may be working ` +
-        "too, so check git status before editing."
-    } else if (fleet.repoOf(path)) {
-      ;({ dir, where } = await pairCheckout(fleet, id, path))
-    } else {
-      dir = fleet.notes
-      where = "The fleet has no repo, and this folder is its notes folder."
-    }
-    const prompt = [
-      `You are pairing with the user on task ${id} of fleet ${fleet.name}. Its note is ${path}.`,
-      "Use the /fleet:pair skill for how this session works with the fleet's notes.",
-      where,
-      "Read the note first: Goal, Scope, Verify, Todo, Questions, Handoff and Log.",
-      "Then say in a few lines where the task stands and wait for the user's direction.",
-    ].join(" ")
-    // --add-dir takes any number of folders, so -- ends the options and keeps
-    // the prompt from being read as one
-    const claude = `claude -n ${fleet.name}-${id}-pair --plugin-dir ${shq(root)}/plugin --add-dir ${
-      shq(fleet.notes)
-    } -- ${shq(prompt)}`
-    // The fleet's config folder, from the orchestrator's launch line, is set
-    // in the panes' environment, so a claude started there again by hand
-    // gets it too
-    const orchCmd = await opt(await fleet.pane("orch"), "@agent_cmd")
-    const configDir = orchCmd.match(/^CLAUDE_CONFIG_DIR=('(?:[^']|'\\'')*'|\S+) claude /)?.[1]
-    const env = configDir ? ["-e", `CLAUDE_CONFIG_DIR=${unquote(configDir)}`] : []
-
-    const editor = await run("tmux", [
-      "new-window",
-      "-d",
-      "-t",
-      fleet.target,
-      "-n",
-      win,
-      "-c",
-      dir,
-      ...env,
-      "-P",
-      "-F",
-      "#{pane_id}",
-    ])
-    const agent = await run("tmux", [
-      "split-window",
-      "-h",
-      "-d",
-      "-t",
-      editor,
-      "-c",
-      dir,
-      ...env,
-      "-P",
-      "-F",
-      "#{pane_id}",
-    ])
-    await borders(`=${fleet.name}:${win}`)
-    for (const [pane, title] of [[editor, `${fleet.name}-${id}`], [agent, `${fleet.name}-${id}-claude`]]) {
-      await tmux("set", "-p", "-t", pane, "allow-set-title", "off")
-      await tmux("select-pane", "-t", pane, "-T", title)
-    }
-    await tmux("send-keys", "-t", editor, "nvim .", "Enter")
-    await tmux("send-keys", "-t", agent, claude, "Enter")
-    await tmux("select-pane", "-t", agent)
-  }
-  if (env("TMUX")) await tmux("switch-client", "-t", `=${fleet.name}:${win}`)
-  else print(`opened ${fleet.name}:${win}; fleet attach ${fleet.name} to use it`)
-}
-
-// A value shq quoted, as it was typed into a launch line
-function unquote(value: string): string {
-  return value.startsWith("'") ? value.slice(1, -1).replaceAll(`'\\''`, "'") : value
-}
-
-// A worktree of its own for a pairing session on a task no worker holds,
-// .claude/worktrees/<fleet>-pair-<id>, at the state the note records: the
-// task's end, or for a follow-up nobody has started, the end of the task it
-// follows, or else the default branch. It checks out the note's branch when
-// that branch contains the end and no other worktree has it, so new commits
-// continue the branch; otherwise it is detached at that commit. A worktree an
-// earlier pair made is reused as it is, since it may hold the user's work.
-async function pairCheckout(fleet: Fleet, id: string, path: string) {
-  const repo = fleet.repoOf(path)
-  const dir = join(repo, ".claude", "worktrees", `${fleet.name}-pair-${id}`)
-  let applied = ""
-  const closed = (p: string) => {
-    const end = note.get(p, "end")
-    return end && end !== "-" ? end : ""
-  }
-  let source = path
-  let end = closed(path)
-  const follows = note.get(path, "follows")
-  if (!end && follows) {
-    const prev = note.path(fleet.notes, follows)
-    if (isFile(prev) && closed(prev)) {
-      source = prev
-      end = closed(prev)
-    }
-  }
-  if (!isDir(dir)) {
-    const rev = end || (await defaultBranch(repo)) || "HEAD"
-    const branch = end ? note.get(source, "branch") : ""
-    const checkedOut = (await output("git", ["-C", repo, "worktree", "list", "--porcelain"])).split("\n")
-    const free = branch !== "" &&
-      await test("git", ["-C", repo, "rev-parse", "-q", "--verify", `refs/heads/${branch}`]) &&
-      await test("git", ["-C", repo, "merge-base", "--is-ancestor", rev, branch]) &&
-      !checkedOut.includes(`branch refs/heads/${branch}`)
-    if (free) await run("git", ["-C", repo, "worktree", "add", "-q", dir, branch])
-    else await run("git", ["-C", repo, "worktree", "add", "-q", "--detach", dir, rev])
-    // the work the worker left uncommitted at the close, as uncommitted changes
-    const saved = note.get(source, "wip").split(" ")[1]
-    if (saved) applied = await wip.apply(dir, saved) ? "applied" : "failed"
-  }
-  const head = await run("git", ["-C", dir, "rev-parse", "--short", "HEAD"])
-  const branch = await output("git", ["-C", dir, "symbolic-ref", "-q", "--short", "HEAD"])
-  let where = `This folder is a worktree made for this session, ${
-    branch ? `on branch ${branch} at ${head}` : `detached at ${head}`
-  }.`
-  if (end) {
-    const what = source === path
-      ? `this task's end, ${end.slice(0, 12)}`
-      : `${end.slice(0, 12)}, the end of ${basename(source).replace(/\.md$/, "")}, which this task follows`
-    const past = Number(await output("git", ["-C", dir, "rev-list", "--count", `${end}..HEAD`])) || 0
-    where += past ? ` It is ${past} commits past ${what}.` : ` That is ${what}.`
-  } else {
-    where += " The note records no end, so it starts from the default branch."
-  }
-  const savedRef = note.get(source, "wip").split(" ")[0]
-  if (applied === "applied") {
-    where +=
-      ` The work the worker left uncommitted when the task closed, saved in ${savedRef}, is applied here as uncommitted changes.`
-  } else if (applied === "failed") {
-    where +=
-      ` The work the worker left uncommitted when the task closed is saved in ${savedRef}, and it did not apply cleanly to this checkout.`
-  }
-  return { dir, where }
 }

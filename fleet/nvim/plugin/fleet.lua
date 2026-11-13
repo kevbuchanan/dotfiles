@@ -31,11 +31,17 @@
 --   :FleetReview [task] send the task's review comments to its worker, with
 --                       `fleet bump`.
 --   <Leader>m           :FleetComment, on the line or the visual selection
---   :FleetPair [task]   `fleet pair`: a window in the task's checkout with
---                       nvim and an interactive claude that has read the
---                       note. With no task, the note in the current buffer,
---                       the :FleetDiff! tab's target, or the worker the
---                       current buffer's file belongs to.
+--   :FleetPair [task] [ref | pr]
+--                       `fleet pair`: a window with nvim and an interactive
+--                       claude in a checkout. A task alone pairs at the
+--                       state its note records; a second argument is a
+--                       branch, tag or commit (--branch), or a PR or MR
+--                       (--pr). A PR or MR alone, such as #431, !45, a URL,
+--                       owner/repo#431 or group/project!45, pairs without a
+--                       task; # or ! alone uses the current note's pr:. With
+--                       no argument: the current note, the :FleetDiff! tab's
+--                       target, the worker the file belongs to, or else the
+--                       file's own checkout (--dir).
 --   :FleetShell [seat] [cmd]
 --                       `fleet shell`: open or switch to a tmux window in a
 --                       worker's worktree, running cmd or a shell. With no
@@ -255,24 +261,73 @@ vim.api.nvim_create_user_command("FleetReview", function(o) require("fleet.revie
 vim.keymap.set("n", "<Leader>m", "<cmd>FleetComment<cr>", { desc = "fleet review comment on this line" })
 vim.keymap.set("x", "<Leader>m", ":FleetComment<cr>", { desc = "fleet review comment on these lines" })
 
+-- A pull or merge request reference: #431, !45, a URL, owner/repo#431 or
+-- group/project!45; # or ! alone means the current note's pr:
+local function pr_ref(arg)
+  return arg:match("^[#!]%d*$") or arg:match("^https?://") or arg:match("[#!]%d+$")
+end
+
 vim.api.nvim_create_user_command("FleetPair", function(o)
-  local fleet, target = nil, o.args ~= "" and o.args or nil
-  if not target then
-    local meta = note.buffer()
-    if meta then
-      fleet, target = meta.fleet, meta.task
-    elseif vim.t.fleet_target then
-      fleet, target = vim.t.fleet_name, vim.t.fleet_target
+  local fleet, args = nil, {}
+  local first, second = o.fargs[1], o.fargs[2]
+  local meta = note.buffer()
+  if first and pr_ref(first) then
+    -- a bare sigil takes the current note's PR; any other reference pairs
+    -- without a task
+    if first:match("^[#!]$") then
+      if not meta then
+        vim.notify("FleetPair: " .. first .. " alone needs a task note with pr:", vim.log.levels.ERROR)
+        return
+      end
+      fleet, args = meta.fleet, { meta.task, "--pr" }
     else
-      fleet, target = buffer_worker()
+      fleet, args = meta and meta.fleet or vim.t.fleet_name, { "--pr", first }
+    end
+  elseif first then
+    args = { first }
+    if meta then fleet = meta.fleet end
+    if second then vim.list_extend(args, { pr_ref(second) and "--pr" or "--branch", second }) end
+  elseif meta then
+    fleet, args = meta.fleet, { meta.task }
+  elseif vim.t.fleet_target then
+    fleet, args = vim.t.fleet_name, { vim.t.fleet_target }
+  else
+    local f, seat = buffer_worker()
+    if seat then
+      fleet, args = f, { seat }
+    else
+      -- the current file's own checkout, used as it is
+      local dir = vim.fn.expand("%:p:h")
+      local top = vim.trim(vim.fn.system({ "git", "-C", dir ~= "" and dir or ".", "rev-parse", "--show-toplevel" }))
+      if vim.v.shell_error ~= 0 or top == "" then
+        vim.notify("FleetPair: name a task, a ref or a PR, or run it from a note, a worker's file or a checkout", vim.log.levels.ERROR)
+        return
+      end
+      args = { "--dir", top }
     end
   end
-  if not target then
-    vim.notify("FleetPair: name a task, or run it from a task note, :FleetDiff! or a worker's file", vim.log.levels.ERROR)
-    return
-  end
-  require("fleet.actions").run(fleet, "pair", target)
-end, { nargs = "?", desc = "Open a fleet task in a window with nvim and an interactive claude" })
+  require("fleet.actions").run(fleet, "pair", unpack(args))
+end, {
+  nargs = "*",
+  desc = "Open a window with nvim and an interactive claude on a fleet task, branch, folder, PR or MR",
+  complete = function(lead, line)
+    -- the second argument is a branch of the current checkout
+    if line:match("^%S+%s+%S+%s") then
+      local out = vim.fn.systemlist({ "git", "for-each-ref", "--format=%(refname:short)", "refs/heads" })
+      return vim.tbl_filter(function(b) return vim.startswith(b, lead) end, out)
+    end
+    local ids = {}
+    for seat in vim.fn.system({ "tmux", "list-panes", "-s", "-F", "#{@agent_seat}" }):gmatch("(w%d+)") do
+      if vim.startswith(seat, lead) then table.insert(ids, seat) end
+    end
+    local notes = fleet_notes()
+    for _, f in ipairs(notes and vim.fn.glob(notes .. "/tasks/*.md", false, true) or {}) do
+      local id = vim.fn.fnamemodify(f, ":t:r")
+      if vim.startswith(id, lead) then table.insert(ids, id) end
+    end
+    return ids
+  end,
+})
 
 -- A first argument shaped like a seat names the worker; everything else is
 -- the command, so `:FleetShell nvim .` runs nvim in the current buffer's

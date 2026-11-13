@@ -32,4 +32,4 @@ The notes folder is the `--add-dir` folder, the parent of `tasks/`. It is a git 
 - Commands that drive seats are the orchestrator's and the workers': `fleet report`, `assign`, `clear`, `bump`, `answer`, `abandon` and `restart`. Do not run them, and do not message the orchestrator or the workers.
 - Edit only your task's note and the fleet-level files above. Other open notes belong to the workers on them.
 - Leave the notes repo uncommitted. fleet commits it under a lock when it assigns or archives, and other sessions' edits may be pending in it. Tell the user which notes files you changed.
-- Commit code in the repo's own convention, without the fleet task id or seat names.
+- Commit code in the repo's own convention, without the fleet task id or seat names. Push only when the user asks in this session: pushing a pull or merge request's branch updates it for its reviewers.

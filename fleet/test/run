@@ -28,7 +28,23 @@ print -r -- "#!/bin/sh
 exec $(command -v tmux) -L $server -f $T/tmux.conf \"\$@\"" > $T/bin/tmux
 ln -s $root/test/claude-stub $T/bin/claude
 print '#!/bin/sh\nexec cat > /dev/null' > $T/bin/nvim
-chmod +x $T/bin/tmux $T/bin/nvim
+# gh and glab answer for the pull and merge requests test_pair_modes uses
+cat > $T/bin/gh <<'EOF'
+#!/bin/sh
+case "$*" in
+  "pr view 7 --json "*) echo '{"headRefName":"feat/x","isCrossRepository":false,"title":"Add x","url":"https://github.com/acme/shop/pull/7"}' ;;
+  "pr view 8 --json "*) echo '{"headRefName":"x-fork","isCrossRepository":true,"title":"Fork x","url":"https://github.com/acme/shop/pull/8"}' ;;
+  *) echo "gh stub: $*" >&2; exit 1 ;;
+esac
+EOF
+cat > $T/bin/glab <<'EOF'
+#!/bin/sh
+case "$*" in
+  "mr view 5 -F json") echo '{"source_branch":"feat/y","title":"Y","web_url":"https://gitlab.example.com/acme/shop/-/merge_requests/5","source_project_id":1,"target_project_id":1}' ;;
+  *) echo "glab stub: $*" >&2; exit 1 ;;
+esac
+EOF
+chmod +x $T/bin/tmux $T/bin/nvim $T/bin/gh $T/bin/glab
 print -r -- "set -g default-command \"env PATH=$T/bin:$root/bin:$PATH zsh -f\"" > $T/tmux.conf
 
 unset TMUX TMUX_PANE CLAUDE_CONFIG_DIR CLAUDE_CODE_MESSAGING_SOCKET CLAUDE_CODE_MESSAGING_TOKEN
@@ -309,6 +325,64 @@ test_pair() {
   for w in t2 t10; do git -C $T/repo worktree remove --force $wts/demo-pair-$w; done
   git -C $T/repo branch -q -D featx
   rm $(note t9) $(note t10)
+}
+
+# pair on a branch, a folder, and pull and merge requests, with and without a
+# task. origin is a local bare repo that git reaches through the GitHub URL.
+test_pair_modes() {
+  local origin=$T/origin.git wts=$T/repo/.claude/worktrees r=$T/repo
+  git init -q --bare $origin
+  git -C $r remote add origin https://github.com/acme/shop.git
+  git -C $r config url."$origin".insteadOf https://github.com/acme/shop.git
+  git -C $r push -q origin main
+  local c=$(git -C $r commit-tree -p main -m "pr work" "main^{tree}")
+  git -C $r push -q origin ${c}:refs/heads/feat/x ${c}:refs/pull/8/head ${c}:refs/heads/feat/y
+  argv_of() {
+    local agent=$(tmux list-panes -t "=demo:$1" -F '#{pane_id} #{pane_title}' | awk '/-claude$/ { print $1 }')
+    within 5 eval "[[ -S \$(tmux display -p -t $agent '#{@agent_socket}') ]]" &&
+      print -r -- $(tmux display -p -t $agent '#{@agent_socket}').argv
+  }
+
+  check "fleet pair --pr #7" fleet pair --pr '#7'
+  eq "a same-repo PR checks out its branch" "$(git -C $wts/demo-pair-pr-7 symbolic-ref -q --short HEAD)" feat/x
+  eq "tracking origin's" "$(git -C $wts/demo-pair-pr-7 rev-parse --abbrev-ref '@{upstream}')" origin/feat/x
+  local a=$(argv_of pr-7-pair)
+  check "the prompt names the PR" eval "grep -qF 'pull request #7, \"Add x\", https://github.com/acme/shop/pull/7' $a"
+  check "and how to read its threads" eval "grep -qF 'gh pr view 7 --comments' $a"
+  check "and to push only when asked" eval "grep -qF 'push only when the user asks' $a"
+
+  check "fleet pair --pr owner/repo#8" fleet pair --pr 'acme/shop#8'
+  eq "a fork's PR is detached at its head" "$(git -C $wts/demo-pair-pr-8 rev-parse HEAD)" $c
+  check "and the prompt says pushing won't reach it" eval "grep -qF 'It is detached' $(argv_of pr-8-pair)"
+  eq "a PR in a repo with no clone is refused" \
+    "$(FLEET_REPO_DIRS=$T/none fleet pair --pr https://github.com/acme/other/pull/1 2>&1 | grep -o 'no local clone of github.com/acme/other')" \
+    "no local clone of github.com/acme/other"
+
+  check "fleet pair --pr !5" fleet pair --pr '!5'
+  eq "an MR checks out its branch" "$(git -C $wts/demo-pair-pr-5 symbolic-ref -q --short HEAD)" feat/y
+  check "the prompt names the MR and glab" eval "grep -qF 'merge request !5' $(argv_of pr-5-pair) && grep -qF 'glab mr view 5 --comments' $(argv_of pr-5-pair)"
+
+  git -C $r branch newb main
+  check "fleet pair --branch on a free branch" fleet pair --branch newb
+  eq "it checks the branch out" "$(git -C $wts/demo-pair-newb symbolic-ref -q --short HEAD)" newb
+  check "fleet pair --branch on a branch checked out elsewhere" fleet pair --branch main
+  check "is detached there" test -z "$(git -C $wts/demo-pair-main symbolic-ref -q HEAD)"
+  refuses "fleet pair --branch on a ref that doesn't exist" fleet pair --branch nope
+
+  check "fleet pair --dir" fleet pair --dir $T/repo3
+  check "it opens in the folder" within 3 eval "[[ \$(tmux display -p -t '=demo:repo3-pair.0' '#{pane_current_path}') == $T/repo3 ]]"
+  check "and makes no worktree" test ! -e $T/repo3/.claude
+
+  awk '{ print } /^ship:/ && !done { print "pr: https://github.com/acme/shop/pull/7"; done = 1 }' $(note t2) > $T/t2.md && mv $T/t2.md $(note t2)
+  check "fleet pair <task> --pr uses the note's pr:" fleet pair t2 --pr
+  check "the prompt names the task and the PR" eval "grep -qF 'task t2 of fleet demo' $(argv_of t2-pair) && grep -qF 'pull request #7' $(argv_of t2-pair)"
+
+  for w in pr-7 pr-8 pr-5 newb main repo3 t2; do tmux kill-window -t "=demo:$w-pair"; done
+  for w in pr-7 pr-8 pr-5 newb main t2; do git -C $r worktree remove --force $wts/demo-pair-$w; done
+  git -C $r branch -q -D newb feat/x feat/y 2> /dev/null
+  git -C $r remote remove origin
+  git -C $r config --unset url."$origin".insteadOf
+  sed -i.bak '/^pr: https:\/\/github.com\/acme\/shop\/pull\/7$/d' $(note t2) && rm $(note t2).bak
 }
 
 test_report() {
@@ -594,6 +668,7 @@ run_test test_assign
 run_test test_seat_commands
 run_test test_nvim_review
 run_test test_pair
+run_test test_pair_modes
 run_test test_report
 run_test test_todo_check
 run_test test_diff

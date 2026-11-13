@@ -217,6 +217,13 @@ Each worker's Claude session runs in its worktree, `<repo>/.claude/worktrees/<fl
   The pair panes get the fleet's config folder in their environment, taken from the orchestrator's launch line, so a `claude` started there again by hand runs under it too. The session runs without fleet's settings or hooks, and the window has no seat, so `fleet status` skips it.
 
   While the worker still holds T3, fleet warns that both agents share the checkout, and the prompt tells Claude to check `git status` before editing. `fleet pair w2` opens the task w2 holds. Running it again switches to the open window.
+
+- **Other checkouts.** `fleet pair` takes one of three options in place of the task's own state, with or without a task:
+  - `--branch <ref>` makes a worktree of its own, `.claude/worktrees/<fleet>-pair-<task or ref>`, in the task's repo or the fleet's. It checks out the branch when no other worktree has it, makes a local branch tracking `origin/<ref>` when only origin has it, and otherwise detaches at the ref. An existing pair worktree is reused only when it is already at that ref.
+  - `--dir <path>` uses an existing folder as it is, such as a checkout you already have. fleet makes no worktree there, and warns when the folder is a seat's worktree whose seat holds a task.
+  - `--pr <ref>` pairs on a pull or merge request. The reference is a URL, `owner/repo#431`, `group/project!45`, or a bare `#431`, `!45` or `431` for the task's repo or the fleet's. With a task and no reference, it uses the note's `pr:`. fleet finds the local clone by origin's configured URL: the task's repo, then the fleet's repos, then the checkouts under `$FLEET_REPO_DIRS`, colon-separated and searched two levels deep, `~/code` by default. It refuses when none matches, and `--dir` points it at one. `gh pr view` or `glab mr view` gives the branch, run in the clone, so they use its remote and your login there. A request from the same repo gets its branch checked out tracking origin's, so commits pushed from the session update it. A fork's, or one whose branch another worktree has, is detached at the request's head. The prompt names the request, its URL and branch, and the command that reads its review threads.
+
+  Without a task, the window is named `<pr-N | ref | folder>-pair`, and the prompt leaves out the note but keeps the `fleet:pair` skill. In nvim, `:FleetPair #431`, `:FleetPair !45` or `:FleetPair <url>` pair on a request, `:FleetPair T3 <ref>` on a branch for a task, `:FleetPair #` on the current note's `pr:`, and `:FleetPair` from a file in no task's checkout pairs on that file's checkout.
 - `:Prose <fleet>-w2` in nvim, on a file in that worktree, opens a [prose](../prose/README.md) review whose comments go to that worker.
 
 Typing `! <command>` in a worker's Claude pane also runs a command in its worktree, but the output becomes part of that worker's conversation and uses context it needs for its task. `fleet shell` keeps your inspection out of the worker's context.
@@ -428,7 +435,7 @@ Claude Code refuses rapid bursts of messages to one session. fleet sends one mes
 | `fleet bump <id>` | tell the worker still on the task that its note has new work |
 | `fleet diff [--rev] [<id> \| <seat>] [git diff args]` | show one task's changes, or a worker's whole branch. With neither, in a worker's pane, its branch. `--rev` prints the folder and revision `:FleetDiff` uses. |
 | `fleet repo [add <path>]` | list the fleet's repos, or record another one tasks may work in |
-| `fleet pair <task id \| seat>` | open window `<task>-pair` in the task's checkout, with nvim and an interactive claude that has read the task's note |
+| `fleet pair [<task id \| seat>] [--branch <ref> \| --dir <path> \| --pr [<ref>]]` | open a window with nvim and an interactive claude: in a task's checkout at its note's state, or on a branch, an existing folder, or a pull or merge request's branch, with or without a task |
 | `fleet shell <seat> [cmd]` | open window `<seat>-shell` in a worker's worktree, running `cmd` or a shell |
 
 Seat commands act on the fleet that owns the calling pane, or on the fleet named with `-s <fleet>` placed before the command, such as `fleet -s demo status`.

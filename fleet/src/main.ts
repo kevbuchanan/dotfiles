@@ -4,6 +4,7 @@ import { Fleet, isFleet } from "./fleet.ts"
 import { archive, migrate } from "./cmd/archive.ts"
 import { diff } from "./cmd/diff.ts"
 import { attach, clean, create, kill, ls, repo } from "./cmd/lifecycle.ts"
+import { pair } from "./cmd/pair.ts"
 import * as seat from "./cmd/seat.ts"
 import { die, FleetError } from "./run.ts"
 
@@ -63,9 +64,10 @@ there shows what agents wrote since the last assignment.
                                instead, for :FleetDiff
   fleet shell <seat> [cmd]     open a window in a worker's worktree, running
                                cmd or a shell
-  fleet pair <task id | seat>  open a window in a task's checkout with nvim
-                               and an interactive claude that has read the
-                               task's note
+  fleet pair [<task id | seat>] [--branch <ref> | --dir <path> | --pr [<ref>]]
+                               open a window with nvim and an interactive
+                               claude in a task's checkout, a branch, a folder,
+                               or a pull or merge request's branch
 
 Seat commands act on the fleet named by -s <fleet>, or else on the fleet
 that owns the calling pane.
@@ -103,7 +105,7 @@ const SEAT_COMMANDS: Record<string, (fleet: Fleet, args: string[]) => Promise<vo
   path: seat.path,
   shell: seat.shell,
   repo,
-  pair: seat.pair,
+  pair,
   bump: seat.bump,
   answer: seat.answer,
   report: seat.report,
