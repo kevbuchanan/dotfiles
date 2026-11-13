@@ -161,7 +161,7 @@ The note's `ship:` field tells the worker what to do with finished work, after t
 | `pr` | pushes and opens a pull request, with `gh pr create` or, for a GitLab remote, `glab mr create` |
 | `draft` | does the same as `pr`, opened as a draft |
 
-The worker follows the repo's own conventions for branch names and PR descriptions, from its CLAUDE.md and skills. With none, it pushes to a branch named after the task id. It records the PR's URL in the note's frontmatter as `pr:` and includes it in its `done` report. It never force-pushes.
+Nothing of fleet reaches the repo or the remote. The worker names the pushed branch and writes commits, PR titles and PR descriptions in the repo's own conventions, from its CLAUDE.md, AGENTS.md and skills, without the task id, seat, session name or a line saying fleet produced the work. It pushes `HEAD` to that branch name, since its local branch is named after its seat. With no convention, the branch is named after the change. `fleet assign`'s sync merge is titled `Merge branch '<default>'`. The note records the PR's URL as `pr:`, and the worker includes it in its `done` report. It never force-pushes.
 
 The orchestrator sets `ship:` from your direction when it writes the task, and sets anything other than `no` only when you've asked for it. To ship a task that finished unshipped, change the field and run `fleet bump <id>`. A PR from a worker's branch includes every earlier task on it that the default branch doesn't have yet, and the worker lists those in the PR body.
 

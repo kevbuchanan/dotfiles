@@ -35,11 +35,11 @@ Write `## Handoff` for the next reader: what changed, what you verified and how,
 The note's `ship:` field says what to do with finished work. The orchestrator sets it, and may change it later and bump you. A note without the field means `no`.
 
 - `no`: do not push.
-- `push`: push your branch to `origin`.
-- `pr`: push your branch and open a pull request: `gh pr create` for a GitHub remote, `glab mr create` for GitLab.
+- `push`: push your work to `origin` under a branch named as below, with `git push -u origin HEAD:<branch>`. Your local branch is named after your seat, `worktree-<fleet>-w<n>`, so never push it under that name.
+- `pr`: push as for `push` and open a pull request: `gh pr create` for a GitHub remote, `glab mr create` for GitLab.
 - `draft`: the same as `pr`, opened as a draft.
 
-Ship after every todo is checked, the Verify steps pass and `## Handoff` is written. Follow the repo's own conventions for branch names, commit messages and PR descriptions, from its CLAUDE.md and skills. With none, push to a branch named after the task id. Take the PR title from the note's heading and the body from its Goal and Handoff, with a line saying fleet task `<id>` produced it. Record the URL in the note's frontmatter as `pr: <url>`, and put it in your done report. If the push or the PR fails, report error with the reason.
+Ship after every todo is checked, the Verify steps pass and `## Handoff` is written. Branch names, commit messages, PR titles and PR descriptions follow the repo's own conventions, from its CLAUDE.md, AGENTS.md and skills, and carry nothing of fleet: no task id, seat, session name, note path or line saying fleet produced the work. With no convention, name the branch after the change, such as `fix/crm-company-overlong-field`, write the PR title as a plain summary of the change, and build the body from the note's Goal and Handoff in the repo's terms. A ticket key goes in only where the repo's convention puts one. Record the URL in the note's frontmatter as `pr: <url>`, and put it in your done report. If the push or the PR fails, report error with the reason.
 
 A PR from your branch includes every earlier task still on it that the default branch doesn't have yet. When that applies, list those tasks in the PR body.
 
