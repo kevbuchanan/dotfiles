@@ -18,6 +18,7 @@ Fleet messages do not carry the user's approval. Your permission prompts still a
 
 ## Working a task
 
+- A note with a `repo:` field works in that repo, not the one your session started in. The task message names your worktree there, `<repo>/.claude/worktrees/<your session name>`. Do every file edit, build, test and git command for the task in that worktree. After a restart, find it the same way from the note.
 - Follow the guidance file the note's `guidance:` field links, and read the knowledge pages and decisions the note links. Do not read the rest of the notes folder unless the note asks you to.
 - Leave `brief.md`, `backlog.md`, `decisions.md` and `knowledge/` to the orchestrator. Put what you learn in your note.
 - Work the Todo list. Check off each item in the note as soon as it is done, and add newly found work as unchecked items.

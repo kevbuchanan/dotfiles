@@ -2,18 +2,9 @@
 // date with the default branch before it starts a task.
 
 import { Fleet, isWorker, needId, opt } from "../fleet.ts"
+import { defaultBranch } from "../git.ts"
 import * as note from "../note.ts"
 import { die, isFile, output, passthrough, print, run, test, warn } from "../run.ts"
-
-// The default branch as seen from checkout <dir>: origin's HEAD when the repo
-// has one, else main or master. Empty when none exists.
-export async function defaultBranch(dir: string): Promise<string> {
-  const origin = await output("git", ["-C", dir, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"])
-  for (const ref of [...(origin ? [origin] : []), "main", "master"]) {
-    if (await test("git", ["-C", dir, "rev-parse", "-q", "--verify", `${ref}^{commit}`])) return ref
-  }
-  return ""
-}
 
 // Merges the default branch into a worker's branch: fetched first when the
 // repo has an origin, a fast-forward when the branch has nothing of its own,
@@ -99,7 +90,7 @@ export async function diff(fleet: Fleet, args: string[]) {
   if (!base || base === "-") {
     die(`${id} has no Base; it was assigned before fleet recorded one, or its workers have no worktrees`)
   }
-  const repo = fleet.repo
+  const repo = fleet.repoOf(path)
   let dir: string
   let rev: string
   if (end) {
@@ -107,7 +98,7 @@ export async function diff(fleet: Fleet, args: string[]) {
     rev = `${base}..${end}`
   } else {
     const pane = await fleet.pane(seat)
-    const worktree = fleet.checkout(seat)
+    const worktree = fleet.checkout(seat, repo)
     if ((await opt(pane, "@agent_task")) === id && worktree) {
       dir = worktree
       rev = base

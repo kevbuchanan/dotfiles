@@ -3,7 +3,7 @@
 import { Fleet, isFleet } from "./fleet.ts"
 import { archive, migrate } from "./cmd/archive.ts"
 import { diff } from "./cmd/diff.ts"
-import { attach, clean, create, kill, ls } from "./cmd/lifecycle.ts"
+import { attach, clean, create, kill, ls, repo } from "./cmd/lifecycle.ts"
 import * as seat from "./cmd/seat.ts"
 import { die, FleetError } from "./run.ts"
 
@@ -13,10 +13,12 @@ orchestrator seat in window \`orch\`, worker seats w1..wN in window
 share task notes in $FLEET_HOME/<fleet>/tasks, a git repo, so \`git diff\`
 there shows what agents wrote since the last assignment.
 
-  fleet new [name] [dir] [--workers N] [--worker-mode M]
+  fleet new [name] [dir] [--workers N] [--worker-mode M] [--repo PATH]...
             [--orch-model M] [--worker-model M] [--orch-effort E] [--worker-effort E]
                                start a fleet and attach to it; each flag
-                               overrides the FLEET_* variable of that name
+                               overrides the FLEET_* variable of that name;
+                               --repo adds another repo its tasks may work in
+  fleet repo [add <path>]      list the fleet's repos, or add one
   fleet attach [name]
   fleet ls                     running fleets, and stopped fleets that
                                \`fleet clean\` has not removed
@@ -30,9 +32,11 @@ there shows what agents wrote since the last assignment.
                                its state; --branches also deletes merged
                                worker branches
   fleet status
-  fleet task <id> [--from <id>] <title>
+  fleet task <id> [--repo <path>] [--from <id>] <title>
                                create a task note and print its path;
-                               --from starts a follow-up to a closed task
+                               --repo sets the repo it works in, one of the
+                               fleet's; --from starts a follow-up to a
+                               closed task, in that task's repo
   fleet assign [--no-sync] <seat> <id>
                                point an idle worker at a task note, first
                                bringing its branch up to date with the
@@ -98,6 +102,7 @@ const SEAT_COMMANDS: Record<string, (fleet: Fleet, args: string[]) => Promise<vo
   rename: seat.rename,
   path: seat.path,
   shell: seat.shell,
+  repo,
   pair: seat.pair,
   bump: seat.bump,
   answer: seat.answer,

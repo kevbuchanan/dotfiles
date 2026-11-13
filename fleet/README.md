@@ -30,7 +30,7 @@ fleet kill demo
 
 **Task note.** One markdown file per task under `$FLEET_HOME/<fleet>/tasks/<id>.md`, made from `templates/task.md`. The note is the record of the task, with these sections:
 
-- YAML frontmatter with the task's fields, one `key: value` per line: `fleet` and `task`, which name the note's fleet and id; `created` and `closed`, the dates the task was created and closed by `fleet clear` or `fleet abandon`; `guidance`; `ship`, what to do with finished work; `wip`, the ref holding work the task left uncommitted when it closed; `approve`, whether the result waits on your approval; `pr` once one is open; `follows` for a follow-up task; `worker`; `branch`; `base` and `end`, the commits that bound this task's changes on the worker's branch; and `status`
+- YAML frontmatter with the task's fields, one `key: value` per line: `fleet` and `task`, which name the note's fleet and id; `created` and `closed`, the dates the task was created and closed by `fleet clear` or `fleet abandon`; `guidance`; `repo`, the repo the task works in when it isn't the fleet's own; `ship`, what to do with finished work; `wip`, the ref holding work the task left uncommitted when it closed; `approve`, whether the result waits on your approval; `pr` once one is open; `follows` for a follow-up task; `worker`; `branch`; `base` and `end`, the commits that bound this task's changes on the worker's branch; and `status`
 - Goal, Scope and Verify: what to do, which files the worker may edit, and how to check the result
 - Todo: a checkbox list the worker checks off as it goes
 - Questions: decisions the worker needs from you
@@ -76,6 +76,17 @@ Claude runs inside the pane's shell. When Claude exits, the pane stays open at a
 The first time a worker seat launches in a git repo, its launch line ends in `-w <fleet>-w<n>`, and Claude Code creates the worktree under `<repo>/.claude/worktrees/`. If the repo has a [`WorktreeCreate` hook](https://code.claude.com/docs/en/hooks), Claude Code runs that hook in place of its own setup, so the hook also picks the branch name and base commit. `fleet assign` reads the real branch from the worktree.
 
 Once a seat's worktree exists, `fleet new` and `fleet restart` start the worker inside it, with `cd <worktree> && claude ...` and no `-w`. That covers a fleet started again under the name of one whose worktrees were never cleaned, and every restart. Asking for the same worktree again fails under a hook that refuses an existing name, as some repos' hooks do. It reports `WorktreeCreate hook failed: ... already exists`.
+
+### Tasks in more than one repo
+
+A fleet has one repo of its own, the folder `fleet new` starts in, where each worker's session runs. It can also work in other repos:
+
+- `fleet new ... --repo <path>`, repeated for each, or `fleet repo add <path>` on a running fleet, records another repo in the state folder's `repos` file. Each seat's launch line gets `--add-dir <repo>`, so its Claude session may edit there. A seat started before `fleet repo add` gets it at its next `fleet restart`. `fleet repo` lists the fleet's repos.
+- `fleet task <id> --repo <path> <title>` records `repo:` in the note. A task without one works in the fleet's own repo. `fleet task --from` gives a follow-up its source's repo, and `fleet assign` refuses a follow-up whose repo differs from its source's.
+- `fleet assign` gives the seat a worktree in the task's repo the first time, `<repo>/.claude/worktrees/<fleet>-w<n>`, on branch `worktree-<fleet>-w<n>` from that repo's default branch. It syncs that worktree and records `base:` there, and the task message names the worktree. The worker skill says to do all of the task's work in it.
+- `fleet diff`, `fleet clear` and `fleet abandon` with the saved uncommitted work, `fleet path`, `fleet shell`, `fleet pair` and the follow-up checks use the task's repo. `fleet path` and `fleet shell` use the repo of the task the seat holds. `fleet clean` removes the fleet's worktrees in every repo, and `fleet ls` counts them all.
+
+One task works in one repo. Work that spans repos becomes a task per repo, linked with `--from` or from each Goal.
 
 ### The task loop
 
@@ -404,7 +415,7 @@ Claude Code refuses rapid bursts of messages to one session. fleet sends one mes
 | `fleet kill [name]` | kill the tmux session, by default the fleet that owns the calling pane. Worktrees and notes stay on disk. |
 | `fleet clean <name> [--branches]` | remove a stopped fleet's worker and pair worktrees, and its state. `--branches` also deletes their branches that are merged. |
 | `fleet status` | each seat's state, task and todo progress |
-| `fleet task <id> [--from <id>] <title>` | create a task note and print its path. `--from` starts a follow-up to a closed task. |
+| `fleet task <id> [--repo <path>] [--from <id>] <title>` | create a task note and print its path. `--from` starts a follow-up to a closed task. |
 | `fleet assign [--no-sync] <seat> <id>` | bring an idle worker's branch up to date with the default branch, then point it at a task note |
 | `fleet clear <seat>` | save any uncommitted work to `refs/fleet/<fleet>/<id>`, type `/clear` into an idle seat and drop its task; refuses while the task has an open question |
 | `fleet interrupt <seat>` | send Escape |
@@ -416,6 +427,7 @@ Claude Code refuses rapid bursts of messages to one session. fleet sends one mes
 | `fleet report <id> <phase> <text>` | a worker's report on its task: `progress`, `review`, `done`, `blocked` or `error` |
 | `fleet bump <id>` | tell the worker still on the task that its note has new work |
 | `fleet diff [--rev] [<id> \| <seat>] [git diff args]` | show one task's changes, or a worker's whole branch. With neither, in a worker's pane, its branch. `--rev` prints the folder and revision `:FleetDiff` uses. |
+| `fleet repo [add <path>]` | list the fleet's repos, or record another one tasks may work in |
 | `fleet pair <task id \| seat>` | open window `<task>-pair` in the task's checkout, with nvim and an interactive claude that has read the task's note |
 | `fleet shell <seat> [cmd]` | open window `<seat>-shell` in a worker's worktree, running `cmd` or a shell |
 
@@ -433,6 +445,7 @@ Seat commands act on the fleet that owns the calling pane, or on the fleet named
 | `--worker-model M` | `FLEET_WORKER_MODEL` | unset | workers' `--model` |
 | `--orch-effort E` | `FLEET_ORCH_EFFORT` | unset | the orchestrator's `--effort`: `low`, `medium`, `high`, `xhigh` or `max` |
 | `--worker-effort E` | `FLEET_WORKER_EFFORT` | unset | workers' `--effort` |
+| `--repo PATH`, repeatable | none | none | another repo the fleet's tasks may work in; see "Tasks in more than one repo" |
 | | `FLEET_HOME` | `~/agents` | the notes root |
 | | `CLAUDE_CONFIG_DIR` | unset | the config folder every seat's `claude` runs with |
 

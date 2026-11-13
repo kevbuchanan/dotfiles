@@ -133,6 +133,7 @@ export async function create(args: string[]) {
   const settings: Record<string, string> = {}
   for (const name of Object.values(NEW_FLAGS)) settings[name] = env(name)
   const positional: string[] = []
+  const extraRepos: string[] = []
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]
     if (!arg.startsWith("--")) {
@@ -147,6 +148,10 @@ export async function create(args: string[]) {
     } else {
       if (i + 1 >= args.length) die(`${flag} needs a value`)
       value = args[++i]
+    }
+    if (flag === "--repo") {
+      extraRepos.push(value)
+      continue
     }
     const name = NEW_FLAGS[flag]
     if (!name) die(`unknown option ${flag}; see fleet help`)
@@ -234,7 +239,15 @@ export async function create(args: string[]) {
   // the plugin carries the fleet:orchestrator and fleet:worker skills, which
   // hold the protocol; seats read a skill when they use it, so edits reach
   // running seats
-  let claude = `claude --add-dir ${shq(notes)} --plugin-dir ${shq(root)}/plugin`
+  // the fleet's other repos: seats get --add-dir for each, so a worker can
+  // edit its worktree there
+  const primary = (await test("git", ["-C", dir, "rev-parse", "--is-inside-work-tree"]))
+    ? await run("git", ["-C", dir, "rev-parse", "--show-toplevel"])
+    : ""
+  const others = [...new Set(await Promise.all(extraRepos.map(toplevel)))].filter((r) => r !== primary)
+  let claude = `claude --add-dir ${shq(notes)}${
+    others.map((r) => ` --add-dir ${shq(r)}`).join("")
+  } --plugin-dir ${shq(root)}/plugin`
   // Sessions find each other only within one config dir, so every seat gets
   // the same one. It is part of each pane's @agent_cmd, so restart keeps it.
   if (env("CLAUDE_CONFIG_DIR")) {
@@ -334,14 +347,10 @@ export async function create(args: string[]) {
   // launchLine reads the repo record to decide each worker's worktree; a
   // record left by an earlier fleet of this name must not outlive a move to a
   // folder that isn't a repo
-  if (await test("git", ["-C", dir, "rev-parse", "--is-inside-work-tree"])) {
-    Deno.writeTextFileSync(
-      join(rundir, "repo"),
-      `${await run("git", ["-C", dir, "rev-parse", "--show-toplevel"])}\n`,
-    )
-  } else {
-    removeIfAny(join(rundir, "repo"))
-  }
+  if (primary) Deno.writeTextFileSync(join(rundir, "repo"), `${primary}\n`)
+  else removeIfAny(join(rundir, "repo"))
+  if (others.length) Deno.writeTextFileSync(join(rundir, "repos"), others.join("\n") + "\n")
+  else removeIfAny(join(rundir, "repos"))
 
   for (let i = 1; i <= count; i++) {
     const seat = `${name}-w${i}`
@@ -398,8 +407,13 @@ export async function ls() {
     }
     let count = "-"
     if (repo !== "-") {
-      const wts = join(repo, ".claude", "worktrees")
-      count = String(dirs(wts, (p) => new RegExp(`/${name}-w\\d+$`).test(p)).length)
+      count = String(
+        recordedRepos(rundir).reduce(
+          (n, r) =>
+            n + dirs(join(r, ".claude", "worktrees"), (p) => new RegExp(`/${name}-w\\d+$`).test(p)).length,
+          0,
+        ),
+      )
     }
     row([name, st, count, tilde(repo), tilde(notes)])
   }
@@ -421,28 +435,30 @@ export async function clean(args: string[]) {
   if (!isDir(rundir)) die(`no state for ${name} in ${rundir}`)
 
   let kept = false
-  const repo = isFile(join(rundir, "repo")) ? readRecord(join(rundir, "repo")) : ""
-  const wtdir = join(repo, ".claude", "worktrees")
-  if (repo && isDir(wtdir)) {
-    const wts = [...Deno.readDirSync(wtdir)]
-      .filter((e) => e.isDirectory && new RegExp(`^${name}-(w\\d+|pair-.+)$`).test(e.name))
-      .map((e) => join(wtdir, e.name))
-      .sort()
-    for (const wt of wts) {
-      // read the branch before removal; it is the one Claude Code created
-      const branch = await output("git", ["-C", wt, "symbolic-ref", "-q", "--short", "HEAD"])
-      // git refuses to remove a worktree with uncommitted or untracked changes
-      if (!(await succeeds("git", ["-C", repo, "worktree", "remove", wt]))) {
-        warn(`kept ${wt}`)
-        kept = true
-        continue
-      }
-      print(`removed ${wt}`)
-      // git branch -d refuses a branch that is not merged, so unmerged work stays
-      if (
-        branches && branch && !(await succeeds("git", ["-C", repo, "branch", "-d", branch]))
-      ) {
-        warn(`kept unmerged branch ${branch}`)
+  for (const repo of recordedRepos(rundir)) {
+    const wtdir = join(repo, ".claude", "worktrees")
+    if (!isDir(wtdir)) continue
+    {
+      const wts = [...Deno.readDirSync(wtdir)]
+        .filter((e) => e.isDirectory && new RegExp(`^${name}-(w\\d+|pair-.+)$`).test(e.name))
+        .map((e) => join(wtdir, e.name))
+        .sort()
+      for (const wt of wts) {
+        // read the branch before removal; it is the one Claude Code created
+        const branch = await output("git", ["-C", wt, "symbolic-ref", "-q", "--short", "HEAD"])
+        // git refuses to remove a worktree with uncommitted or untracked changes
+        if (!(await succeeds("git", ["-C", repo, "worktree", "remove", wt]))) {
+          warn(`kept ${wt}`)
+          kept = true
+          continue
+        }
+        print(`removed ${wt}`)
+        // git branch -d refuses a branch that is not merged, so unmerged work stays
+        if (
+          branches && branch && !(await succeeds("git", ["-C", repo, "branch", "-d", branch]))
+        ) {
+          warn(`kept unmerged branch ${branch}`)
+        }
       }
     }
   }
@@ -451,4 +467,40 @@ export async function clean(args: string[]) {
   if (kept) die(`kept worktrees with changes; commit or discard them, then rerun fleet clean ${name}`)
   Deno.removeSync(rundir, { recursive: true })
   print(`removed ${rundir}. Notes stay in ${join(home, name)}`)
+}
+
+// A folder's git toplevel, for recording a repo the same way however it was
+// named
+async function toplevel(path: string): Promise<string> {
+  if (!(await test("git", ["-C", path, "rev-parse", "--is-inside-work-tree"]))) die(`not a git repo: ${path}`)
+  return await run("git", ["-C", path, "rev-parse", "--show-toplevel"])
+}
+
+// The repos a fleet's state folder records: its own, then the others
+function recordedRepos(rundir: string): string[] {
+  const own = isFile(join(rundir, "repo")) ? [readRecord(join(rundir, "repo"))] : []
+  const others = isFile(join(rundir, "repos"))
+    ? readText(join(rundir, "repos")).split("\n").map((l) => l.trim()).filter(Boolean)
+    : []
+  return [...new Set([...own, ...others])]
+}
+
+// fleet repo: the fleet's repos. fleet repo add <path> records another. Each
+// seat's launch line gets --add-dir for it, which takes effect when the seat
+// restarts.
+export async function repo(fleet: Fleet, args: string[]) {
+  if (args[0] === "add") {
+    const path = await toplevel(args[1] || die("usage: fleet repo add <path>"))
+    if (fleet.repos.includes(path)) return print(`${path} is already one of ${fleet.name}'s repos`)
+    const record = join(fleet.rundir, "repos")
+    Deno.writeTextFileSync(record, `${path}\n`, { append: true })
+    for (const { pane } of await fleet.seats()) {
+      const cmd = await opt(pane, "@agent_cmd")
+      const added = cmd.replace(/(^|\s)claude --add-dir /, `$1claude --add-dir ${shq(path)} --add-dir `)
+      if (added !== cmd) await tmux("set", "-p", "-t", pane, "@agent_cmd", added)
+    }
+    return print(`added ${path}; each seat can edit there after fleet restart <seat>`)
+  }
+  if (args.length) die("usage: fleet repo [add <path>]")
+  for (const [i, path] of fleet.repos.entries()) print(i === 0 ? `${path} (the fleet's own)` : path)
 }

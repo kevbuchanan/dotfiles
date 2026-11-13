@@ -137,8 +137,11 @@ seats_up() {
 test_new() {
   git -C $T/repo init -q -b main
   git -C $T/repo commit -q --allow-empty -m init
+  for extra in repo2 repo3; do
+    git init -q -b main $T/$extra && git -C $T/$extra commit -q --allow-empty -m init
+  done
   # with no terminal to attach to, fleet new's last step fails; the fleet runs
-  (cd $T && command fleet new demo $T/repo --workers 2 --worker-model sonnet --orch-effort high > $T/new.log 2>&1 &)
+  (cd $T && command fleet new demo $T/repo --workers 2 --worker-model sonnet --orch-effort high --repo $T/repo2 > $T/new.log 2>&1 &)
   check "the fleet's seats register sockets" within 20 seats_up
   check "w1's worktree exists" test -d $(wt w1)
   check "the notes repo has a brief" test -f $T/agents/demo/brief.md
@@ -154,6 +157,8 @@ test_new() {
   eq "the windows, in order" "$(tmux list-windows -t '=demo:' -F '#{window_name}' | xargs)" "orch workers shell"
   check "the shell window starts in the project folder" within 3 eval "[[ \$(tmux display -p -t '=demo:shell' '#{pane_current_path}') == $T/repo ]]"
   eq "the shell window is no seat" "$(tmux display -p -t '=demo:shell' '#{@agent_seat}')" ""
+  eq "the fleet records its second repo" "$(< $T/state/fleet/demo/repos)" $T/repo2
+  check "seats may edit the second repo" eval "[[ \$(popt w1 @agent_cmd) == *'--add-dir $T/repo2 '* ]]"
   check "the hooks' paths are filled in" eval "! grep -q '{{ROOT}}' $state/settings.json && grep -q $root/hooks/session-end $state/settings.json"
 }
 
@@ -519,6 +524,41 @@ test_nvim_follow_up() {
   rm $(note t4-3)
 }
 
+# a task in the fleet's second repo: its own worktree, base, diff, close and pair
+test_multi_repo() {
+  local r2=$T/repo2 wt2=$T/repo2/.claude/worktrees/demo-w2
+  refuses "a task in a repo the fleet doesn't have" fleet task m0 --repo $T/repo3 nope
+  check "fleet repo add" fleet repo add $T/repo3
+  eq "fleet repo lists all three" "$(fleet repo | wc -l | tr -d ' ')" 3
+  check "seats get --add-dir for the added repo" eval "[[ \$(popt w1 @agent_cmd) == *'--add-dir $T/repo3 '* ]]"
+  check "fleet task --repo" fleet task m1 --repo $r2 change the second repo
+  eq "the note records its repo" "$(field $(note m1) repo)" $r2
+  todos m1 '[ ] change it'
+  tmux set -p -t $(pane w2) @agent_state idle
+  check "fleet assign in the second repo" fleet assign w2 m1
+  check "w2 gets a worktree there" test -d $wt2
+  eq "on the seat's branch" "$(git -C $wt2 symbolic-ref -q --short HEAD)" worktree-demo-w2
+  eq "base is the second repo's main" "$(field $(note m1) base)" "$(git -C $r2 rev-parse main)"
+  check "the message names the worktree" within 3 received w2 "It works in $r2, in your worktree $wt2."
+  eq "fleet path follows the task's repo" "$(fleet path w2)" $wt2
+  print two > $wt2/two.txt && git -C $wt2 add two.txt && git -C $wt2 commit -q -m "add two"
+  check "fleet diff shows the second repo's change" eval "fleet diff m1 --stat | grep -q two.txt"
+  print left > $wt2/left.txt
+  todos m1 '[x] change it'
+  check "a done report" as w2 command fleet report m1 done changed
+  tmux set -p -t $(pane w2) @agent_state idle
+  check "fleet clear" fleet clear w2
+  eq "end is the second repo's commit" "$(field $(note m1) end)" "$(git -C $wt2 rev-parse HEAD)"
+  check "the uncommitted file is saved in the second repo" eval "git -C $r2 cat-file -e refs/fleet/demo/m1:left.txt"
+  check "a follow-up" fleet task m2 --from m1
+  eq "the follow-up works in the same repo" "$(field $(note m2) repo)" $r2
+  check "fleet pair on m1" fleet pair m1
+  check "its pair worktree is in the second repo" test -d $r2/.claude/worktrees/demo-pair-m1
+  tmux kill-window -t '=demo:m1-pair'
+  git -C $r2 worktree remove --force $r2/.claude/worktrees/demo-pair-m1
+  rm $(note m2)
+}
+
 test_migrate() {
   local f=$T/agents/demo/tasks/old.md
   printf '# old: an old note\n\nFleet: demo\nTask: old\nStatus: done\n\n## Todo\n\n- [x] a\n' > $f
@@ -539,6 +579,7 @@ test_clean() {
   check "git's branch deletion shows" has $T/clean.log '^Deleted branch demo-w2' 
   check "w2's worktree is removed" test ! -d $(wt w2)
   check "w1's worktree is removed" test ! -d $(wt w1)
+  check "w2's worktree in the second repo is removed" test ! -d $T/repo2/.claude/worktrees/demo-w2
   eq "w2's branch, merged into main, is deleted" "$(git -C $T/repo branch --list demo-w2)" ""
   check "w1's branch, with unmerged work, stays" eval "git -C $T/repo branch --list demo-w1 | grep -q demo-w1"
   check "the state folder is removed" test ! -d $T/state/fleet/demo
@@ -565,6 +606,7 @@ run_test test_abandon
 run_test test_archive
 run_test test_review
 run_test test_nvim_follow_up
+run_test test_multi_repo
 run_test test_migrate
 run_test test_kill
 run_test test_clean

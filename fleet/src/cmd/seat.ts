@@ -28,7 +28,8 @@ import {
   writeAtomic,
 } from "../run.ts"
 import { borders, launchLine } from "./lifecycle.ts"
-import { defaultBranch, sync } from "./diff.ts"
+import { sync } from "./diff.ts"
+import { defaultBranch } from "../git.ts"
 import * as wip from "../wip.ts"
 
 const env = (name: string) => Deno.env.get(name) ?? ""
@@ -53,14 +54,24 @@ export async function status(fleet: Fleet) {
   }
 }
 
-export function task(fleet: Fleet, args: string[]) {
-  const usage = "usage: fleet task <id> [--from <id>] <title>"
+export async function task(fleet: Fleet, args: string[]) {
+  const usage = "usage: fleet task <id> [--repo <path>] [--from <id>] <title>"
   const id = args[0] || die(usage)
   let from = ""
+  let repo = ""
   const words: string[] = []
   for (let i = 1; i < args.length; i++) {
     if (args[i] === "--from") {
       from = args[++i] || die("--from needs a task id")
+    } else if (args[i] === "--repo") {
+      const dir = args[++i] || die("--repo needs a path")
+      if (!(await test("git", ["-C", dir, "rev-parse", "--is-inside-work-tree"]))) {
+        die(`not a git repo: ${dir}`)
+      }
+      repo = await run("git", ["-C", dir, "rev-parse", "--show-toplevel"])
+      if (!fleet.repos.includes(repo)) {
+        die(`${repo} is not one of ${fleet.name}'s repos; fleet repo add ${repo} first`)
+      }
     } else {
       words.push(args[i])
     }
@@ -99,6 +110,8 @@ export function task(fleet: Fleet, args: string[]) {
   // checks, so the new worker needs none of the earlier conversation
   if (from) {
     note.set(path, "follows", from, fleet.name)
+    // a follow-up works where the task it follows did
+    repo ||= note.get(prev, "repo")
     for (const sec of ["Scope", "Verify"]) note.setSection(path, sec, note.section(prev, sec))
     // the link is relative to tasks/, where the new note lives, and reaches a
     // source archived under archive/<month>/
@@ -109,6 +122,7 @@ export function task(fleet: Fleet, args: string[]) {
       "",
     ])
   }
+  if (repo && repo !== fleet.repo) note.set(path, "repo", repo, fleet.name)
   print(path)
 }
 
@@ -154,10 +168,20 @@ export async function assign(fleet: Fleet, args: string[]) {
     if (!prevEnd) die(`${follows} is still open; add the work to its note and fleet bump ${follows}`)
   }
 
+  // the task works in its note's repo, the fleet's own unless it names
+  // another; there the seat gets a worktree of its own on first use
+  const repo = fleet.repoOf(path)
+  if (repo && !fleet.repos.includes(repo)) {
+    die(`${id} works in ${repo}, which is not one of ${fleet.name}'s repos; fleet repo add ${repo} first`)
+  }
+  if (follows && fleet.repoOf(prev) !== repo) {
+    die(`${id} works in ${repo || "no repo"}, but ${follows} worked in ${fleet.repoOf(prev) || "no repo"}`)
+  }
+
   // base is the worker branch's commit when the task starts, and end is set
   // by `fleet clear`, so `fleet diff` can show this task apart from the
   // branch's earlier and later tasks
-  const worktree = fleet.checkout(seat)
+  const worktree = repo && repo !== fleet.repo ? await fleet.ensureWorktree(seat, repo) : fleet.checkout(seat)
   let branch = `worktree-${fleet.name}-${seat}`
   let base = "-"
   if (worktree) {
@@ -188,7 +212,8 @@ export async function assign(fleet: Fleet, args: string[]) {
 
   await tmux("set", "-p", "-t", pane, "@agent_task", id)
   await tmux("select-pane", "-t", pane, "-T", `${fleet.name}-${seat}: ${id}`)
-  await fleet.post(pane, "worker", `Task ${id}: read ${path}`)
+  const where = repo && repo !== fleet.repo ? ` It works in ${repo}, in your worktree ${worktree}.` : ""
+  await fleet.post(pane, "worker", `Task ${id}: read ${path}.${where}`)
 }
 
 // Records the task's end at the worktree's HEAD, or `-` in a fleet outside a
@@ -201,7 +226,7 @@ async function close(
   verb: string,
   extra: Record<string, string> = {},
 ) {
-  const worktree = fleet.checkout(seat)
+  const worktree = fleet.checkout(seat, fleet.repoOf(path))
   // saved first: a failure leaves the task open and the worktree as it was
   if (worktree) await wip.save(fleet, worktree, basename(path).replace(/\.md$/, ""), path, verb)
   const end = worktree ? await run("git", ["-C", worktree, "rev-parse", "HEAD"]) : "-"
@@ -465,12 +490,12 @@ export async function pair(fleet: Fleet, args: string[]) {
     let dir: string
     let where: string
     if (holding) {
-      dir = fleet.checkout(seat) || fleet.repo || fleet.notes
+      dir = fleet.checkout(seat, fleet.repoOf(path)) || fleet.repoOf(path) || fleet.notes
       warn(`${seat} still holds ${id} and may be editing ${dir} too`)
       where =
         `This folder is ${seat}'s worktree, where ${seat}, the fleet's worker on this task, may be working ` +
         "too, so check git status before editing."
-    } else if (fleet.repo) {
+    } else if (fleet.repoOf(path)) {
       ;({ dir, where } = await pairCheckout(fleet, id, path))
     } else {
       dir = fleet.notes
@@ -548,7 +573,7 @@ function unquote(value: string): string {
 // continue the branch; otherwise it is detached at that commit. A worktree an
 // earlier pair made is reused as it is, since it may hold the user's work.
 async function pairCheckout(fleet: Fleet, id: string, path: string) {
-  const repo = fleet.repo
+  const repo = fleet.repoOf(path)
   const dir = join(repo, ".claude", "worktrees", `${fleet.name}-pair-${id}`)
   let applied = ""
   const closed = (p: string) => {
