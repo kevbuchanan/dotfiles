@@ -198,36 +198,38 @@ test_new_flags() {
 }
 
 test_task() {
-  check "fleet task creates a note" fleet task t1 first task
-  eq "the note names its fleet" "$(field $(note t1) fleet)" demo
-  eq "a new task needs no approval" "$(field $(note t1) approve)" no
-  eq "the note has its title" "$(grep -m1 '^# ' $(note t1))" "# t1: first task"
+  check "fleet task creates a note" fleet task alpha first task
+  eq "the note names its fleet" "$(field $(note alpha) fleet)" demo
+  eq "a new task needs no approval" "$(field $(note alpha) approve)" no
+  eq "the note has its title" "$(grep -m1 '^# ' $(note alpha))" "# alpha: first task"
   check "a title with \$ patterns" fleet task tz 'charge $$5 for $& and' "\$'x"
   eq "the title is kept as written" "$(grep -m1 '^# ' $(note tz))" "# tz: charge \$\$5 for \$& and \$'x"
   eq "the note has one Goal section" "$(grep -c '^## Goal$' $(note tz))" 1
   rm $(note tz)
-  refuses "a duplicate id" fleet task t1 again
+  refuses "a duplicate id" fleet task alpha again
   refuses "an id with a slash" fleet task a/b bad
-  refuses "a follow-up to an open task" fleet task t1b --from t1
+  refuses "a numbered id" fleet task T3 a plan step
+  refuses "a bare number" fleet task 42 a plan step
+  refuses "a follow-up to an open task" fleet task alpha-b --from alpha
 }
 
 test_assign() {
-  todos t1 '[ ] one' '[ ] two'
+  todos alpha '[ ] one' '[ ] two'
   # a commit on main after the worktree was made, which assign merges in
   git -C $T/repo commit -q --allow-empty -m "main moves on"
   local main=$(git -C $T/repo rev-parse main)
-  check "fleet assign" fleet assign w1 t1
+  check "fleet assign" fleet assign w1 alpha
   eq "w1's branch has main's commit" "$(git -C $(wt w1) rev-parse HEAD)" $main
-  eq "the note records the worker" "$(field $(note t1) worker)" demo-w1
-  eq "the note records the base" "$(field $(note t1) base)" $main
-  eq "the note is assigned" "$(field $(note t1) status)" assigned
-  eq "the seat holds the task" "$(popt w1 @agent_task)" t1
-  check "w1 gets the task" within 3 received w1 "Task t1: read $(note t1)"
-  check "the assign is committed in the notes repo" git -C $T/agents/demo log -1 --format=%s --grep='assign t1'
-  fleet task t2 second > /dev/null
-  refuses "a second task on a busy seat" fleet assign w1 t2
+  eq "the note records the worker" "$(field $(note alpha) worker)" demo-w1
+  eq "the note records the base" "$(field $(note alpha) base)" $main
+  eq "the note is assigned" "$(field $(note alpha) status)" assigned
+  eq "the seat holds the task" "$(popt w1 @agent_task)" alpha
+  check "w1 gets the task" within 3 received w1 "Task alpha: read $(note alpha)"
+  check "the assign is committed in the notes repo" git -C $T/agents/demo log -1 --format=%s --grep='assign alpha'
+  fleet task beta second > /dev/null
+  refuses "a second task on a busy seat" fleet assign w1 beta
   tmux set -p -t $(pane w2) @agent_state busy
-  refuses "a seat that isn't idle" fleet assign w2 t2
+  refuses "a seat that isn't idle" fleet assign w2 beta
   tmux set -p -t $(pane w2) @agent_state idle
 }
 
@@ -238,16 +240,16 @@ test_seat_commands() {
   check "fleet rename" fleet rename w2 hello
   eq "the pane has the new title" "$(popt w2 pane_title)" hello
   check "fleet interrupt" fleet interrupt w2
-  check "fleet bump" fleet bump t1
-  check "w1 gets the bump" within 3 received w1 "Task t1 was updated: re-read $(note t1)"
-  refuses "bump on an unassigned task" fleet bump t2
-  refuses "answer while the seat isn't on a question" fleet answer t1
+  check "fleet bump" fleet bump alpha
+  check "w1 gets the bump" within 3 received w1 "Task alpha was updated: re-read $(note alpha)"
+  refuses "bump on an unassigned task" fleet bump beta
+  refuses "answer while the seat isn't on a question" fleet answer alpha
   tmux set -p -t $(pane w1) @agent_state question
-  awk '{ print } $0 == "## Questions" { print ""; print "- [ ] Q1: which way?" }' $(note t1) > $T/q.md && mv $T/q.md $(note t1)
-  refuses "answer with an open question" fleet answer t1
-  sed -i.bak 's/^- \[ \] Q1:/- [x] Q1:/' $(note t1) && rm $(note t1).bak
-  check "fleet answer" fleet answer t1
-  check "w1 gets the answer" within 3 received w1 "Questions in t1 are answered: re-read $(note t1)"
+  awk '{ print } $0 == "## Questions" { print ""; print "- [ ] Q1: which way?" }' $(note alpha) > $T/q.md && mv $T/q.md $(note alpha)
+  refuses "answer with an open question" fleet answer alpha
+  sed -i.bak 's/^- \[ \] Q1:/- [x] Q1:/' $(note alpha) && rm $(note alpha).bak
+  check "fleet answer" fleet answer alpha
+  check "w1 gets the answer" within 3 received w1 "Questions in alpha are answered: re-read $(note alpha)"
   tmux set -p -t $(pane w1) @agent_state idle
   eq "fleet status's header" "$(fleet status | head -1)" "SEAT     STATE      TASK                         REPORT     TODOS"
   eq "fleet shell outside tmux" "$(fleet shell w1 true)" "opened demo:w1-shell; fleet attach demo to use it"
@@ -269,62 +271,62 @@ vim.cmd('FleetComment use the shared guard')
 vim.cmd('FleetReview')
 vim.wait(3000, function() return false end)" > $lua
   $real_nvim --clean --headless --cmd "set rtp+=$root/nvim" --cmd 'runtime plugin/fleet.lua' -c "luafile $lua" -c 'qa!' > /dev/null 2>&1
-  check "the comment is a review todo in t1's note" has $(note t1) '^- \[ \] Review review\.txt:2 `if \(token == null\) return`: use the shared guard$'
-  check "w1 gets the bump" within 3 received w1 "Task t1 was updated"
+  check "the comment is a review todo in alpha's note" has $(note alpha) '^- \[ \] Review review\.txt:2 `if \(token == null\) return`: use the shared guard$'
+  check "w1 gets the bump" within 3 received w1 "Task alpha was updated"
   rm $f
 }
 
 test_pair() {
-  eq "fleet pair warns that the worker shares the checkout" "$(fleet pair t1 2>&1 >/dev/null)" "fleet: w1 still holds t1 and may be editing $(wt w1) too"
-  local win='=demo:t1-pair'
+  eq "fleet pair warns that the worker shares the checkout" "$(fleet pair alpha 2>&1 >/dev/null)" "fleet: w1 still holds alpha and may be editing $(wt w1) too"
+  local win='=demo:alpha-pair'
   eq "the pair window has two panes" "$(tmux list-panes -t $win | wc -l | tr -d ' ')" 2
-  local agent=$(tmux list-panes -t $win -F '#{pane_id} #{pane_title}' | awk '$2 == "demo-t1-claude" { print $1 }')
+  local agent=$(tmux list-panes -t $win -F '#{pane_id} #{pane_title}' | awk '$2 == "demo-alpha-claude" { print $1 }')
   check "the agent pane starts in w1's worktree" within 3 eval "[[ \$(tmux display -p -t $agent '#{pane_current_path}') == $(wt w1) ]]"
   check "claude starts" within 5 eval "[[ -S \$(tmux display -p -t $agent '#{@agent_socket}') ]]"
   local argv=$(tmux display -p -t $agent '#{@agent_socket}').argv
-  check "claude gets its own session name" eval "grep -qx demo-t1-pair $argv"
-  check "the prompt names the task's note" eval "grep -qF 'Its note is $(note t1).' $argv"
+  check "claude gets its own session name" eval "grep -qx demo-alpha-pair $argv"
+  check "the prompt names the task's note" eval "grep -qF 'Its note is $(note alpha).' $argv"
   check "the prompt comes after --, past --add-dir" eval "[[ \$(grep -A1 -x -- -- $argv | tail -1) == 'You are pairing'* ]]"
   check "the session loads the fleet plugin" eval "grep -qx $root/plugin $argv"
   check "the prompt points at the pair skill" eval "grep -qF /fleet:pair $argv"
   check "the prompt says the worker may be working there" eval "grep -qF 'w1, the fleet' $argv"
   eq "the pair panes are no seats" "$(tmux list-panes -t $win -F '#{@agent_seat}' | tr -d '\n')" ""
-  eq "fleet pair by seat opens the same window" "$(fleet pair w1)" "opened demo:t1-pair; fleet attach demo to use it"
-  eq "it stays one window" "$(tmux list-windows -t '=demo:' -F '#{window_name}' | grep -c '^t1-pair$')" 1
+  eq "fleet pair by seat opens the same window" "$(fleet pair w1)" "opened demo:alpha-pair; fleet attach demo to use it"
+  eq "it stays one window" "$(tmux list-windows -t '=demo:' -F '#{window_name}' | grep -c '^alpha-pair$')" 1
   local wts=$T/repo/.claude/worktrees main=$(git -C $T/repo rev-parse main)
   # a fleet started with CLAUDE_CONFIG_DIR gives its pair panes the folder
   local orch_cmd=$(popt orch @agent_cmd)
   tmux set -p -t $(pane orch) @agent_cmd "CLAUDE_CONFIG_DIR='$T/my config' $orch_cmd"
-  check "fleet pair on an unassigned task" fleet pair t2
+  check "fleet pair on an unassigned task" fleet pair beta
   tmux set -p -t $(pane orch) @agent_cmd $orch_cmd
-  local agent2=$(tmux list-panes -t '=demo:t2-pair' -F '#{pane_id} #{pane_title}' | awk '$2 == "demo-t2-claude" { print $1 }')
+  local agent2=$(tmux list-panes -t '=demo:beta-pair' -F '#{pane_id} #{pane_title}' | awk '$2 == "demo-beta-claude" { print $1 }')
   check "the pane's claude gets the fleet's config folder" within 5 eval "grep -qx 'CLAUDE_CONFIG_DIR=$T/my config' \$(tmux display -p -t $agent2 '#{@agent_socket}').env"
-  check "it gets a worktree of its own" within 3 eval "[[ \$(tmux display -p -t '=demo:t2-pair.0' '#{pane_current_path}') == $wts/demo-pair-t2 ]]"
-  eq "detached at the default branch" "$(git -C $wts/demo-pair-t2 rev-parse HEAD)" $main
-  check "a detached head" test -z "$(git -C $wts/demo-pair-t2 symbolic-ref -q HEAD)"
+  check "it gets a worktree of its own" within 3 eval "[[ \$(tmux display -p -t '=demo:beta-pair.0' '#{pane_current_path}') == $wts/demo-pair-beta ]]"
+  eq "detached at the default branch" "$(git -C $wts/demo-pair-beta rev-parse HEAD)" $main
+  check "a detached head" test -z "$(git -C $wts/demo-pair-beta symbolic-ref -q HEAD)"
 
   # a closed task whose branch is free and contains its end, and one whose
   # branch moved past it
   git -C $T/repo branch featx main
-  fleet task t9 closed one > /dev/null
-  sed -i.bak -e "s/^end:.*/end: $main/" -e "s/^branch:.*/branch: featx/" $(note t9) && rm $(note t9).bak
-  check "fleet pair on a closed task" fleet pair t9
-  eq "it checks out the task's branch" "$(git -C $wts/demo-pair-t9 symbolic-ref -q --short HEAD)" featx
-  local agent9=$(tmux list-panes -t '=demo:t9-pair' -F '#{pane_id} #{pane_title}' | awk '$2 == "demo-t9-claude" { print $1 }')
+  fleet task iota closed one > /dev/null
+  sed -i.bak -e "s/^end:.*/end: $main/" -e "s/^branch:.*/branch: featx/" $(note iota) && rm $(note iota).bak
+  check "fleet pair on a closed task" fleet pair iota
+  eq "it checks out the task's branch" "$(git -C $wts/demo-pair-iota symbolic-ref -q --short HEAD)" featx
+  local agent9=$(tmux list-panes -t '=demo:iota-pair' -F '#{pane_id} #{pane_title}' | awk '$2 == "demo-iota-claude" { print $1 }')
   check "the prompt names the end it starts from" within 5 eval "grep -qF \"That is this task's end, ${main[1,12]}\" \$(tmux display -p -t $agent9 '#{@agent_socket}').argv"
-  fleet task t10 --from t9 > /dev/null
-  tmux kill-window -t '=demo:t9-pair'
-  git -C $T/repo worktree remove $wts/demo-pair-t9
-  git -C $T/repo branch -f featx $(git -C $T/repo commit-tree -p $main -m "after t9" "$main^{tree}")
-  check "fleet pair on a follow-up nobody started" fleet pair t10
-  eq "it starts from the followed task's branch" "$(git -C $wts/demo-pair-t10 symbolic-ref -q --short HEAD)" featx
-  local agent10=$(tmux list-panes -t '=demo:t10-pair' -F '#{pane_id} #{pane_title}' | awk '$2 == "demo-t10-claude" { print $1 }')
-  check "the prompt counts the commits past that end" within 5 eval "grep -qF '1 commits past ${main[1,12]}, the end of t9' \$(tmux display -p -t $agent10 '#{@agent_socket}').argv"
+  fleet task kappa --from iota > /dev/null
+  tmux kill-window -t '=demo:iota-pair'
+  git -C $T/repo worktree remove $wts/demo-pair-iota
+  git -C $T/repo branch -f featx $(git -C $T/repo commit-tree -p $main -m "after iota" "$main^{tree}")
+  check "fleet pair on a follow-up nobody started" fleet pair kappa
+  eq "it starts from the followed task's branch" "$(git -C $wts/demo-pair-kappa symbolic-ref -q --short HEAD)" featx
+  local agent10=$(tmux list-panes -t '=demo:kappa-pair' -F '#{pane_id} #{pane_title}' | awk '$2 == "demo-kappa-claude" { print $1 }')
+  check "the prompt counts the commits past that end" within 5 eval "grep -qF '1 commits past ${main[1,12]}, the end of iota' \$(tmux display -p -t $agent10 '#{@agent_socket}').argv"
 
-  for w in t1 t2 t10; do tmux kill-window -t "=demo:$w-pair"; done
-  for w in t2 t10; do git -C $T/repo worktree remove --force $wts/demo-pair-$w; done
+  for w in alpha beta kappa; do tmux kill-window -t "=demo:$w-pair"; done
+  for w in beta kappa; do git -C $T/repo worktree remove --force $wts/demo-pair-$w; done
   git -C $T/repo branch -q -D featx
-  rm $(note t9) $(note t10)
+  rm $(note iota) $(note kappa)
 }
 
 # pair on a branch, a folder, and pull and merge requests, with and without a
@@ -373,26 +375,26 @@ test_pair_modes() {
   check "it opens in the folder" within 3 eval "[[ \$(tmux display -p -t '=demo:repo3-pair.0' '#{pane_current_path}') == $T/repo3 ]]"
   check "and makes no worktree" test ! -e $T/repo3/.claude
 
-  awk '{ print } /^ship:/ && !done { print "pr: https://github.com/acme/shop/pull/7"; done = 1 }' $(note t2) > $T/t2.md && mv $T/t2.md $(note t2)
-  check "fleet pair <task> --pr uses the note's pr:" fleet pair t2 --pr
-  check "the prompt names the task and the PR" eval "grep -qF 'task t2 of fleet demo' $(argv_of t2-pair) && grep -qF 'pull request #7' $(argv_of t2-pair)"
+  awk '{ print } /^ship:/ && !done { print "pr: https://github.com/acme/shop/pull/7"; done = 1 }' $(note beta) > $T/beta.md && mv $T/beta.md $(note beta)
+  check "fleet pair <task> --pr uses the note's pr:" fleet pair beta --pr
+  check "the prompt names the task and the PR" eval "grep -qF 'task beta of fleet demo' $(argv_of beta-pair) && grep -qF 'pull request #7' $(argv_of beta-pair)"
 
-  for w in pr-7 pr-8 pr-5 newb main repo3 t2; do tmux kill-window -t "=demo:$w-pair"; done
-  for w in pr-7 pr-8 pr-5 newb main t2; do git -C $r worktree remove --force $wts/demo-pair-$w; done
+  for w in pr-7 pr-8 pr-5 newb main repo3 beta; do tmux kill-window -t "=demo:$w-pair"; done
+  for w in pr-7 pr-8 pr-5 newb main beta; do git -C $r worktree remove --force $wts/demo-pair-$w; done
   git -C $r branch -q -D newb feat/x feat/y 2> /dev/null
   git -C $r remote remove origin
   git -C $r config --unset url."$origin".insteadOf
-  sed -i.bak '/^pr: https:\/\/github.com\/acme\/shop\/pull\/7$/d' $(note t2) && rm $(note t2).bak
+  sed -i.bak '/^pr: https:\/\/github.com\/acme\/shop\/pull\/7$/d' $(note beta) && rm $(note beta).bak
 }
 
 test_report() {
-  refuses "a report from outside the worker's pane" fleet report t1 progress hi
-  refuses "done with unchecked todos" as w1 command fleet report t1 done all done
-  check "a progress report" as w1 command fleet report t1 progress halfway
-  eq "the report sets the status" "$(field $(note t1) status)" progress
-  check "the report is logged in the note" has $(note t1) '^- .* progress: halfway$'
-  check "the orchestrator gets the report" within 3 received orch "Report: t1 progress: halfway"
-  check "fleet status shows it" eval "fleet status | grep -E '^w1 .* t1 .* progress'"
+  refuses "a report from outside the worker's pane" fleet report alpha progress hi
+  refuses "done with unchecked todos" as w1 command fleet report alpha done all done
+  check "a progress report" as w1 command fleet report alpha progress halfway
+  eq "the report sets the status" "$(field $(note alpha) status)" progress
+  check "the report is logged in the note" has $(note alpha) '^- .* progress: halfway$'
+  check "the orchestrator gets the report" within 3 received orch "Report: alpha progress: halfway"
+  check "fleet status shows it" eval "fleet status | grep -E '^w1 .* alpha .* progress'"
 }
 
 test_todo_check() {
@@ -401,7 +403,7 @@ test_todo_check() {
   eq "the first stop is blocked" "$(print -r -- $out | jq -r .decision)" block
   print '{"stop_hook_active":true}' | as w1 $root/hooks/todo-check > /dev/null
   eq "the second stop is stalled" "$(popt w1 @agent_state)" stalled
-  check "the orchestrator gets a stall notice" within 3 received orch "Notice: t1 stalled"
+  check "the orchestrator gets a stall notice" within 3 received orch "Notice: alpha stalled"
   tmux set -p -t $(pane w1) @agent_state idle
 }
 
@@ -409,9 +411,9 @@ test_diff() {
   print change > $(wt w1)/file.txt
   git -C $(wt w1) add file.txt
   git -C $(wt w1) commit -q -m "w1 work"
-  check "a committed change shows in the task's diff" eval "fleet diff t1 --stat | grep -q file.txt"
+  check "a committed change shows in the task's diff" eval "fleet diff alpha --stat | grep -q file.txt"
   print more >> $(wt w1)/file.txt
-  check "an uncommitted edit shows in the task's diff" eval "fleet diff t1 | grep -q '^+more'"
+  check "an uncommitted edit shows in the task's diff" eval "fleet diff alpha | grep -q '^+more'"
   git -C $(wt w1) commit -q -am "w1 more work"
   check "the branch diff shows it" eval "fleet diff w1 --stat | grep -q file.txt"
   check "the calling worker's branch, with no argument" eval "as w1 command fleet diff --stat | grep -q file.txt"
@@ -420,9 +422,9 @@ test_diff() {
 test_restart() {
   local old=$(sock w1)
   check "fleet restart" fleet restart w1
-  eq "the seat keeps its task" "$(popt w1 @agent_task)" t1
+  eq "the seat keeps its task" "$(popt w1 @agent_task)" alpha
   check "the seat has a new socket" test $(sock w1) != $old
-  check "the new session gets the task again" within 3 received w1 "Task t1: your session restarted"
+  check "the new session gets the task again" within 3 received w1 "Task alpha: your session restarted"
   check "the new session starts in the worktree" within 3 eval "[[ \$(popt w1 pane_current_path) == $(wt w1) ]]"
 }
 
@@ -437,7 +439,7 @@ test_session_end() {
   tmux set -u -t '=demo:' @fleet_stopping
   tmux set -p -t $w1 @agent_socket $s
   print '{"reason":"prompt_input_exit"}' | as w1 $root/hooks/session-end
-  check "the orchestrator gets a session-ended notice" within 3 received orch "Notice: t1: the worker's session ended (prompt_input_exit)"
+  check "the orchestrator gets a session-ended notice" within 3 received orch "Notice: alpha: the worker's session ended (prompt_input_exit)"
   eq "only that end sends a notice, not a restart or a kill" "$(messages orch | grep -c 'session ended')" 1
   eq "the seat's socket is unset" "$(popt w1 @agent_socket)" ""
   eq "the seat's state is unset" "$(popt w1 @agent_state)" ""
@@ -447,26 +449,26 @@ test_session_end() {
 }
 
 test_clear() {
-  todos t1 '[x] one' '[x] two'
-  check "a done report" as w1 command fleet report t1 done finished
+  todos alpha '[x] one' '[x] two'
+  check "a done report" as w1 command fleet report alpha done finished
   local head=$(git -C $(wt w1) rev-parse HEAD)
   # work left uncommitted: an edit, a new file, and a big untracked folder
   print edited >> $(wt w1)/file.txt
   print page > $(wt w1)/page.html
   mkdir -p $(wt w1)/deps && for i in {1..101}; do : > $(wt w1)/deps/f$i; done
   check "fleet clear" fleet clear w1
-  local saved=$(git -C $T/repo rev-parse -q --verify refs/fleet/demo/t1)
-  check "the uncommitted work is saved to refs/fleet/demo/t1" test -n "$saved"
-  eq "the note records the ref" "$(field $(note t1) wip)" "refs/fleet/demo/t1 $saved"
+  local saved=$(git -C $T/repo rev-parse -q --verify refs/fleet/demo/alpha)
+  check "the uncommitted work is saved to refs/fleet/demo/alpha" test -n "$saved"
+  eq "the note records the ref" "$(field $(note alpha) wip)" "refs/fleet/demo/alpha $saved"
   eq "the saved commit sits on the task's end" "$(git -C $T/repo rev-parse "$saved^")" $head
   eq "it holds the new file" "$(git -C $T/repo show $saved:page.html)" page
   check "it holds the edit" eval "git -C $T/repo show $saved:file.txt | grep -qx edited"
   check "it leaves the big folder out" eval "! git -C $T/repo cat-file -e $saved:deps 2> /dev/null"
   eq "the worktree is back at its last commit, but for the folder" "$(git -C $(wt w1) status --porcelain)" "?? deps/"
-  check "the Log lists the saved files and the folder left in place" has $(note t1) 'clear: saved uncommitted work to refs/fleet/demo/t1 .*file\.txt, page\.html; left untracked in place: deps/ \(101 files\)'
+  check "the Log lists the saved files and the folder left in place" has $(note alpha) 'clear: saved uncommitted work to refs/fleet/demo/alpha .*file\.txt, page\.html; left untracked in place: deps/ \(101 files\)'
   rm -r $(wt w1)/deps
-  eq "the note records the end" "$(field $(note t1) end)" $head
-  eq "the note records the close date" "$(field $(note t1) closed)" $(date +%F)
+  eq "the note records the end" "$(field $(note alpha) end)" $head
+  eq "the note records the close date" "$(field $(note alpha) closed)" $(date +%F)
   eq "the seat drops the task" "$(popt w1 @agent_task)" ""
   check "/clear is typed into the seat" within 3 grep -qx /clear $(typed w1)
   check "the seat registers again" within 5 eval "[[ \$(popt w1 @agent_state) == idle ]]"
@@ -474,32 +476,32 @@ test_clear() {
 
 # a pair on a closed task with saved work gets it back as uncommitted changes
 test_pair_wip() {
-  check "fleet pair on t1" fleet pair t1
-  local d=$T/repo/.claude/worktrees/demo-pair-t1
+  check "fleet pair on alpha" fleet pair alpha
+  local d=$T/repo/.claude/worktrees/demo-pair-alpha
   eq "the saved work is uncommitted in the pair checkout" "$(git -C $d status --porcelain | sort | xargs)" "M file.txt ?? page.html"
-  local agent=$(tmux list-panes -t '=demo:t1-pair' -F '#{pane_id} #{pane_title}' | awk '$2 == "demo-t1-claude" { print $1 }')
-  check "the prompt says so" within 5 eval "grep -qF 'saved in refs/fleet/demo/t1, is applied here' \$(tmux display -p -t $agent '#{@agent_socket}').argv"
-  tmux kill-window -t '=demo:t1-pair'
+  local agent=$(tmux list-panes -t '=demo:alpha-pair' -F '#{pane_id} #{pane_title}' | awk '$2 == "demo-alpha-claude" { print $1 }')
+  check "the prompt says so" within 5 eval "grep -qF 'saved in refs/fleet/demo/alpha, is applied here' \$(tmux display -p -t $agent '#{@agent_socket}').argv"
+  tmux kill-window -t '=demo:alpha-pair'
   git -C $T/repo worktree remove --force $d
 }
 
 test_follow_up() {
-  check "a follow-up to a closed task" fleet task t3 --from t1
-  eq "the follow-up records what it follows" "$(field $(note t3) follows)" t1
-  check "the follow-up links its source" has $(note t3) '\[t1\]\(t1\.md\)'
+  check "a follow-up to a closed task" fleet task gamma --from alpha
+  eq "the follow-up records what it follows" "$(field $(note gamma) follows)" alpha
+  check "the follow-up links its source" has $(note gamma) '\[alpha\]\(alpha\.md\)'
   # w1's branch has commits of its own, so moving main makes assign merge
   git -C $T/repo commit -q --allow-empty -m "main moves again"
-  check "the follow-up goes to the same worker" fleet assign w1 t3
+  check "the follow-up goes to the same worker" fleet assign w1 gamma
   eq "the sync merge's message names no worker" "$(git -C $(wt w1) log -1 --format=%s)" "Merge branch 'main'"
 }
 
 test_abandon() {
-  check "fleet assign w2" fleet assign w2 t2
+  check "fleet assign w2" fleet assign w2 beta
   tmux set -p -t $(pane w2) @agent_state question
   check "fleet abandon from state question" fleet abandon w2
-  eq "the note is abandoned" "$(field $(note t2) status)" abandoned
-  eq "the note records the end" "$(field $(note t2) end)" $(git -C $(wt w2) rev-parse HEAD)
-  check "the note logs it" has $(note t2) '^- .* abandoned: '
+  eq "the note is abandoned" "$(field $(note beta) status)" abandoned
+  eq "the note records the end" "$(field $(note beta) end)" $(git -C $(wt w2) rev-parse HEAD)
+  check "the note logs it" has $(note beta) '^- .* abandoned: '
   eq "the seat drops the task" "$(popt w2 @agent_task)" ""
   # the stub reads the Escape that abandon types first as part of the line
   check "/clear is typed into the seat" within 3 grep -q '/clear$' $(typed w2)
@@ -508,66 +510,66 @@ test_abandon() {
 
 test_archive() {
   local n=$T/agents/demo
-  # t1 closed last month, t2 this month; t3 is open, follows t1, and so
+  # alpha closed last month, beta this month; gamma is open, follows alpha, and so
   # keeps it in tasks/ until it closes
   local last=$(date -v-1m +%Y-%m 2> /dev/null || date -d '-1 month' +%Y-%m)
-  sed -i.bak "s/^closed: .*/closed: $last-15/" $(note t1) && rm $(note t1).bak
-  print -- "- [t1](tasks/t1.md) and [t2](tasks/t2.md)" >> $n/backlog.md
-  print -- "See [t1](t1.md) and the [brief](../brief.md), and [this month](archive/$(date +%Y-%m))." >> $(note t2)
-  eq "an open follow-up keeps its source" "$(fleet archive --dry-run | tail -n +2)" t2
+  sed -i.bak "s/^closed: .*/closed: $last-15/" $(note alpha) && rm $(note alpha).bak
+  print -- "- [alpha](tasks/alpha.md) and [beta](tasks/beta.md)" >> $n/backlog.md
+  print -- "See [alpha](alpha.md) and the [brief](../brief.md), and [this month](archive/$(date +%Y-%m))." >> $(note beta)
+  eq "an open follow-up keeps its source" "$(fleet archive --dry-run | tail -n +2)" beta
   check "fleet archive" fleet archive
-  local a2=$n/tasks/archive/$(date +%Y-%m)/t2.md
-  check "t2 moves into this month" test -f $a2
-  check "t2's link to t1, still open, goes up two folders" has $a2 '\[t1\]\(\.\./\.\./t1\.md\)'
-  check "t2's link to the brief goes up three" has $a2 '\[brief\]\(\.\./\.\./\.\./brief\.md\)'
-  check "t2's link to its own new folder keeps the folder's name" has $a2 "\[this month\]\(\.\./$(date +%Y-%m)\)"
-  check "the backlog follows t2" has $n/backlog.md "\(tasks/archive/$(date +%Y-%m)/t2\.md\)"
+  local a2=$n/tasks/archive/$(date +%Y-%m)/beta.md
+  check "beta moves into this month" test -f $a2
+  check "beta's link to alpha, still open, goes up two folders" has $a2 '\[alpha\]\(\.\./\.\./alpha\.md\)'
+  check "beta's link to the brief goes up three" has $a2 '\[brief\]\(\.\./\.\./\.\./brief\.md\)'
+  check "beta's link to its own new folder keeps the folder's name" has $a2 "\[this month\]\(\.\./$(date +%Y-%m)\)"
+  check "the backlog follows beta" has $n/backlog.md "\(tasks/archive/$(date +%Y-%m)/beta\.md\)"
 
-  check "fleet clear w1 closes t3" fleet clear w1
-  eq "t1 and t3 go together, since t3 is t1's only holder" "$(fleet archive --dry-run | tail -n +2 | sort | xargs)" "t1 t3"
-  check "fleet archive after t3 closes" fleet archive
-  local a1=$n/tasks/archive/$last/t1.md
-  check "t1 moves into last month" test -f $a1
-  check "t2's link follows t1 into last month" has $a2 "\[t1\]\(\.\./$last/t1\.md\)"
-  check "the backlog follows t1" has $n/backlog.md "\(tasks/archive/$last/t1\.md\)"
-  check "t3's link follows t1 across months" has $n/tasks/archive/$(date +%Y-%m)/t3.md "\[t1\]\(\.\./$last/t1\.md\)"
+  check "fleet clear w1 closes gamma" fleet clear w1
+  eq "alpha and gamma go together, since gamma is alpha's only holder" "$(fleet archive --dry-run | tail -n +2 | sort | xargs)" "alpha gamma"
+  check "fleet archive after gamma closes" fleet archive
+  local a1=$n/tasks/archive/$last/alpha.md
+  check "alpha moves into last month" test -f $a1
+  check "beta's link follows alpha into last month" has $a2 "\[alpha\]\(\.\./$last/alpha\.md\)"
+  check "the backlog follows alpha" has $n/backlog.md "\(tasks/archive/$last/alpha\.md\)"
+  check "gamma's link follows alpha across months" has $n/tasks/archive/$(date +%Y-%m)/gamma.md "\[alpha\]\(\.\./$last/alpha\.md\)"
   check "the moves are committed as renames" eval "git -C $n show --stat -M HEAD | grep -q '=>'"
 }
 
 test_review() {
-  local n=$(note t4)
-  fleet task t4 a plan > /dev/null
+  local n=$(note delta)
+  fleet task delta a plan > /dev/null
   sed -i.bak 's/^approve: no$/approve: yes/' $n && rm $n.bak
-  todos t4 '[x] research'
+  todos delta '[x] research'
   awk '{ print } $0 == "## Questions" { print ""; print "- [ ] Q1 (Kevin): which way?"; print "  - [ ] left"; print "  - [ ] right" }' $n > $T/q.md && mv $T/q.md $n
   # the stub reads abandon's Escape and /clear as one line and keeps the
   # state test_abandon left; a real session starts again idle
   tmux set -p -t $(pane w2) @agent_state idle
-  check "fleet assign w2 t4" fleet assign w2 t4
-  refuses "done on an approve: yes task before review" as w2 command fleet report t4 done finished
-  check "a review report" as w2 command fleet report t4 review plan ready
+  check "fleet assign w2 delta" fleet assign w2 delta
+  refuses "done on an approve: yes task before review" as w2 command fleet report delta done finished
+  check "a review report" as w2 command fleet report delta review plan ready
   eq "the note is in review" "$(field $n status)" review
-  check "the orchestrator gets the review" within 3 received orch "Report: t4 review: plan ready"
+  check "the orchestrator gets the review" within 3 received orch "Report: delta review: plan ready"
   eq "the note asks for approval" "$(grep -c '^- \[ \] Approve:' $n)" 1
   check "the worker's question stays, ahead of the approval" eval "awk '/^- \\[ \\] Q1/ { q = NR } /^- \\[ \\] Approve:/ { a = NR } END { exit !(q && a > q) }' $n"
-  check "a second review" as w2 command fleet report t4 review plan revised
+  check "a second review" as w2 command fleet report delta review plan revised
   eq "a second review asks once" "$(grep -c 'Approve:' $n)" 1
   print '{"stop_hook_active":false}' | as w2 $root/hooks/todo-check > /dev/null
   eq "the seat waits on a question" "$(popt w2 @agent_state)" question
-  refuses "done with open questions" as w2 command fleet report t4 done finished
+  refuses "done with open questions" as w2 command fleet report delta done finished
   tmux set -p -t $(pane w2) @agent_state idle
-  eq "clear refuses a task with open questions" "$(fleet clear w2 2>&1)" "fleet: t4 has 2 open questions; wait for the answers, or fleet abandon w2 to close it"
+  eq "clear refuses a task with open questions" "$(fleet clear w2 2>&1)" "fleet: delta has 2 open questions; wait for the answers, or fleet abandon w2 to close it"
   tmux set -p -t $(pane w2) @agent_state question
   sed -i.bak -e 's/^- \[ \] Q1/- [x] Q1/' -e 's/^  - \[ \] left/  - [x] left/' \
     -e 's/^- \[ \] Approve:/- [x] Approve:/' -e 's/^  - \[ \] approve$/  - [x] approve/' $n && rm $n.bak
-  check "fleet answer after approval" fleet answer t4
-  check "w2 gets the answers" within 3 received w2 "Questions in t4 are answered"
-  check "done once approved" as w2 command fleet report t4 done approved
+  check "fleet answer after approval" fleet answer delta
+  check "w2 gets the answers" within 3 received w2 "Questions in delta are answered"
+  check "done once approved" as w2 command fleet report delta done approved
   tmux set -p -t $(pane w2) @agent_state idle
   check "fleet clear after approval" fleet clear w2
 }
 
-# :FleetFollowUp and :FleetAssign in a headless nvim on t4, which w2 closed
+# :FleetFollowUp and :FleetAssign in a headless nvim on delta, which w2 closed
 nv() {
   local note=$1
   shift
@@ -580,57 +582,57 @@ nv() {
 }
 
 test_nvim_follow_up() {
-  nv $(note t4) FleetFollowUp
-  check "FleetFollowUp creates t4-2" test -f $(note t4-2)
-  nv $(note t4) FleetFollowUp
-  check "a second FleetFollowUp opens t4-2 again" test ! -e $(note t4-3)
-  nv $(note t4-2) FleetAssign
-  eq "FleetAssign refuses a blank Todo" "$(field $(note t4-2) worker)" ""
-  todos t4-2 '[ ] the follow-up work'
-  nv $(note t4-2) FleetAssign
-  eq "FleetAssign picks t4's seat" "$(popt w2 @agent_task)" t4-2
-  check "w2 gets the task" within 3 received w2 "Task t4-2: read $(note t4-2)"
-  todos t4-2 '[x] the follow-up work'
+  nv $(note delta) FleetFollowUp
+  check "FleetFollowUp creates delta-2" test -f $(note delta-2)
+  nv $(note delta) FleetFollowUp
+  check "a second FleetFollowUp opens delta-2 again" test ! -e $(note delta-3)
+  nv $(note delta-2) FleetAssign
+  eq "FleetAssign refuses a blank Todo" "$(field $(note delta-2) worker)" ""
+  todos delta-2 '[ ] the follow-up work'
+  nv $(note delta-2) FleetAssign
+  eq "FleetAssign picks delta's seat" "$(popt w2 @agent_task)" delta-2
+  check "w2 gets the task" within 3 received w2 "Task delta-2: read $(note delta-2)"
+  todos delta-2 '[x] the follow-up work'
   tmux set -p -t $(pane w2) @agent_state idle
   fleet clear w2 > /dev/null
-  nv $(note t4) FleetFollowUp
-  check "a taken follow-up doesn't block a new one" test -f $(note t4-3)
-  rm $(note t4-3)
+  nv $(note delta) FleetFollowUp
+  check "a taken follow-up doesn't block a new one" test -f $(note delta-3)
+  rm $(note delta-3)
 }
 
 # a task in the fleet's second repo: its own worktree, base, diff, close and pair
 test_multi_repo() {
   local r2=$T/repo2 wt2=$T/repo2/.claude/worktrees/demo-w2
-  refuses "a task in a repo the fleet doesn't have" fleet task m0 --repo $T/repo3 nope
+  refuses "a task in a repo the fleet doesn't have" fleet task multi-zero --repo $T/repo3 nope
   check "fleet repo add" fleet repo add $T/repo3
   eq "fleet repo lists all three" "$(fleet repo | wc -l | tr -d ' ')" 3
   check "seats get --add-dir for the added repo" eval "[[ \$(popt w1 @agent_cmd) == *'--add-dir $T/repo3 '* ]]"
-  check "fleet task --repo" fleet task m1 --repo $r2 change the second repo
-  eq "the note records its repo" "$(field $(note m1) repo)" $r2
-  todos m1 '[ ] change it'
+  check "fleet task --repo" fleet task multi-one --repo $r2 change the second repo
+  eq "the note records its repo" "$(field $(note multi-one) repo)" $r2
+  todos multi-one '[ ] change it'
   tmux set -p -t $(pane w2) @agent_state idle
-  check "fleet assign in the second repo" fleet assign w2 m1
+  check "fleet assign in the second repo" fleet assign w2 multi-one
   check "w2 gets a worktree there" test -d $wt2
   eq "on the seat's branch" "$(git -C $wt2 symbolic-ref -q --short HEAD)" worktree-demo-w2
-  eq "base is the second repo's main" "$(field $(note m1) base)" "$(git -C $r2 rev-parse main)"
+  eq "base is the second repo's main" "$(field $(note multi-one) base)" "$(git -C $r2 rev-parse main)"
   check "the message names the worktree" within 3 received w2 "It works in $r2, in your worktree $wt2."
   eq "fleet path follows the task's repo" "$(fleet path w2)" $wt2
   print two > $wt2/two.txt && git -C $wt2 add two.txt && git -C $wt2 commit -q -m "add two"
-  check "fleet diff shows the second repo's change" eval "fleet diff m1 --stat | grep -q two.txt"
+  check "fleet diff shows the second repo's change" eval "fleet diff multi-one --stat | grep -q two.txt"
   print left > $wt2/left.txt
-  todos m1 '[x] change it'
-  check "a done report" as w2 command fleet report m1 done changed
+  todos multi-one '[x] change it'
+  check "a done report" as w2 command fleet report multi-one done changed
   tmux set -p -t $(pane w2) @agent_state idle
   check "fleet clear" fleet clear w2
-  eq "end is the second repo's commit" "$(field $(note m1) end)" "$(git -C $wt2 rev-parse HEAD)"
-  check "the uncommitted file is saved in the second repo" eval "git -C $r2 cat-file -e refs/fleet/demo/m1:left.txt"
-  check "a follow-up" fleet task m2 --from m1
-  eq "the follow-up works in the same repo" "$(field $(note m2) repo)" $r2
-  check "fleet pair on m1" fleet pair m1
-  check "its pair worktree is in the second repo" test -d $r2/.claude/worktrees/demo-pair-m1
-  tmux kill-window -t '=demo:m1-pair'
-  git -C $r2 worktree remove --force $r2/.claude/worktrees/demo-pair-m1
-  rm $(note m2)
+  eq "end is the second repo's commit" "$(field $(note multi-one) end)" "$(git -C $wt2 rev-parse HEAD)"
+  check "the uncommitted file is saved in the second repo" eval "git -C $r2 cat-file -e refs/fleet/demo/multi-one:left.txt"
+  check "a follow-up" fleet task multi-two --from multi-one
+  eq "the follow-up works in the same repo" "$(field $(note multi-two) repo)" $r2
+  check "fleet pair on multi-one" fleet pair multi-one
+  check "its pair worktree is in the second repo" test -d $r2/.claude/worktrees/demo-pair-multi-one
+  tmux kill-window -t '=demo:multi-one-pair'
+  git -C $r2 worktree remove --force $r2/.claude/worktrees/demo-pair-multi-one
+  rm $(note multi-two)
 }
 
 test_migrate() {

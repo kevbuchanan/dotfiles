@@ -1,6 +1,6 @@
 # fleet
 
-`fleet` runs a group of Claude Code sessions in one tmux session: one orchestrator and a set of workers. The orchestrator plans with you and hands out tasks. Workers each take one task at a time in their own git worktree. Task state lives in markdown notes on disk. Messages between seats carry only short signals, such as `Task T3: read <path>` and `Report: T3 done: <summary>`.
+`fleet` runs a group of Claude Code sessions in one tmux session: one orchestrator and a set of workers. The orchestrator plans with you and hands out tasks. Workers each take one task at a time in their own git worktree. Task state lives in markdown notes on disk. Messages between seats carry only short signals, such as `Task csv-export: read <path>` and `Report: csv-export done: <summary>`.
 
 ```sh
 cd ~/code/some-repo
@@ -91,11 +91,11 @@ One task works in one repo. Work that spans repos becomes a task per repo, linke
 ### The task loop
 
 1. You agree on work with the orchestrator.
-2. The orchestrator runs `fleet task T3 <title>` and fills in the note.
-3. The orchestrator runs `fleet assign w2 T3`. It refuses a seat that still holds a task, a task another seat holds, and a closed task. `fleet` brings the worker's branch up to date with the default branch (see "Starting from the default branch" below), fills in the note's `worker` and `branch` keys, records the branch's commit as Base, commits the notes repo, records `T3` in the seat's `@agent_task` option, and sends `Task T3: read <path>` to the seat.
+2. The orchestrator runs `fleet task csv-export <title>` and fills in the note.
+3. The orchestrator runs `fleet assign w2 csv-export`. It refuses a seat that still holds a task, a task another seat holds, and a closed task. `fleet` brings the worker's branch up to date with the default branch (see "Starting from the default branch" below), fills in the note's `worker` and `branch` keys, records the branch's commit as Base, commits the notes repo, records `csv-export` in the seat's `@agent_task` option, and sends `Task csv-export: read <path>` to the seat.
 4. The worker works the Todo list and checks items off in the note as it finishes them.
-5. When every item is checked, the worker writes Handoff and runs `fleet report T3 done "<summary>"`.
-6. The orchestrator reads the handoff, has a subagent review the task with `fleet diff T3`, reports to you, and runs `fleet clear w2`. That records the worker branch's commit as the note's End, warning if the worktree has uncommitted changes that End won't include, types `/clear` and drops the seat's task, so the next task starts with empty context. Anything the next task needs travels in the notes.
+5. When every item is checked, the worker writes Handoff and runs `fleet report csv-export done "<summary>"`.
+6. The orchestrator reads the handoff, has a subagent review the task with `fleet diff csv-export`, reports to you, and runs `fleet clear w2`. That records the worker branch's commit as the note's End, warning if the worktree has uncommitted changes that End won't include, types `/clear` and drops the seat's task, so the next task starts with empty context. Anything the next task needs travels in the notes.
 
 ### The todo check
 
@@ -119,16 +119,16 @@ A worker that needs a decision writes it in the note and stops:
   - [ ] Postgres
 ```
 
-The worker also runs `fleet report T3 blocked "<the question>"`, so the orchestrator hears about it. Answer by checking an option and then the question line. The worker has stopped and gets no new turn until a message arrives, so tell it:
+The worker also runs `fleet report csv-export blocked "<the question>"`, so the orchestrator hears about it. Answer by checking an option and then the question line. The worker has stopped and gets no new turn until a message arrives, so tell it:
 
-- `fleet answer T3` sends `Questions in T3 are answered: re-read <path>` to the worker. It refuses unless the worker is still on T3, its seat is in state `question`, and no question in the note is left open.
+- `fleet answer csv-export` sends `Questions in csv-export are answered: re-read <path>` to the worker. It refuses unless the worker is still on csv-export, its seat is in state `question`, and no question in the note is left open.
 - In nvim, saving a task note runs `fleet answer` for it. Answering in the notes pane and saving is enough. A save that doesn't meet those conditions does nothing and shows nothing, so ordinary edits are unaffected.
 
 The orchestrator may run `fleet answer` too. Edits made outside nvim need `fleet answer` by hand.
 
 ### Results that need approval
 
-A research or planning task ends with your decision. The orchestrator sets `approve: yes` on such a task, and on any task you say needs sign-off. Its worker finishes the work and the Handoff, writes the questions the result leaves under `## Questions`, each naming who answers it, and runs `fleet report T3 review "<the result>"`. fleet then:
+A research or planning task ends with your decision. The orchestrator sets `approve: yes` on such a task, and on any task you say needs sign-off. Its worker finishes the work and the Handoff, writes the questions the result leaves under `## Questions`, each naming who answers it, and runs `fleet report csv-export review "<the result>"`. fleet then:
 
 1. refuses while todos are unchecked
 2. adds an approval question, last under `## Questions`, replacing any earlier one:
@@ -182,21 +182,21 @@ Where follow-up goes depends on whether the worker has been cleared from the tas
 
 **Before `fleet clear`:** the worker still has the task and its context. Add unchecked items to the note's Todo list, then wake the worker:
 
-- `fleet bump T3` sends `Task T3 was updated: re-read <path>` to the worker. It refuses unless the worker is still on T3. A stopped worker starts a turn when the message arrives, and a busy one reads it between tool calls, so the seat's state doesn't matter.
-- `:FleetBump` in nvim saves the note and bumps its worker. `<Leader>b` runs it. With a task id, `:FleetBump T3` works from any buffer inside a fleet.
+- `fleet bump csv-export` sends `Task csv-export was updated: re-read <path>` to the worker. It refuses unless the worker is still on csv-export. A stopped worker starts a turn when the message arrives, and a busy one reads it between tool calls, so the seat's state doesn't matter.
+- `:FleetBump` in nvim saves the note and bumps its worker. `<Leader>b` runs it. With a task id, `:FleetBump csv-export` works from any buffer inside a fleet.
 
 The worker works the new items, updates Handoff and reports `done` again. Saving a note does not bump the worker, because a save often comes mid-edit. Bump once the follow-up is written.
 
 **After `fleet clear`:** the task is closed. Its End is recorded and its worker's context is gone. Put follow-up in a new task that starts from the closed one:
 
-- `fleet task T3-2 --from T3` creates T3-2 with `follows: T3` in its frontmatter, T3's Scope and Verify sections, and a Goal that links T3's note and says to read its Handoff first. A title after the id replaces the default `follow-up to T3`. It refuses a source that's still open, since a follow-up starts after the earlier task closes; add the work to that note and bump it.
-- `:FleetFollowUp` in nvim, run from T3's note, does the same and opens the new note. It picks the next free numbered id, `T3-2` after `T3` and `T3-3` after `T3-2`, and takes an id and title as arguments too. Run with no id while a follow-up of T3 has no worker yet, it opens that one instead, so a second run doesn't make a duplicate. `:FleetFollowUp!` creates another.
+- `fleet task csv-export-2 --from csv-export` creates csv-export-2 with `follows: csv-export` in its frontmatter, csv-export's Scope and Verify sections, and a Goal that links csv-export's note and says to read its Handoff first. A title after the id replaces the default `follow-up to csv-export`. It refuses a source that's still open, since a follow-up starts after the earlier task closes; add the work to that note and bump it.
+- `:FleetFollowUp` in nvim, run from csv-export's note, does the same and opens the new note. It picks the next free numbered id, `csv-export-2` after `csv-export` and `csv-export-3` after `csv-export-2`, and takes an id and title as arguments too. Run with no id while a follow-up of csv-export has no worker yet, it opens that one instead, so a second run doesn't make a duplicate. `:FleetFollowUp!` creates another.
 - `:FleetAssign` in nvim, from the new note, runs `fleet assign` once the Todo is filled in. It refuses a Todo that still has only the template's blank item, and with no seat it picks the seat that did the task the note follows, whose branch has that work.
-- Fill in the new Todo list and assign it. The follow-up gets a fresh context and its own Base and End, so `fleet diff T3` and `fleet diff T3-2` each show one round, and the `follows` keys chain the rounds.
+- Fill in the new Todo list and assign it. The follow-up gets a fresh context and its own Base and End, so `fleet diff csv-export` and `fleet diff csv-export-2` each show one round, and the `follows` keys chain the rounds.
 
 A follow-up builds on the earlier task's code, so `fleet assign` checks that the worker's branch already contains the earlier task's End commit. If it doesn't, assign refuses and names the two ways out: assign to the earlier task's worker, or merge the earlier task's branch into this worker's branch first. It also refuses a follow-up to a task that is still open; add the work to that task and bump it.
 
-`fleet assign` refuses a task that already has an End: reassigning it would overwrite Base, and `fleet diff T3` would lose the closed work.
+`fleet assign` refuses a task that already has an End: reassigning it would overwrite Base, and `fleet diff csv-export` would lose the closed work.
 
 fleet has no command that reopens a closed task with its old conversation. The handoff carries what the follow-up needs.
 
@@ -208,22 +208,22 @@ Each worker's Claude session runs in its worktree, `<repo>/.claude/worktrees/<fl
 
 - `fleet path w2` prints the worktree path, such as `cd "$(fleet path w2)"` in a shell or ``:e `fleet path w2`/docs/design.md`` in nvim.
 - `fleet shell w2` opens a tmux window named `w2-shell` in the worktree and switches to it. `fleet shell w2 nvim .` opens an editor there, and any other command works the same way. The window is not a seat, so `fleet status` and the seat commands skip it. Running `fleet shell w2` again switches to the open window. In nvim, `:FleetShell w2` runs it, and `:FleetShell` with no seat uses the worker the current buffer belongs to: a file in its worktree, or a task note that names it. `:FleetShell nvim .` opens nvim in that worker's worktree.
-- `fleet pair T3`, or `:FleetPair` in nvim, opens a window named `T3-pair` for working the task with an agent yourself. The left pane runs `nvim .` and the right pane an interactive `claude`, both in a checkout at the state T3's note records:
-  - **While T3's worker holds it:** the worker's worktree, where the work is in progress.
-  - **Otherwise:** a worktree of its own, `.claude/worktrees/<fleet>-pair-T3`. A worker's worktree moves on to its next task, so it no longer shows T3. The new worktree checks out the note's `branch:` when that branch contains `end:` and no other worktree has it, so new commits continue the branch. Otherwise it is detached at `end:`. A follow-up nobody has started starts from the end of the task it follows, and a task with no end from the default branch. A pair worktree made earlier is reused as it is, since it may hold your work.
+- `fleet pair csv-export`, or `:FleetPair` in nvim, opens a window named `csv-export-pair` for working the task with an agent yourself. The left pane runs `nvim .` and the right pane an interactive `claude`, both in a checkout at the state csv-export's note records:
+  - **While csv-export's worker holds it:** the worker's worktree, where the work is in progress.
+  - **Otherwise:** a worktree of its own, `.claude/worktrees/<fleet>-pair-csv-export`. A worker's worktree moves on to its next task, so it no longer shows csv-export. The new worktree checks out the note's `branch:` when that branch contains `end:` and no other worktree has it, so new commits continue the branch. Otherwise it is detached at `end:`. A follow-up nobody has started starts from the end of the task it follows, and a task with no end from the default branch. A pair worktree made earlier is reused as it is, since it may hold your work.
 
-  Claude starts with the fleet plugin loaded and a prompt that names T3's note, the commit the checkout is on, and how many commits it is past `end:`, and points it at the `fleet:pair` skill. The skill describes the notes folder and how the session sends work back: planned work as `backlog.md` items the orchestrator can turn into tasks cold, findings as `knowledge/` pages, decisions in `decisions.md`, and a `pair:` line in the task note's Log. It leaves seat commands, other tasks' notes and the notes repo's commits to fleet. The prompt follows `--`, because `--add-dir` takes any number of folders and would read the prompt as one.
+  Claude starts with the fleet plugin loaded and a prompt that names csv-export's note, the commit the checkout is on, and how many commits it is past `end:`, and points it at the `fleet:pair` skill. The skill describes the notes folder and how the session sends work back: planned work as `backlog.md` items the orchestrator can turn into tasks cold, findings as `knowledge/` pages, decisions in `decisions.md`, and a `pair:` line in the task note's Log. It leaves seat commands, other tasks' notes and the notes repo's commits to fleet. The prompt follows `--`, because `--add-dir` takes any number of folders and would read the prompt as one.
 
   The pair panes get the fleet's config folder in their environment, taken from the orchestrator's launch line, so a `claude` started there again by hand runs under it too. The session runs without fleet's settings or hooks, and the window has no seat, so `fleet status` skips it.
 
-  While the worker still holds T3, fleet warns that both agents share the checkout, and the prompt tells Claude to check `git status` before editing. `fleet pair w2` opens the task w2 holds. Running it again switches to the open window.
+  While the worker still holds csv-export, fleet warns that both agents share the checkout, and the prompt tells Claude to check `git status` before editing. `fleet pair w2` opens the task w2 holds. Running it again switches to the open window.
 
 - **Other checkouts.** `fleet pair` takes one of three options in place of the task's own state, with or without a task:
   - `--branch <ref>` makes a worktree of its own, `.claude/worktrees/<fleet>-pair-<task or ref>`, in the task's repo or the fleet's. It checks out the branch when no other worktree has it, makes a local branch tracking `origin/<ref>` when only origin has it, and otherwise detaches at the ref. An existing pair worktree is reused only when it is already at that ref.
   - `--dir <path>` uses an existing folder as it is, such as a checkout you already have. fleet makes no worktree there, and warns when the folder is a seat's worktree whose seat holds a task.
   - `--pr <ref>` pairs on a pull or merge request. The reference is a URL, `owner/repo#431`, `group/project!45`, or a bare `#431`, `!45` or `431` for the task's repo or the fleet's. With a task and no reference, it uses the note's `pr:`. fleet finds the local clone by origin's configured URL: the task's repo, then the fleet's repos, then the checkouts under `$FLEET_REPO_DIRS`, colon-separated and searched two levels deep, `~/code` by default. It refuses when none matches, and `--dir` points it at one. `gh pr view` or `glab mr view` gives the branch, run in the clone, so they use its remote and your login there. A request from the same repo gets its branch checked out tracking origin's, so commits pushed from the session update it. A fork's, or one whose branch another worktree has, is detached at the request's head. The prompt names the request, its URL and branch, and the command that reads its review threads.
 
-  Without a task, the window is named `<pr-N | ref | folder>-pair`, and the prompt leaves out the note but keeps the `fleet:pair` skill. In nvim, `:FleetPair #431`, `:FleetPair !45` or `:FleetPair <url>` pair on a request, `:FleetPair T3 <ref>` on a branch for a task, `:FleetPair #` on the current note's `pr:`, and `:FleetPair` from a file in no task's checkout pairs on that file's checkout.
+  Without a task, the window is named `<pr-N | ref | folder>-pair`, and the prompt leaves out the note but keeps the `fleet:pair` skill. In nvim, `:FleetPair #431`, `:FleetPair !45` or `:FleetPair <url>` pair on a request, `:FleetPair csv-export <ref>` on a branch for a task, `:FleetPair #` on the current note's `pr:`, and `:FleetPair` from a file in no task's checkout pairs on that file's checkout.
 - `:Prose <fleet>-w2` in nvim, on a file in that worktree, opens a [prose](../prose/README.md) review whose comments go to that worker.
 
 Typing `! <command>` in a worker's Claude pane also runs a command in its worktree, but the output becomes part of that worker's conversation and uses context it needs for its task. `fleet shell` keeps your inspection out of the worker's context.
@@ -305,8 +305,8 @@ Two views show task notes' state, both through public APIs, from the frontmatter
 fleet shop  3 tasks
 <CR> open  d diff  b bump  f follow-up  a archived  r refresh  q close   (age from created)
 
-? blocked   T2                    w2           1/3 ?1   2d       search index
-~ progress  T3                    w3 waiting   0/1      0d       cart proto
+? blocked   search-index          w2           1/3 ?1   2d       search index
+~ progress  csv-export            w3 waiting   0/1      0d       cart export
 * done      pay-1022-retry-queue  w1           2/2      5d   PR  retry queue
 ```
 
@@ -324,9 +324,9 @@ The notes folder is a git repo, and `fleet assign` commits it before each task s
 
 Worker code lives on each worker's branch. A worker keeps its branch across tasks, so the branch holds every task that worker has done. The note's Base and End fields mark one task's part of it: `fleet assign` records Base, and `fleet clear` records End.
 
-- `fleet diff T3` shows task T3's changes. While T3 is still its seat's current task, the diff runs in the worktree from Base, so it includes edits the worker hasn't committed. Untracked new files don't show until the worker commits them. After `fleet clear`, it is `Base..End`, so later tasks on the same branch stay out of it. Other arguments go to `git diff`, such as `fleet diff T3 --stat`.
+- `fleet diff csv-export` shows task csv-export's changes. While csv-export is still its seat's current task, the diff runs in the worktree from Base, so it includes edits the worker hasn't committed. Untracked new files don't show until the worker commits them. After `fleet clear`, it is `Base..End`, so later tasks on the same branch stay out of it. Other arguments go to `git diff`, such as `fleet diff csv-export --stat`.
 - `fleet diff w2` shows worker w2's whole branch: everything since it left the default branch, through its working tree, so uncommitted edits show too. The default branch is `origin`'s HEAD when the repo has one, else `main` or `master`. Run in a worker's own pane, `fleet diff` with no argument shows that worker's branch. A task note named like a seat wins, so a task can be called `w2`.
-- `:FleetDiff` in nvim runs `fleet diff` in a terminal in a new tab, so the diff is unified and git's pager renders it. With delta as the pager, it has syntax colors and `n`/`N` jump between files. Quitting the pager closes the tab. `:FleetDiff!` opens the same changes side by side in [diffview.nvim](https://github.com/sindrets/diffview.nvim), one tab with a file list. `:FleetDiff T3` shows the task, and `:FleetDiff w2` the branch. With no argument, and with `<Leader>d`, it shows the branch of the worker the current buffer belongs to: a file in that worker's worktree, or a task note whose `worker:` field names it. Task ids and seats complete.
+- `:FleetDiff` in nvim runs `fleet diff` in a terminal in a new tab, so the diff is unified and git's pager renders it. With delta as the pager, it has syntax colors and `n`/`N` jump between files. Quitting the pager closes the tab. `:FleetDiff!` opens the same changes side by side in [diffview.nvim](https://github.com/sindrets/diffview.nvim), one tab with a file list. `:FleetDiff csv-export` shows the task, and `:FleetDiff w2` the branch. With no argument, and with `<Leader>d`, it shows the branch of the worker the current buffer belongs to: a file in that worker's worktree, or a task note whose `worker:` field names it. Task ids and seats complete.
 - Worktrees share the repo's git database, so `git log` and `git diff` see every worker branch from any checkout.
 
 ### Review comments

@@ -74,6 +74,10 @@ export async function task(fleet: Fleet, args: string[]) {
     }
   }
   needId(id)
+  // the id is the note's file name and the label on the board and in reports
+  if (/^[A-Za-z]?\d+$/.test(id)) {
+    die(`task id ${id} names no work; use a short slug such as csv-export or abc-123-csv-export`)
+  }
   let path = note.path(fleet.notes, id)
   if (exists(path)) die(`${path} exists`)
   let prev = ""

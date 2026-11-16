@@ -33,7 +33,7 @@ Turn backlog items into tasks with `fleet task`. Check the item off in `backlog.
 ## Commands
 
 - `fleet status`: each seat's state, task, todo progress and last report.
-- `fleet task <id> <title>`: create a note and print its path. Fill in Goal, Scope, Verify and Todo before assigning. A task that works in another of the fleet's repos takes `--repo <path>`, and `fleet repo` lists them. One task works in one repo: split work that spans repos into a task per repo, and link them with `--from` or from each Goal. A follow-up made with `--from` works in its source's repo. Give no two open tasks overlapping Scope.
+- `fleet task <id> <title>`: create a note and print its path. The id is the note's file name, so make it a short kebab-case slug that names the work, such as `csv-export`, with the ticket key in front when there is one: `abc-123-csv-export`. A plan's step number, such as `T3`, goes in the Goal. Fill in Goal, Scope, Verify and Todo before assigning. A task that works in another of the fleet's repos takes `--repo <path>`, and `fleet repo` lists them. One task works in one repo: split work that spans repos into a task per repo, and link them with `--from` or from each Goal. A follow-up made with `--from` works in its source's repo. Give no two open tasks overlapping Scope.
 - `fleet assign <seat> <id>`: send a task to an idle worker. fleet first brings the worker's branch up to date with the default branch. If that merge conflicts, assign refuses; tell the user, who can resolve it or assign with `--no-sync`.
 - `fleet clear <seat>`: clear an idle worker's context and close its task. Run it after each finished task, before the next assignment.
 - `fleet bump <id>`: tell the task's worker its note has new items.
