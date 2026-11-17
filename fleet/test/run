@@ -51,7 +51,8 @@ unset TMUX TMUX_PANE CLAUDE_CONFIG_DIR CLAUDE_CODE_MESSAGING_SOCKET CLAUDE_CODE_
 fleet_vars=(${(M)${(k)parameters}:#FLEET_*})
 (( $#fleet_vars )) && unset $fleet_vars
 export PATH=$T/bin:$root/bin:$PATH FLEET_HOME=$T/agents XDG_STATE_HOME=$T/state
-export FLEET_ROOT=$root FLEET_TEST_SOCKS=$T/socks
+export FLEET_ROOT=$root FLEET_TEST_SOCKS=$T/socks FLEET_CLAUDE_JSON=$T/claude.json
+print -r -- '{"numStartups": 3, "projects": {"/elsewhere": {"hasTrustDialogAccepted": true}}}' > $T/claude.json
 export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.com
 export GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.com
 
@@ -160,6 +161,10 @@ test_new() {
   (cd $T && command fleet new demo $T/repo --workers 2 --worker-model sonnet --orch-effort high --repo $T/repo2 > $T/new.log 2>&1 &)
   check "the fleet's seats register sockets" within 20 seats_up
   check "w1's worktree exists" test -d $(wt w1)
+  check "fleet new trusts the notes folder" eval "jq -e '.projects[\"$T/agents/demo\"].hasTrustDialogAccepted' $T/claude.json"
+  eq "the rest of .claude.json is kept" "$(jq -c '[.numStartups, .projects["/elsewhere"].hasTrustDialogAccepted]' $T/claude.json)" '[3,true]'
+  check "fleet new names an untrusted extra repo" grep -qF "doesn't trust $T/repo2" $T/new.log
+  check "fleet new doesn't flag the trusted notes folder" eval "! grep -qF 'trust $T/agents/demo,' $T/new.log && ! grep -q 'trust $T/agents/demo or' $T/new.log"
   check "the notes repo has a brief" test -f $T/agents/demo/brief.md
   check "the notes folder is a git repo" test -d $T/agents/demo/.git
   check "the state folder records the repo" test -f $T/state/fleet/demo/repo

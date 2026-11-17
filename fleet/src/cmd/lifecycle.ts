@@ -1,6 +1,6 @@
 // Starting, listing, stopping and removing fleets.
 
-import { basename, join, resolve } from "@std/path"
+import { basename, dirname, join, resolve } from "@std/path"
 import { Fleet, home, isFleet, opt, root, statedir, target, tmux } from "../fleet.ts"
 import {
   die,
@@ -253,6 +253,7 @@ export async function create(args: string[]) {
   if (env("CLAUDE_CONFIG_DIR")) {
     claude = `CLAUDE_CONFIG_DIR=${shq(realPath(resolve(env("CLAUDE_CONFIG_DIR"))))} ${claude}`
   }
+  await checkTrust(notes, others)
   // If this call starts the tmux server, the server's environment would carry
   // CLAUDE_CONFIG_DIR into every later pane, fleet or not
   const pane = await run("tmux", [
@@ -366,6 +367,87 @@ export async function create(args: string[]) {
   }
 
   await attach(name)
+}
+
+// Claude Code asks each session to trust every --add-dir folder it doesn't
+// trust yet, and that answer lasts one session, so an untrusted notes folder
+// stops every seat at a prompt. Trust given when starting claude in a folder
+// is saved in the config's .claude.json as projects[<path>].hasTrustDialogAccepted.
+// A folder is trusted when it or a parent has that flag, but inside a git repo
+// Claude Code looks no higher than the repo's root, and each notes folder is a
+// repo of its own. FLEET_CLAUDE_JSON names another file, for tests.
+function claudeJson(): string {
+  const configDir = env("CLAUDE_CONFIG_DIR")
+  return env("FLEET_CLAUDE_JSON") ||
+    (configDir ? join(resolve(configDir), ".claude.json") : join(env("HOME"), ".claude.json"))
+}
+
+type Projects = Record<string, { hasTrustDialogAccepted?: boolean }>
+
+function readProjects(): Projects | null {
+  try {
+    return JSON.parse(Deno.readTextFileSync(claudeJson())).projects ?? {}
+  } catch {
+    return null
+  }
+}
+
+async function untrusted(projects: Projects, dirs: string[]): Promise<string[]> {
+  const covered = async (dir: string) => {
+    const top = (await test("git", ["-C", dir, "rev-parse", "--is-inside-work-tree"]))
+      ? realPath(await run("git", ["-C", dir, "rev-parse", "--show-toplevel"]))
+      : ""
+    for (let d = realPath(dir);; d = dirname(d)) {
+      if (projects[d]?.hasTrustDialogAccepted) return true
+      if (d === top || d === dirname(d)) return false
+    }
+  }
+  const missing = []
+  for (const d of dirs) if (!(await covered(d))) missing.push(d)
+  return missing
+}
+
+// fleet made the notes folder, so it trusts it the way the trust prompt
+// would. Running sessions rewrite .claude.json by reading it, changing one
+// key and renaming a temporary file over it; this does the same, so the
+// entry is lost only if another session's write lands between this read and
+// this rename, and then the seats prompt again. The fields besides
+// hasTrustDialogAccepted are Claude Code's defaults for a new project.
+function trust(dir: string) {
+  const file = claudeJson()
+  const config = JSON.parse(Deno.readTextFileSync(file))
+  config.projects ??= {}
+  config.projects[dir] = {
+    allowedTools: [],
+    mcpContextUris: [],
+    mcpServers: {},
+    enabledMcpjsonServers: [],
+    disabledMcpjsonServers: [],
+    hasClaudeMdExternalIncludesApproved: false,
+    hasClaudeMdExternalIncludesWarningShown: false,
+    ...config.projects[dir],
+    hasTrustDialogAccepted: true,
+  }
+  const tmp = `${file}.fleet-${Deno.pid}`
+  Deno.writeTextFileSync(tmp, JSON.stringify(config, null, 2), { mode: 0o600 })
+  Deno.renameSync(tmp, file)
+  print(`trusted ${tilde(dir)} in ${tilde(file)}`)
+}
+
+async function checkTrust(notes: string, repos: string[]) {
+  const projects = readProjects()
+  // no readable config: Claude Code's own prompt is the check
+  if (!projects) return
+  if ((await untrusted(projects, [notes])).length) trust(realPath(notes))
+  const missing = await untrusted(projects, repos)
+  if (!missing.length) return
+  const config = env("CLAUDE_CONFIG_DIR") ? `CLAUDE_CONFIG_DIR=${shq(env("CLAUDE_CONFIG_DIR"))} ` : ""
+  warn(
+    `Claude Code doesn't trust ${missing.map(tilde).join(" or ")}, so every seat will stop to ask.\n` +
+      `Start claude there once and choose "Yes, trust it" to trust it for good:\n` +
+      missing.map((d) => `  cd ${shq(d)} && ${config}claude\n`).join(""),
+  )
+  if (Deno.stdin.isTerminal() && !confirm("Start the fleet anyway?")) Deno.exit(1)
 }
 
 const tilde = (path: string) => path.startsWith(env("HOME")) ? "~" + path.slice(env("HOME").length) : path

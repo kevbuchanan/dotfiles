@@ -71,6 +71,8 @@ Decisions go into the note, not chat. That keeps a task's history in one file yo
 
 Claude runs inside the pane's shell. When Claude exits, the pane stays open at a prompt.
 
+Claude Code asks every session to trust each `--add-dir` folder it doesn't trust yet, and the answer lasts for that session only. Trust is saved as `hasTrustDialogAccepted` in `.claude.json`, under `$CLAUDE_CONFIG_DIR` when set and otherwise in `~`. A trusted folder covers the folders below it, but only within one git repo, and each notes folder is a repo of its own. So before step 4, `fleet new` adds the notes folder to `.claude.json` as trusted, the same entry the prompt's "Yes, trust it" saves, and prints that it did. It writes a temporary file and renames it over `.claude.json`, as Claude Code does. If another session saves the file at the same moment, the entry can be lost, and the seats prompt again. A repo added with `--repo` that isn't trusted gets a warning instead, and in a terminal `fleet new` asks before starting. To trust such a repo, start `claude` in it once and choose "Yes, trust it".
+
 ### Worker worktrees
 
 The first time a worker seat launches in a git repo, its launch line ends in `-w <fleet>-w<n>`, and Claude Code creates the worktree under `<repo>/.claude/worktrees/`. If the repo has a [`WorktreeCreate` hook](https://code.claude.com/docs/en/hooks), Claude Code runs that hook in place of its own setup, so the hook also picks the branch name and base commit. `fleet assign` reads the real branch from the worktree.
