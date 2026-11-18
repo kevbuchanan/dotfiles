@@ -31,7 +31,10 @@ LINKS = [
   # prose
   ["prose/bin/prose", ".local/bin/prose"],
   ["prose/skill", ".claude/skills/prose"],
-  ["prose/nvim/plugin/prose.lua", ".config/nvim/plugin/prose.lua"]
+  ["prose/nvim/plugin/prose.lua", ".config/nvim/plugin/prose.lua"],
+  # helix, linked by entry: ~/.config/helix can already exist as a folder
+  ["helix/config.toml", ".config/helix/config.toml"],
+  ["helix/themes", ".config/helix/themes"]
 ]
 
 working_dir = File.expand_path(File.dirname(__FILE__))

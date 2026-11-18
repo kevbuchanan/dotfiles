@@ -1,0 +1,32 @@
+# Helix, set up to feel like nvim here: the Tomorrow Night colors from
+# vim/colors/tomorrow-night.vim, vimrc's options, and the vim keys that don't
+# fight helix's select-then-act model. prose's editor pane reads this file
+# too, and adds its own auto-save to it.
+
+theme = "tomorrow_night"
+
+[editor]
+line-number = "absolute"
+scrolloff = 4
+# clipboard=unnamed: yank and paste go through the system clipboard
+default-yank-register = "+"
+
+# Line motions as in vim. 0 is still a count digit after another digit, as
+# in 10j. dd and cc stay out: d and c act on the selection in helix, and
+# making them prefixes would break select-then-delete. x selects the line,
+# so xd and xc do what dd and cc do.
+[keys.normal]
+"0" = "goto_line_start"
+"$" = "goto_line_end"
+G = "goto_last_line"
+D = ["extend_to_line_end", "delete_selection"]
+C = ["extend_to_line_end", "change_selection"]
+C-s = ":write"
+
+[keys.select]
+"0" = "goto_line_start"
+"$" = "goto_line_end"
+G = "goto_last_line"
+
+[keys.insert]
+C-s = ":write"

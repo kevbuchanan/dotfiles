@@ -518,7 +518,9 @@ function startHelix(host: HTMLElement) {
   term = new Terminal({
     fontSize: 13,
     fontFamily: '"Berkeley Mono", ui-monospace, SFMono-Regular, Menlo, monospace',
-    theme: { background: "#020202" },
+    // the background of helix's tomorrow_night theme (helix/themes in the
+    // dotfiles), so the cells helix leaves blank match the ones it draws
+    theme: { background: "#1d1f21" },
     cursorBlink: false,
     macOptionIsMeta: true,
   })

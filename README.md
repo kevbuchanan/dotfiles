@@ -120,3 +120,7 @@ vim-test runs tests in a neoterm split.
 ### Plugins
 
 `\1` reloads `vimrc` and runs `:PlugInstall`.
+
+## Helix
+
+`helix/` holds `config.toml` and `themes/tomorrow_night.toml`, which `activate.rb` links into `~/.config/helix`. The theme takes its colors from `vim/colors/tomorrow-night.vim`, and the config sets vimrc's line numbers, `scrolloff` and system clipboard. A few vim keys work too: `0`, `$`, `G`, `D`, `C` and `Ctrl-s`. Helix acts on a selection, so `dd` and `cc` stay out. `xd` and `xc` do the same on a line. prose's editor pane uses this config.

@@ -1,0 +1,105 @@
+# Tomorrow Night for helix, from the palette and highlight groups in
+# vim/colors/tomorrow-night.vim, so the prose editor pane and hx look like
+# nvim. Helix colors code by tree-sitter scope, not vim's syntax groups, so
+# each scope takes the color of the vim group it stands for. Vim colors few
+# tokens as Identifier (red), and helix tags every variable, so variables
+# keep the foreground color.
+
+"ui.background" = { bg = "background" }
+"ui.text" = "foreground"
+"ui.text.focus" = { fg = "foreground", bg = "line" }
+"ui.cursor" = { fg = "background", bg = "comment" }
+"ui.cursor.primary" = { fg = "background", bg = "foreground" }
+"ui.cursor.match" = { bg = "selection" }
+"ui.cursorline.primary" = { bg = "line" }
+"ui.selection" = { bg = "selection" }
+"ui.linenr" = "selection"
+"ui.linenr.selected" = "comment"
+"ui.gutter" = { bg = "background" }
+"ui.statusline" = { fg = "yellow", bg = "window" }
+"ui.statusline.inactive" = { fg = "comment", bg = "line" }
+"ui.statusline.normal" = { fg = "background", bg = "blue" }
+"ui.statusline.insert" = { fg = "background", bg = "green" }
+"ui.statusline.select" = { fg = "background", bg = "purple" }
+"ui.window" = "window"
+"ui.popup" = { fg = "foreground", bg = "line" }
+"ui.help" = { fg = "foreground", bg = "line" }
+"ui.menu" = { fg = "foreground", bg = "line" }
+"ui.menu.selected" = { fg = "background", bg = "blue" }
+"ui.menu.scroll" = { fg = "comment", bg = "line" }
+"ui.virtual.whitespace" = "selection"
+"ui.virtual.indent-guide" = "selection"
+"ui.virtual.ruler" = { bg = "line" }
+"ui.virtual.inlay-hint" = "comment"
+"ui.virtual.jump-label" = { fg = "yellow", modifiers = ["bold"] }
+"ui.bufferline" = { fg = "comment", bg = "line" }
+"ui.bufferline.active" = { fg = "foreground", bg = "background" }
+
+# Comment, Todo
+"comment" = "comment"
+
+# Statement, Conditional, Repeat: the foreground; Structure, PreProc, Define:
+# purple; Include: blue
+"keyword" = "foreground"
+"keyword.storage" = "purple"
+"keyword.directive" = "purple"
+"keyword.control.import" = "blue"
+"label" = "purple"
+
+# Function, Type, Constant, String, Operator, Special
+"function" = "blue"
+"function.macro" = "purple"
+"constructor" = "blue"
+"type" = "blue"
+"type.builtin" = "blue"
+"namespace" = "yellow"
+"constant" = "orange"
+"constant.numeric" = "orange"
+"constant.character.escape" = "aqua"
+"string" = "green"
+"string.regexp" = "aqua"
+"operator" = "aqua"
+"punctuation" = "foreground"
+"special" = "foreground"
+"attribute" = "orange"
+"tag" = "red"
+"variable" = "foreground"
+"variable.builtin" = "red"
+"variable.other.member" = "foreground"
+
+# Markdown: Title is the comment color in the vim theme
+"markup.heading" = { fg = "comment", modifiers = ["bold"] }
+"markup.bold" = { modifiers = ["bold"] }
+"markup.italic" = { modifiers = ["italic"] }
+"markup.strikethrough" = { modifiers = ["crossed_out"] }
+"markup.list" = "red"
+"markup.link.url" = { fg = "blue", modifiers = ["underlined"] }
+"markup.link.text" = "aqua"
+"markup.quote" = "comment"
+"markup.raw" = "green"
+
+# DiffAdd, DiffDelete, DiffChange
+"diff.plus" = "green"
+"diff.minus" = "red"
+"diff.delta" = "yellow"
+
+"diagnostic" = { modifiers = ["underlined"] }
+"error" = "red"
+"warning" = "orange"
+"info" = "blue"
+"hint" = "comment"
+
+[palette]
+foreground = "#c5c8c6"
+background = "#1d1f21"
+selection = "#373b41"
+line = "#282a2e"
+comment = "#969896"
+red = "#cc6666"
+orange = "#de935f"
+yellow = "#f0c674"
+green = "#b5bd68"
+aqua = "#8abeb7"
+blue = "#81a2be"
+purple = "#b294bb"
+window = "#4d5057"
