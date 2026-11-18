@@ -7,6 +7,12 @@
 --                      window already has a Claude session
 --   :ProseStop         stop the server serving the current file
 --   :ProseList         list running prose servers
+--   :ProseDiff[!] [git diff args]
+--                      review a diff of the current file's checkout in the
+--                      browser, with line comments for Claude: its changes
+--                      since the default branch, or what git diff shows for
+--                      the arguments, such as main...HEAD. ! opens a new
+--                      Claude pane, as :Prose! does. Refs complete.
 
 local function run(args, on_done)
   vim.system(args, { text = true }, function(r)
@@ -68,3 +74,36 @@ vim.api.nvim_create_user_command("ProseList", function()
     vim.notify(out ~= "" and out or "prose: no servers running")
   end)
 end, { desc = "List running prose servers" })
+
+-- The current file's checkout, or the working directory's
+local function checkout()
+  local file = vim.fn.expand("%:p")
+  local dir = file ~= "" and vim.fn.fnamemodify(file, ":h") or vim.fn.getcwd()
+  local top = vim.trim(vim.fn.system({ "git", "-C", dir, "rev-parse", "--show-toplevel" }))
+  return vim.v.shell_error == 0 and top or nil
+end
+
+vim.api.nvim_create_user_command("ProseDiff", function(o)
+  local top = checkout()
+  if not top then
+    vim.notify("prose: not in a git checkout", vim.log.levels.ERROR)
+    return
+  end
+  local args = { "prose", "diff", "-C", top }
+  if o.bang then table.insert(args, "--new") end
+  if #o.fargs > 0 then
+    table.insert(args, "--")
+    vim.list_extend(args, o.fargs)
+  end
+  run(args)
+end, {
+  nargs = "*",
+  bang = true,
+  desc = "Review a diff of the current checkout in prose",
+  complete = function(lead)
+    local top = checkout()
+    if not top then return {} end
+    local refs = vim.fn.systemlist({ "git", "-C", top, "for-each-ref", "--format=%(refname:short)", "refs/heads", "refs/remotes", "refs/tags" })
+    return vim.tbl_filter(function(r) return vim.startswith(r, lead) end, refs)
+  end,
+})

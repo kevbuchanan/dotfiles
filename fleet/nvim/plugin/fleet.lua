@@ -9,6 +9,13 @@
 --                       worktree, or a task note whose frontmatter names it
 --                       as worker.
 --   <Leader>d           :FleetDiff
+--   :FleetDiffPage [task | seat]
+--                       `fleet review`: open the task's changes in prose's
+--                       diff page in the browser, where line comments
+--                       become review todos in its note and Send review
+--                       bumps the worker. With no argument, the current
+--                       note's task, or the task of the worker the file
+--                       belongs to.
 --   :FleetBump [task]   tell the task's worker its note has new work. With
 --                       no task, uses the task note in the current buffer.
 --   <Leader>b           :FleetBump
@@ -107,6 +114,36 @@ end, {
 })
 
 vim.keymap.set("n", "<Leader>d", "<cmd>FleetDiff<cr>", { desc = "fleet diff: this buffer's worker branch" })
+
+vim.api.nvim_create_user_command("FleetDiffPage", function(o)
+  local fleet, target = nil, o.args
+  if target == "" then
+    local meta = note.buffer()
+    if meta and meta.task then
+      fleet, target = meta.fleet, meta.task
+    else
+      fleet, target = buffer_worker()
+    end
+  end
+  if not target or target == "" then
+    vim.notify("FleetDiffPage: name a task or seat, or run it from a task note or a worker's file", vim.log.levels.ERROR)
+    return
+  end
+  require("fleet.actions").run(fleet, "review", target)
+end, {
+  nargs = "?",
+  desc = "Open a fleet task's changes in prose's diff page",
+  complete = function(lead)
+    local notes = fleet_notes()
+    if not notes then return {} end
+    local ids = {}
+    for _, f in ipairs(vim.fn.glob(notes .. "/tasks/*.md", false, true)) do
+      local id = vim.fn.fnamemodify(f, ":t:r")
+      if vim.startswith(id, lead) then table.insert(ids, id) end
+    end
+    return ids
+  end,
+})
 
 -- The fleet comes from the note's path, as in the save hook below, so this
 -- works from any nvim. It saves first: the worker reads the note from disk.

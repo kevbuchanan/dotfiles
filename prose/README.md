@@ -66,6 +66,7 @@ A session started with `CLAUDE_CONFIG_DIR` set registers under that folder, so a
 ```sh
 prose diff                        # this checkout, since the default branch
 prose diff -- main...HEAD         # committed work only
+:ProseDiff                        # from nvim, on the current file's checkout
 fleet review <task>               # a fleet task's changes; comments go to its note
 ```
 
@@ -111,6 +112,7 @@ In nvim:
 | `:Prose!` | `prose start --new` on the current file |
 | `:ProseStop` | stop the server for the current file |
 | `:ProseList` | list running servers |
+| `:ProseDiff[!] [git diff args]` | `prose diff` on the current file's checkout; `!` adds `--new`. Refs complete. |
 
 `:Prose` saves the buffer first, because the server reads the file from disk. Combined with the vimrc timer that reloads changed files, nvim shows Claude's edits within a second.
 
@@ -152,7 +154,7 @@ bin/lib/             CSS, and the conflict, event, conversation and session modu
 deno.jsonc           import map
 deno.lock            locked dependency versions
 skill/SKILL.md       the /prose skill
-nvim/plugin/prose.lua  :Prose, :ProseStop and :ProseList
+nvim/plugin/prose.lua  :Prose, :ProseStop, :ProseList and :ProseDiff
 LICENSE              MIT license of the upstream code
 SOURCE               upstream repo and commit
 ```

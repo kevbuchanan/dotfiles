@@ -106,6 +106,7 @@ vim-test runs tests in a neoterm split.
 | `:FleetAssign [seat]` | from a task note with its Todo filled in, assign it, by default to the seat that did the task it follows |
 | `:[range]FleetComment [text]`, `\m` | add a review comment on the line or selection to the task's note, from `:FleetDiff!` or a worker's file. See [fleet](fleet/README.md#review-comments). |
 | `:FleetReview [task]` | send the task's review comments to its worker with `fleet bump` |
+| `:FleetDiffPage [task \| seat]` | `fleet review`: open the task's changes in prose's diff page, whose line comments go to its note. See [fleet](fleet/README.md#review-comments). |
 | `:FleetPair [task] [ref \| pr]` | open a window with nvim and an interactive claude: on a task at its note's state, on a branch (`:FleetPair csv-export feat/x`), on a PR or MR (`:FleetPair #431`, `!45`, a URL, or `#` for the note's `pr:`), or on the current file's checkout. See [fleet](fleet/README.md#working-in-a-workers-checkout). |
 | `:FleetShell [seat] [cmd]` | open or switch to a tmux window in a worker's worktree, running `cmd` or a shell. With no seat, the worker the current buffer belongs to. See [fleet](fleet/README.md#working-in-a-workers-checkout). |
 | `:FleetBump [task]`, `\b` | save the task note and tell its worker the note has new work. See [fleet](fleet/README.md#follow-up-work). |
@@ -114,6 +115,7 @@ vim-test runs tests in a neoterm split.
 | `:Prose!` | open the review in a new Claude pane |
 | `:ProseStop` | stop the prose server for the current file |
 | `:ProseList` | list running prose servers |
+| `:ProseDiff[!] [git diff args]` | open a [prose diff review](prose/README.md#diff-reviews) of the current file's checkout, with line comments for Claude |
 
 ### Plugins
 

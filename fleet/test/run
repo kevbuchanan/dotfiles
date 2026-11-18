@@ -303,6 +303,13 @@ test_comment() {
   check "fleet review of a seat opens the task it holds" fleet review w1 --no-open
   eq "the seat's task" "$(< $T/prose.args)" "diff --task alpha -s demo --no-open"
   refuses "fleet review of a task with no note" fleet review nosuch
+  rm $T/prose.args
+  $real_nvim --clean --headless --cmd "set rtp+=$root/nvim" --cmd 'runtime plugin/fleet.lua' \
+    -c "edit $n" -c 'FleetDiffPage' -c 'lua vim.wait(3000, function() return vim.uv.fs_stat("'$T/prose.args'") ~= nil end)' -c 'qa!' > /dev/null 2>&1
+  eq ":FleetDiffPage from the note" "$(< $T/prose.args)" "diff --task alpha -s demo"
+  $real_nvim --clean --headless --cmd "set rtp+=$root/../prose/nvim" --cmd 'runtime plugin/prose.lua' \
+    -c "edit $T/repo/README.md" -c 'ProseDiff main...HEAD' -c 'lua vim.wait(3000, function() return vim.fn.readfile("'$T/prose.args'")[1] ~= "diff --task alpha -s demo" end)' -c 'qa!' > /dev/null 2>&1
+  eq ":ProseDiff on the file's checkout" "$(< $T/prose.args)" "diff -C $T/repo -- main...HEAD"
   sed -i.bak -e '/Review src\/x\.ts/d' -e '/Review old\.ts/d' -e '/reply: dropped/d' -e '/Review new\.ts/d' $n && rm $n.bak
   rm $(note zeta)
 }

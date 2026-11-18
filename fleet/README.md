@@ -347,7 +347,7 @@ Comments on a task's code go into its note as todos, so the worker gets them thr
 
 The worker skill tells the worker to make each change, check the item, and add a nested `- reply:` line when the fix needs explaining. The Stop hook and `fleet report done` treat review items as todos, and the board counts them.
 
-In the browser, `fleet review <task>` opens the same changes in [prose's diff page](../prose/README.md#diff-reviews). A comment there becomes the same todo, through `fleet comment`, and "Send review" runs `fleet bump`. The page shows each todo's thread: done once the worker checks it, with each indented `- reply:` line under the todo as the worker's reply. `fleet review` also takes a seat, for the task it holds.
+In the browser, `fleet review <task>` or `:FleetDiffPage` opens the same changes in [prose's diff page](../prose/README.md#diff-reviews). A comment there becomes the same todo, through `fleet comment`, and "Send review" runs `fleet bump`. The page shows each todo's thread: done once the worker checks it, with each indented `- reply:` line under the todo as the worker's reply. `fleet review` also takes a seat, for the task it holds.
 
 `fleet comment <task> <path>:<line>[-<end>] [--at <sha>] [--quote <text>] <comment>` writes one todo from the shell and prints it. `--at` marks a line on the old side, read at the base commit, and `--quote` is the line's text, shortened as `:FleetComment` shortens it.
 
@@ -524,7 +524,7 @@ hooks/session-end         SessionEnd hook: notices for a seat that ends on a tas
 hooks/notify              posts a notice from a worker's hooks to the orchestrator
 hooks/todo-check          Stop hook
 hooks/task-progress       counts done todos, total todos and open questions
-nvim/plugin/fleet.lua     :FleetDiff, :FleetBump, :FleetFollowUp, :FleetAssign, :FleetComment, :FleetReview, :FleetPair, :FleetShell, :FleetBoard and the save hook, linked into ~/.config/nvim/plugin
+nvim/plugin/fleet.lua     :FleetDiff, :FleetDiffPage, :FleetBump, :FleetFollowUp, :FleetAssign, :FleetComment, :FleetReview, :FleetPair, :FleetShell, :FleetBoard and the save hook, linked into ~/.config/nvim/plugin
 nvim/lua/fleet/           note.lua (frontmatter reader), tree.lua (nvim-tree decorator and
                           cursor details), board.lua (:FleetBoard), review.lua
                           (:FleetComment and :FleetReview) and actions.lua,
