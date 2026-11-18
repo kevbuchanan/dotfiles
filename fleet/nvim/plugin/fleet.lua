@@ -61,15 +61,7 @@
 -- worker's worktree from Base while the task is in progress, or the repo with
 -- Base..End once `fleet clear` has recorded End.
 
-local function fleet_notes()
-  local pane = vim.env.TMUX_PANE
-  if not pane then return nil end
-  local out = vim.trim(vim.fn.system({ "tmux", "show", "-qv", "-t", pane, "@fleet_notes" }))
-  return out ~= "" and out or nil
-end
-
 local note = require("fleet.note")
-
 local actions = require("fleet.actions")
 
 -- The task or seat a command acts on: its argument, else what the current
@@ -81,15 +73,21 @@ local function command_target(o)
   vim.notify(o.name .. ": name a task or seat, or run it from a task note, a :FleetDiff! tab or a worker's file", vim.log.levels.ERROR)
 end
 
-local function complete_targets(lead)
-  local notes = fleet_notes()
-  if not notes then return {} end
-  local ids = {}
-  local seats = vim.fn.system({ "tmux", "list-panes", "-s", "-F", "#{@agent_seat}" })
-  for seat in seats:gmatch("(w%d+)") do
-    if vim.startswith(seat, lead) then table.insert(ids, seat) end
+-- Completion from this tmux session's fleet: its worker seats, and with
+-- complete_targets its open task ids too
+local function complete_seats(lead)
+  local seats = {}
+  for seat in vim.fn.system({ "tmux", "list-panes", "-s", "-F", "#{@agent_seat}" }):gmatch("(w%d+)") do
+    if vim.startswith(seat, lead) then table.insert(seats, seat) end
   end
-  for _, f in ipairs(vim.fn.glob(notes .. "/tasks/*.md", false, true)) do
+  return seats
+end
+
+local function complete_targets(lead)
+  local fleet = actions.session_fleet()
+  if not fleet then return {} end
+  local ids = complete_seats(lead)
+  for _, f in ipairs(vim.fn.glob(actions.notes_dir(fleet) .. "/tasks/*.md", false, true)) do
     local id = vim.fn.fnamemodify(f, ":t:r")
     if vim.startswith(id, lead) then table.insert(ids, id) end
   end
@@ -227,13 +225,7 @@ vim.api.nvim_create_user_command("FleetAssign", function(o)
 end, {
   nargs = "?",
   desc = "Assign this fleet task note to a worker seat",
-  complete = function(lead)
-    local seats = {}
-    for seat in vim.fn.system({ "tmux", "list-panes", "-s", "-F", "#{@agent_seat}" }):gmatch("(w%d+)") do
-      if vim.startswith(seat, lead) then table.insert(seats, seat) end
-    end
-    return seats
-  end,
+  complete = complete_seats,
 })
 
 -- A note's frontmatter names its fleet and task, so this works from any
@@ -310,16 +302,7 @@ end, {
       local out = vim.fn.systemlist({ "git", "for-each-ref", "--format=%(refname:short)", "refs/heads" })
       return vim.tbl_filter(function(b) return vim.startswith(b, lead) end, out)
     end
-    local ids = {}
-    for seat in vim.fn.system({ "tmux", "list-panes", "-s", "-F", "#{@agent_seat}" }):gmatch("(w%d+)") do
-      if vim.startswith(seat, lead) then table.insert(ids, seat) end
-    end
-    local notes = fleet_notes()
-    for _, f in ipairs(notes and vim.fn.glob(notes .. "/tasks/*.md", false, true) or {}) do
-      local id = vim.fn.fnamemodify(f, ":t:r")
-      if vim.startswith(id, lead) then table.insert(ids, id) end
-    end
-    return ids
+    return complete_targets(lead)
   end,
 })
 
@@ -346,22 +329,14 @@ end, {
   complete = function(lead, line)
     -- seats complete only as the first argument
     if line:match("^%S+%s+%S+%s") then return {} end
-    local seats = {}
-    for seat in vim.fn.system({ "tmux", "list-panes", "-s", "-F", "#{@agent_seat}" }):gmatch("(w%d+)") do
-      if vim.startswith(seat, lead) then table.insert(seats, seat) end
-    end
-    return seats
+    return complete_seats(lead)
   end,
 })
 
 -- :FleetBoard [fleet] lists a fleet's tasks; see fleet.board. With no name,
 -- the fleet of the note in the current buffer, or of this tmux session.
 vim.api.nvim_create_user_command("FleetBoard", function(o)
-  local fleet = o.args ~= "" and o.args or (note.buffer() or {}).fleet
-  if not fleet and vim.env.TMUX_PANE then
-    local session = vim.trim(vim.fn.system({ "tmux", "display", "-p", "-t", vim.env.TMUX_PANE, "#S" }))
-    if vim.trim(vim.fn.system({ "tmux", "show", "-qv", "-t", "=" .. session .. ":", "@fleet" })) == "1" then fleet = session end
-  end
+  local fleet = o.args ~= "" and o.args or (note.buffer() or {}).fleet or actions.session_fleet()
   if not fleet then
     vim.notify("FleetBoard: name a fleet, or run it from a fleet note or a fleet's tmux session", vim.log.levels.ERROR)
     return
