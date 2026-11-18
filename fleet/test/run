@@ -309,6 +309,10 @@ test_comment() {
   eq ":FleetDiff from the note opens the page" "$(< $T/prose.args)" "diff --task alpha -s demo"
   local listing='lua io.write(table.concat(vim.fn.getcompletion("FleetDiff ", "cmdline"), " "))'
   eq ":FleetDiff completes the seats and open tasks" "$(as w1 $real_nvim --clean --headless --cmd "set rtp+=$root/nvim" --cmd 'runtime plugin/fleet.lua' -c "$listing" -c 'qa!' 2>&1)" "w1 w2 alpha beta zeta"
+  rm $T/prose.args
+  as w1 $real_nvim --clean --headless --cmd "set rtp+=$root/nvim" --cmd 'runtime plugin/fleet.lua' -c 'FleetBoard demo' \
+    -c 'call search("alpha")' -c 'normal d' -c 'lua vim.wait(3000, function() return vim.uv.fs_stat("'$T/prose.args'") ~= nil end)' -c 'qa!' > /dev/null 2>&1
+  eq "the board's d opens an open task's diff page" "$(< $T/prose.args)" "diff --task alpha -s demo"
   $real_nvim --clean --headless --cmd "set rtp+=$root/../prose/nvim" --cmd 'runtime plugin/prose.lua' \
     -c "edit $T/repo/README.md" -c 'ProseDiff main...HEAD' -c 'lua vim.wait(3000, function() return vim.fn.readfile("'$T/prose.args'")[1] ~= "diff --task alpha -s demo" end)' -c 'qa!' > /dev/null 2>&1
   eq ":ProseDiff on the file's checkout" "$(< $T/prose.args)" "diff -C $T/repo -- main...HEAD"

@@ -15,23 +15,7 @@ local api = require("nvim-tree.api")
 
 local M = {}
 
--- Nerd Font glyphs, written as escapes because private-use characters don't
--- survive every editor and tool; each has its own highlight group linked to one every
--- colorscheme defines. nvim-tree names a sign after its icon's highlight
--- group, so the groups must be fleet's own: a sign named DiagnosticWarn
--- collides with nvim's diagnostics.
-M.status = {
-  assigned = { icon = "\u{f10c}", hl = "FleetTreeAssigned", link = "Comment" },
-  progress = { icon = "\u{f110}", hl = "FleetTreeProgress", link = "DiagnosticInfo" },
-  blocked = { icon = "\u{f059}", hl = "FleetTreeBlocked", link = "DiagnosticWarn" },
-  review = { icon = "\u{f06e}", hl = "FleetTreeReview", link = "DiagnosticWarn" },
-  error = { icon = "\u{f057}", hl = "FleetTreeError", link = "DiagnosticError" },
-  done = { icon = "\u{f012c}", hl = "FleetTreeDone", link = "DiagnosticOk" },
-  abandoned = { icon = "\u{f05e}", hl = "FleetTreeAbandoned", link = "Comment" },
-}
-for _, st in pairs(M.status) do
-  vim.api.nvim_set_hl(0, st.hl, { link = st.link, default = true })
-end
+M.status = note.status
 
 local function summary(node)
   if not node or node.type ~= "file" or not node.name:match("%.md$") then return nil end

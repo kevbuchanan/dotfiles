@@ -305,7 +305,7 @@ Two views show task notes' state, both through public APIs, from the frontmatter
 
 ```
 fleet shop  3 tasks
-<CR> open  d diff  b bump  f follow-up  a archived  r refresh  q close   (age from created)
+<CR> open  d diff page  D side by side  t terminal diff  b bump  f follow-up  a archived  r refresh  q close   (age from created)
 
 ? blocked   search-index          w2           1/3 ?1   2d       search index
 ~ progress  csv-export            w3 waiting   0/1      0d       cart export
@@ -314,7 +314,7 @@ fleet shop  3 tasks
 
 - **Columns:** status with its icon (drawn as `?`, `~` and `*` here), task id, worker with the seat's live state from tmux, todos with open questions, a PR mark, the task's age in days from `created:`, and the note's title. Archived tasks, with `a`, are marked `[archived]`.
 - **Order:** error, then blocked and review, then progress and assigned come before done.
-- **Keys:** `<CR>` opens the note in the window the board came from, `d` opens the task's unified diff, `D` the side-by-side diffview, `b` bumps its worker, `f` opens the note and runs `:FleetFollowUp`, `a` toggles archived tasks, `r` refreshes and `q` closes.
+- **Keys:** `<CR>` opens the note in the window the board came from, `d` opens the task's changes in the diff page as `:FleetDiff` does, or the unified diff in a terminal tab once the task is closed and takes no more review comments, `D` the side-by-side diffview, `t` always the unified diff, `b` bumps its worker, `f` opens the note and runs `:FleetFollowUp`, `a` toggles archived tasks, `r` refreshes and `q` closes.
 - **Which fleet:** with no name, the board uses the fleet of the note in the current buffer, or of the current tmux session. Names complete from `fleet ls`.
 - **Refreshing:** it redraws when a note of that fleet is saved, and every five seconds while it's visible, because seat states live in tmux and change without a file write.
 

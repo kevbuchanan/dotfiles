@@ -81,4 +81,23 @@ function M.summary(path)
   return summary
 end
 
+-- Each status's icon and highlight, for the tree and the board. The icons
+-- are Nerd Font glyphs, written as escapes because private-use characters
+-- don't survive every editor and tool. Each has its own highlight group,
+-- linked to one every colorscheme defines. nvim-tree names a sign after its icon's highlight
+-- group, so the groups must be fleet's own: a sign named DiagnosticWarn
+-- collides with nvim's diagnostics.
+M.status = {
+  assigned = { icon = "\u{f10c}", hl = "FleetTreeAssigned", link = "Comment" },
+  progress = { icon = "\u{f110}", hl = "FleetTreeProgress", link = "DiagnosticInfo" },
+  blocked = { icon = "\u{f059}", hl = "FleetTreeBlocked", link = "DiagnosticWarn" },
+  review = { icon = "\u{f06e}", hl = "FleetTreeReview", link = "DiagnosticWarn" },
+  error = { icon = "\u{f057}", hl = "FleetTreeError", link = "DiagnosticError" },
+  done = { icon = "\u{f012c}", hl = "FleetTreeDone", link = "DiagnosticOk" },
+  abandoned = { icon = "\u{f05e}", hl = "FleetTreeAbandoned", link = "Comment" },
+}
+for _, st in pairs(M.status) do
+  vim.api.nvim_set_hl(0, st.hl, { link = st.link, default = true })
+end
+
 return M
