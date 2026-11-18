@@ -759,6 +759,30 @@ await new Command()
         socket.onerror = () => doc.clients.delete(socket)
         return response
       }
+      // An editor's live preview: its unsaved text, and its cursor line for
+      // the page to scroll to. nvim's :ProsePreview posts both with curl.
+      if ((pathname === "/buffer" || pathname === "/cursor") && req.method === "POST") {
+        const doc = await docFor(searchParams)
+        if (doc instanceof Response) return doc
+        let body: { text?: unknown; line?: unknown }
+        try {
+          body = await req.json()
+        } catch {
+          return new Response("Invalid JSON", { status: 400 })
+        }
+        if (pathname === "/buffer") {
+          if (typeof body.text !== "string" || body.text.length > 10_000_000) {
+            return new Response("text must be a string under 10 MB", { status: 400 })
+          }
+          doc.showBuffer(body.text)
+        } else {
+          if (!Number.isInteger(body.line) || (body.line as number) < 1) {
+            return new Response("line must be a whole number from 1", { status: 400 })
+          }
+          doc.showLine(body.line as number)
+        }
+        return new Response(null, { status: 204 })
+      }
       if (pathname === "/pty") {
         if (!hasHelix) return new Response("hx not installed", { status: 404 })
         const doc = await docFor(searchParams)

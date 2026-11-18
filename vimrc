@@ -45,7 +45,6 @@ Plug 'neoclide/coc.nvim', {'branch': 'release'}
 Plug 'vim-test/vim-test'
 Plug 'kassio/neoterm'
 Plug 'slim-template/vim-slim'
-Plug 'iamcco/markdown-preview.nvim', { 'do': 'cd app && npx --yes yarn install' }
 
 call plug#end()
 
@@ -199,8 +198,6 @@ let g:haskell_conceal=0
 set nofoldenable
 
 let g:terraform_fmt_on_save=1
-
-let g:mkdp_theme = 'light'
 
 set backspace=indent,eol,start
 set visualbell

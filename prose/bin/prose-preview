@@ -1,0 +1,43 @@
+#!/bin/sh
+# Opens a markdown file's preview in the browser with no Claude session, and
+# prints the server's port:
+#
+#   prose preview <file> [--no-open]
+#
+# A server already serving the file is reused and opened, whatever session it
+# has. Otherwise a new server starts with no session. Its comments are held
+# until a session runs prose join, as for any server started outside one.
+# nvim's :ProsePreview runs this, then sends the buffer's unsaved text and
+# cursor line to the server's /buffer and /cursor.
+set -eu
+here=$(cd "$(dirname "$(realpath "$0")")" && pwd)
+file=""
+open=1
+for a in "$@"; do
+  case "$a" in
+    --no-open) open=0 ;;
+    -h|--help) sed -n '2,/^set/s/^# \{0,1\}//p' "$0" | sed '$d'; exit 0 ;;
+    -*) echo "prose preview: unknown option $a" >&2; exit 1 ;;
+    *) file="$a" ;;
+  esac
+done
+[ -n "$file" ] || { echo "usage: prose preview <file> [--no-open]" >&2; exit 1; }
+file=$(realpath "$file" 2>/dev/null) || { echo "prose preview: no such file: $1" >&2; exit 1; }
+
+if port=$("$here/prose-port" "$file" 2>/dev/null); then
+  if [ $open -eq 1 ]; then
+    open "http://localhost:$port/?file=$(jq -rn --arg f "$file" '$f | @uri')"
+  fi
+  echo "$port"
+  exit 0
+fi
+
+flags=""
+[ $open -eq 1 ] || flags="--no-open"
+# no session: not the caller's, even when nvim runs inside a Claude session
+# shell
+# shellcheck disable=SC2086
+out=$(env -u CLAUDE_CODE_MESSAGING_SOCKET -u CLAUDE_CODE_MESSAGING_TOKEN "$here/prose-bg" "$file" $flags) || exit 1
+port=$(printf '%s\n' "$out" | sed -n 's|.*at http://localhost:\([0-9][0-9]*\).*|\1|p' | head -1)
+[ -n "$port" ] || { printf '%s\n' "$out" >&2; echo "prose preview: the server printed no port" >&2; exit 1; }
+echo "$port"

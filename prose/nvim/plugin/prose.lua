@@ -5,6 +5,11 @@
 --                      completes from running Claude sessions
 --   :Prose!            review it in a new Claude pane, even when the tmux
 --                      window already has a Claude session
+--   :ProsePreview      preview the current file in the browser with no
+--                      Claude session, `prose preview`: the page shows the
+--                      buffer's unsaved text as you type and scrolls to the
+--                      cursor line. It reuses a server already serving the
+--                      file.
 --   :ProseStop         stop the server serving the current file
 --   :ProseList         list running prose servers
 --   :ProseDiff[!] [git diff args]
@@ -61,6 +66,104 @@ end, {
     return names
   end,
 })
+
+-- A live preview sends the buffer to its server after each pause in typing,
+-- and the cursor line after each pause in moving, so the page shows unsaved
+-- text and follows the cursor. It ends when the server stops answering or
+-- the buffer goes away.
+local PAUSE_MS = 150
+
+local function encode(s)
+  return (s:gsub("[^%w%-%._~]", function(c) return ("%%%02X"):format(c:byte()) end))
+end
+
+local previews = {}
+
+local function preview(buf, port, file)
+  if previews[buf] then previews[buf]() end
+  local group = vim.api.nvim_create_augroup("ProsePreview" .. buf, { clear = true })
+  local query = "?file=" .. encode(file)
+  local timers = {}
+
+  local function stop(why)
+    if previews[buf] ~= stop then return end
+    previews[buf] = nil
+    pcall(vim.api.nvim_del_augroup_by_id, group)
+    for _, t in pairs(timers) do t:close() end
+    timers = {}
+    if why then vim.notify("prose: preview stopped: " .. why, vim.log.levels.WARN) end
+  end
+
+  local function post(route, body)
+    vim.system({
+      "curl", "-sf", "-X", "POST", "-H", "content-type: application/json",
+      "--data-binary", "@-", ("http://127.0.0.1:%d/%s%s"):format(port, route, query),
+    }, { stdin = vim.json.encode(body) }, function(r)
+      if r.code ~= 0 then vim.schedule(function() stop("the server on port " .. port .. " is gone") end) end
+    end)
+  end
+
+  local function later(name, fn)
+    local t = timers[name]
+    if not t then
+      t = vim.uv.new_timer()
+      timers[name] = t
+    end
+    t:stop()
+    t:start(PAUSE_MS, 0, vim.schedule_wrap(function()
+      if vim.api.nvim_buf_is_valid(buf) then fn() end
+    end))
+  end
+
+  local function send_text()
+    post("buffer", { text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n") .. "\n" })
+  end
+  -- the line where the cursor stopped, read when it moved: by the time the
+  -- timer fires, another window may be current
+  local function send_line(line)
+    post("cursor", { line = line })
+  end
+
+  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+    group = group,
+    buffer = buf,
+    callback = function() later("text", send_text) end,
+  })
+  vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
+    group = group,
+    buffer = buf,
+    callback = function()
+      local line = vim.api.nvim_win_get_cursor(0)[1]
+      later("line", function() send_line(line) end)
+    end,
+  })
+  vim.api.nvim_create_autocmd({ "BufWipeout", "BufDelete" }, {
+    group = group,
+    buffer = buf,
+    callback = function() stop() end,
+  })
+  previews[buf] = stop
+  send_text()
+  local win = vim.fn.bufwinid(buf)
+  if win ~= -1 then send_line(vim.api.nvim_win_get_cursor(win)[1]) end
+end
+
+vim.api.nvim_create_user_command("ProsePreview", function()
+  local file = vim.fn.expand("%:p")
+  if file == "" then
+    vim.notify("prose: buffer has no file", vim.log.levels.ERROR)
+    return
+  end
+  local buf = vim.api.nvim_get_current_buf()
+  run({ "prose", "preview", file }, function(code, out)
+    local port = code == 0 and tonumber(out:match("(%d+)%s*$"))
+    if not port then
+      vim.notify(out ~= "" and out or "prose: preview failed", vim.log.levels.ERROR)
+      return
+    end
+    if vim.api.nvim_buf_is_valid(buf) then preview(buf, port, file) end
+  end)
+end, { desc = "Preview the current file in the browser, live, with no Claude session" })
 
 vim.api.nvim_create_user_command("ProseStop", function()
   local file = current_file()

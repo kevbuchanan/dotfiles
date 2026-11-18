@@ -95,6 +95,7 @@ A fleet task's review, `prose diff --task <id> [-s <fleet>]` or `fleet review <i
 | `prose start <file> [--to NAME \| --new] [--no-open] [--port N]` | start a review and pick its session, as above |
 | `prose diff [-C DIR] [--to NAME \| --new] [--no-open] [--port N] [git diff args...]` | start a diff review of a checkout; see "Diff reviews" |
 | `prose diff --task ID [-s FLEET] [--no-open] [--port N]` | start a diff review of a fleet task, whose comments go to its note |
+| `prose preview <file> [--no-open]` | open a file's preview with no session and print its port, reusing a server already serving it; see "Previewing from nvim" |
 | `prose serve <file> --bg [--port N] [--no-open] [--socket PATH \| --to NAME \| --here]` | start a server detached, with an explicit target |
 | `prose serve <file> [--port N] [--no-open] [--socket PATH]` | run the server in the foreground |
 | `prose ls` | port, pid and file of each running server |
@@ -113,11 +114,23 @@ In nvim:
 | --- | --- |
 | `:Prose [session]` | `prose start` on the current file, with `--to` when a session is named |
 | `:Prose!` | `prose start --new` on the current file |
+| `:ProsePreview` | `prose preview` on the current file, live as you type; see "Previewing from nvim" |
 | `:ProseStop` | stop the server for the current file |
 | `:ProseList` | list running servers |
 | `:ProseDiff[!] [git diff args]` | `prose diff` on the current file's checkout; `!` adds `--new`. Refs complete. |
 
 `:Prose` saves the buffer first, because the server reads the file from disk. Combined with the vimrc timer that reloads changed files, nvim shows Claude's edits within a second.
+
+### Previewing from nvim
+
+`:ProsePreview` opens the current file's preview with no Claude session, in place of a separate markdown preview plugin. The page follows the buffer:
+
+- **Unsaved text:** about 150ms after typing stops, nvim posts the buffer to the server's `/buffer`. The page renders it without the change flash a disk change gets. The server keeps it apart from the file, so a session joined later gets edit notices for saved changes only. The next change on disk replaces it.
+- **The cursor:** about 150ms after the cursor stops, nvim posts its line to `/cursor`, and the page scrolls the block holding that line to the middle.
+- **Reuse:** a server already serving the file is reused, with whatever session it has.
+- **Ending:** the preview stops sending when the buffer is deleted or the server stops answering. `:ProseStop` stops the server.
+
+Comments on a preview are held, as on any server started with no session, until a session runs `prose join`.
 
 ## State
 
@@ -143,6 +156,7 @@ bin/prose-respond    `respond`: replies to a page by file or port
 bin/prose-pending    `pending`: lists unfinished requests
 bin/prose-port       `port`: finds the port of a file's server
 bin/prose-diff       `diff`: picks a session or a fleet task, then starts a diff server
+bin/prose-preview    `preview`: opens a file's preview with no session, for :ProsePreview
 bin/prose-diff-serve runs bin/prose-diff.ts with deno.jsonc and its permission flags
 bin/prose.ts         the server
 bin/prose-client.ts  the page script, bundled by the server at startup
@@ -157,7 +171,7 @@ bin/lib/             CSS, and the conflict, event, conversation, session and the
 deno.jsonc           import map
 deno.lock            locked dependency versions
 skill/SKILL.md       the /prose skill
-nvim/plugin/prose.lua  :Prose, :ProseStop, :ProseList and :ProseDiff
+nvim/plugin/prose.lua  :Prose, :ProsePreview, :ProseStop, :ProseList and :ProseDiff
 LICENSE              MIT license of the upstream code
 SOURCE               upstream repo and commit
 ```
@@ -219,6 +233,7 @@ The server comes from `david-crespo/dotfiles` at the commit in `SOURCE`, under i
 - **Preview-only without Helix:** `prose.ts` checks for `hx` at startup. Without it, the server serves every page preview-only and refuses `/pty`.
 - **Mermaid:** `prose-client.ts` renders `mermaid` fenced blocks as diagrams.
 - **Theme:** `bin/lib/prose/theme.ts` and the buttons that force light or dark. See "Theme" under Concepts.
+- **Editor preview:** the `/buffer` and `/cursor` routes, unsaved text in `Doc`, `prose preview` and `:ProsePreview`. See "Previewing from nvim".
 - **Liveness across config dirs:** `sessionAlive` checks every config dir listed under "Finding sessions" above. Upstream checks only `~/.claude`.
 - **Shared session code:** `postToSession`, `sessionAlive` and `claudeDirs` live in `lib/claude/session.ts` at the dotfiles root, which fleet imports too. `bin/lib/prose/session.ts` re-exports them and keeps `resolveSession` and `formatForSession`. The shared module posts through `Deno.Command` in place of upstream's dax.
 - **Many docs per server:** the per-file state moved from `prose.ts` into `Doc` and `DocSet` in `bin/lib/prose/docs.ts`. Every route takes `?file=`, `/follow` and `/docs` are new, and the client sends its doc's `file` on every request. See "Following links".

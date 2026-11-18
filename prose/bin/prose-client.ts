@@ -46,7 +46,8 @@ function connectDoc() {
   const ws = new WebSocket(`ws://${location.host}/doc?${withFile()}`)
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data)
-    if (msg.type === "doc") applyDoc(msg.text)
+    if (msg.type === "doc") applyDoc(msg.text, !msg.live)
+    if (msg.type === "cursor") scrollToLine(msg.line - 1)
     if (msg.type === "conversation") conversation.receive(msg, msg.replay)
   }
   ws.onclose = () => {
@@ -70,8 +71,8 @@ function splice(oldStr: string, newStr: string) {
   return { start, delLen: endOld - start, insert: newStr.slice(start, endNew) }
 }
 
-function applyDoc(text: string) {
-  if (docText !== null && text !== docText) {
+function applyDoc(text: string, flash = true) {
+  if (flash && docText !== null && text !== docText) {
     const { start, insert } = splice(docText, text)
     const lineOf = (offset: number) => text.slice(0, offset).split("\n").length - 1
     // pure deletions still flash the block they happened in
@@ -83,6 +84,24 @@ function applyDoc(text: string) {
   }
   docText = text
   renderPreview()
+}
+
+// The block holding a source line, counted from 0: the narrowest block whose
+// data-line range covers it, else the last block that starts before it,
+// such as for a blank line between blocks
+function scrollToLine(line: number) {
+  let best: HTMLElement | null = null
+  let bestSpan = Infinity
+  let before: HTMLElement | null = null
+  for (const el of content.querySelectorAll<HTMLElement>("[data-line]")) {
+    const [start, end] = el.dataset.line!.split(":").map(Number)
+    if (start <= line && line < end && end - start < bestSpan) {
+      best = el
+      bestSpan = end - start
+    }
+    if (start <= line) before = el
+  }
+  ;(best ?? before)?.scrollIntoView({ block: "center" })
 }
 
 // ---------- preview ----------

@@ -29,6 +29,10 @@ export const isMarkdown = (path: string) => /\.(md|markdown)$/i.test(path)
 export class Doc {
   readonly clients = new Set<WebSocket>()
   #content: string
+  // An editor's unsaved text, shown in the page in place of the file until
+  // the file changes on disk. The session's edit notices follow the file
+  // only, so unsaved text never reaches the session as an edit.
+  #buffer: string | null = null
   #windowBase: string | null = null
   #mutations: Promise<unknown> = Promise.resolve()
 
@@ -57,8 +61,21 @@ export class Doc {
     return doc
   }
 
+  // live marks unsaved text, which the page shows without flashing the
+  // change, since it arrives on every pause in typing
   docMessage() {
-    return JSON.stringify({ type: "doc", file: this.file, text: this.#content })
+    return JSON.stringify({ type: "doc", file: this.file, text: this.#buffer ?? this.#content, live: this.#buffer !== null })
+  }
+
+  showBuffer(text: string) {
+    if (text === (this.#buffer ?? this.#content)) return
+    this.#buffer = text === this.#content ? null : text
+    this.#send(this.docMessage())
+  }
+
+  // Scrolls the page to an editor's cursor line, counted from 1
+  showLine(line: number) {
+    this.#send(JSON.stringify({ type: "cursor", file: this.file, line }))
   }
 
   snapshot(replay: boolean) {
@@ -99,6 +116,7 @@ export class Doc {
     if (disk === this.#content) return
     this.#windowBase ??= this.#content
     this.#content = disk
+    this.#buffer = null
     this.#send(this.docMessage())
   }
 
