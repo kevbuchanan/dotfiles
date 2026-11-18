@@ -518,7 +518,14 @@ function renderDiff() {
       enableLineSelection: true,
       enableGutterUtility: true,
       lineHoverHighlight: "both",
-      onGutterUtilityClick: (range) => openCompose(anchorFor(file, range)),
+      // The library keeps the clicked lines selected and pins the + button to
+      // the selection's last line, so a later click on + would comment on the
+      // same lines. Clearing the selection once the click finishes lets the +
+      // follow the pointer.
+      onGutterUtilityClick: (range) => {
+        openCompose(anchorFor(file, range))
+        setTimeout(() => fd.setSelectedLines(null))
+      },
       renderHeaderMetadata: () => viewedToggle(file),
       renderAnnotation: (a) => element(a.metadata.id),
     })
