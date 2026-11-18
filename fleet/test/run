@@ -268,7 +268,7 @@ test_seat_commands() {
   refuses "a seat command on a session that isn't a fleet" command fleet -s nope status
 }
 
-# :FleetComment and :FleetReview in a headless nvim with only fleet's plugin,
+# :FleetComment and :FleetBump in a headless nvim with only fleet's plugin,
 # on a file in w1's worktree: the seat's task comes from tmux
 test_nvim_review() {
   local f=$(wt w1)/review.txt lua=$T/review.lua
@@ -276,7 +276,7 @@ test_nvim_review() {
   print -r -- "vim.cmd('edit $f')
 vim.cmd('2')
 vim.cmd('FleetComment use the shared guard')
-vim.cmd('FleetReview')
+vim.cmd('FleetBump')
 vim.wait(3000, function() return false end)" > $lua
   $real_nvim --clean --headless --cmd "set rtp+=$root/nvim" --cmd 'runtime plugin/fleet.lua' -c "luafile $lua" -c 'qa!' > /dev/null 2>&1
   check "the comment is a review todo in alpha's note" has $(note alpha) '^- \[ \] Review review\.txt:2 `if \(token == null\) return`: use the shared guard$'

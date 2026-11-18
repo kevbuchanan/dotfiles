@@ -1,9 +1,9 @@
 -- Review comments on a fleet task's code, written into the task's note as
 -- todos. :FleetComment adds one for the line or range under the cursor, and
--- :FleetReview sends the batch with `fleet bump`. The note stays the record,
--- and the todo machinery does the rest: the Stop hook sends the worker back
--- to unchecked items, `fleet report done` refuses while any are open, and the
--- board counts them.
+-- :FleetBump sends the batch. The note stays the record, and the todo
+-- machinery does the rest: the Stop hook sends the worker back to unchecked
+-- items, `fleet report done` refuses while any are open, and the board
+-- counts them.
 --
 -- A comment's place is the file path, the line, and the line's text quoted,
 -- so the worker finds it after edits move the line. Comments come from a file
@@ -14,30 +14,6 @@ local note = require("fleet.note")
 local actions = require("fleet.actions")
 
 local M = {}
-
-local function sh(args)
-  local r = vim.system(args, { text = true }):wait()
-  return r.code == 0 and vim.trim(r.stdout) or nil
-end
-
--- The fleet of the calling tmux session, when it is one
-local function session_fleet()
-  local pane = vim.env.TMUX_PANE
-  if not pane then return nil end
-  local session = sh({ "tmux", "display", "-p", "-t", pane, "#S" })
-  if session and sh({ "tmux", "show", "-qv", "-t", "=" .. session .. ":", "@fleet" }) == "1" then return session end
-  return nil
-end
-
--- The task a seat holds now, or nil
-local function seat_task(fleet, seat)
-  local out = sh({ "tmux", "list-panes", "-s", "-t", "=" .. fleet .. ":", "-F", "#{@agent_seat}\t#{@agent_task}" }) or ""
-  for line in vim.gsplit(out, "\n", { trimempty = true }) do
-    local s, task = unpack(vim.split(line, "\t"))
-    if s == seat and task and task ~= "" then return task end
-  end
-  return nil
-end
 
 -- The current buffer's file, relative to its checkout, and the revision it
 -- shows when it is a diffview revision buffer:
@@ -54,15 +30,9 @@ end
 -- fleet and task for the current buffer: the :FleetDiff! tab's target, or the
 -- task of the worker whose worktree holds the file
 local function target()
-  local fleet, task = vim.t.fleet_name, vim.t.fleet_target
-  if task then
-    fleet = fleet or session_fleet()
-    if fleet and task:match("^w%d+$") then task = seat_task(fleet, task) end
-    return fleet, task
-  end
-  local f, seat = vim.api.nvim_buf_get_name(0):match("/%.claude/worktrees/([^/]+)%-(w%d+)/")
-  if f then return f, seat_task(f, seat) end
-  return nil, nil
+  local fleet, t = actions.target()
+  fleet = fleet or actions.session_fleet()
+  return fleet, actions.task(fleet, t)
 end
 
 -- The note a review can still go to: open in tasks/, with no end
@@ -130,23 +100,7 @@ function M.comment(o)
   local item = ("- [ ] Review %s%s: %s"):format(at, q ~= "" and (" `" .. q .. "`") or "", vim.trim(text))
   if not append_todo(notepath, item) then return err(task .. "'s note has no ## Todo section") end
   if buf ~= -1 then vim.cmd("checktime " .. buf) end
-  vim.notify(("fleet: %s has %d review comments to send; :FleetReview sends them"):format(task, pending(notepath)))
-end
-
-function M.send(o)
-  local fleet, task
-  if o.args ~= "" then
-    fleet, task = vim.t.fleet_name or session_fleet(), o.args
-  else
-    fleet, task = target()
-    local meta = note.buffer()
-    if not task and meta then fleet, task = meta.fleet, meta.task end
-  end
-  if not (fleet and task) then return err("name a task, or run :FleetReview from its diff, worktree or note") end
-  local notepath, why = open_note(fleet, task)
-  if not notepath then return err(why) end
-  if pending(notepath) == 0 then return err(task .. " has no unchecked review comments") end
-  actions.run(fleet, "bump", task)
+  vim.notify(("fleet: %s has %d review comments to send; :FleetBump sends them"):format(task, pending(notepath)))
 end
 
 return M

@@ -19,6 +19,63 @@ function M.notes_dir(fleet)
   return (vim.env.FLEET_HOME or (vim.env.HOME .. "/agents")) .. "/" .. fleet
 end
 
+local function sh(args)
+  local r = vim.system(args, { text = true }):wait()
+  return r.code == 0 and vim.trim(r.stdout) or nil
+end
+
+-- The fleet of the calling tmux session, when it is one
+function M.session_fleet()
+  local pane = vim.env.TMUX_PANE
+  if not pane then return nil end
+  local session = sh({ "tmux", "display", "-p", "-t", pane, "#S" })
+  if session and sh({ "tmux", "show", "-qv", "-t", "=" .. session .. ":", "@fleet" }) == "1" then return session end
+  return nil
+end
+
+-- The task a seat holds now, or nil
+function M.seat_task(fleet, seat)
+  local args = { "tmux", "list-panes", "-s", "-F", "#{@agent_seat}\t#{@agent_task}" }
+  if fleet then vim.list_extend(args, { "-t", "=" .. fleet .. ":" }) end
+  for line in vim.gsplit(sh(args) or "", "\n", { trimempty = true }) do
+    local s, task = unpack(vim.split(line, "\t"))
+    if s == seat and task and task ~= "" then return task end
+  end
+  return nil
+end
+
+local note = require("fleet.note")
+
+-- The fleet and the task or seat the current buffer is about, in this order:
+-- a task note's own task; the target of the :FleetDiff! tab it is in; the
+-- worker seat whose worktree holds the file. nil when none applies. The fleet
+-- is nil when only the tmux session can tell.
+function M.target()
+  local meta = note.buffer()
+  if meta and meta.task then return meta.fleet, meta.task end
+  if vim.t.fleet_target then return vim.t.fleet_name, vim.t.fleet_target end
+  local fleet, seat = vim.api.nvim_buf_get_name(0):match("/%.claude/worktrees/([^/]+)%-(w%d+)/")
+  if seat then return fleet, seat end
+  return nil, nil
+end
+
+-- A target as a task: a seat stands for the task it holds, unless a task note
+-- has the seat's name, as in `fleet`
+function M.task(fleet, target)
+  if not (target and target:match("^w%d+$")) then return target end
+  fleet = fleet or M.session_fleet()
+  if fleet and vim.fn.filereadable(M.notes_dir(fleet) .. "/tasks/" .. target .. ".md") == 1 then return target end
+  return M.seat_task(fleet, target)
+end
+
+-- A target as a worker seat: a task note names its worker
+function M.seat(fleet, target)
+  if not target or target:match("^w%d+$") then return target end
+  fleet = fleet or M.session_fleet()
+  local s = fleet and note.summary(M.notes_dir(fleet) .. "/tasks/" .. target .. ".md")
+  return s and (s.worker or ""):match("%-(w%d+)$") or nil
+end
+
 -- Opens a task's or a worker branch's changes as a unified diff: `fleet diff`
 -- in a terminal in a new tab, where git's pager, delta, renders it with
 -- syntax colors. Quitting the pager closes the tab. delta's default pager,

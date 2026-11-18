@@ -14,8 +14,11 @@
 --                       through git's pager in a terminal tab: a task's, or
 --                       a worker's whole branch. No argument as :FleetDiff.
 --   <Leader>D           :FleetDiffTerm
---   :FleetBump [task]   tell the task's worker its note has new work. With
---                       no task, uses the task note in the current buffer.
+--   :FleetBump [task | seat]
+--                       tell the task's worker its note has new work, such
+--                       as review comments. With no argument, the current
+--                       note's task, the :FleetDiff! tab's, or the task of
+--                       the worker the file belongs to.
 --   <Leader>b           :FleetBump
 --   :FleetFollowUp[!] [id] [title]
 --                       from a task note, create a follow-up task with
@@ -33,8 +36,6 @@
 --                       cursor to the task's note, as a "Review <path>:<line>"
 --                       todo; from :FleetDiff! or a file in a worker's
 --                       worktree. See fleet/review.lua.
---   :FleetReview [task] send the task's review comments to its worker, with
---                       `fleet bump`.
 --   <Leader>m           :FleetComment, on the line or the visual selection
 --   :FleetPair [task] [ref | pr]
 --                       `fleet pair`: a window with nvim and an interactive
@@ -69,26 +70,15 @@ end
 
 local note = require("fleet.note")
 
--- The fleet and worker seat the current buffer belongs to, if any: a file in
--- a worktree named <fleet>-w<n>, or a task note whose frontmatter names its
--- worker.
-local function buffer_worker()
-  local fleet, seat = vim.fn.expand("%:p"):match("/%.claude/worktrees/([^/]+)%-(w%d+)/")
-  if fleet then return fleet, seat end
-  local meta = note.buffer()
-  if not meta then return nil end
-  return meta.fleet, (meta.worker or ""):match("%-(w%d+)$")
-end
+local actions = require("fleet.actions")
 
--- The task or seat a diff command shows: its argument, else the current
--- note's task, else the worker the current file belongs to
-local function diff_target(o)
+-- The task or seat a command acts on: its argument, else what the current
+-- buffer is about; see actions.target
+local function command_target(o)
   if o.args ~= "" then return nil, o.args end
-  local meta = note.buffer()
-  if meta and meta.task then return meta.fleet, meta.task end
-  local fleet, seat = buffer_worker()
-  if seat then return fleet, seat end
-  vim.notify(o.name .. ": name a task or seat, or run it from a task note or a worker's file", vim.log.levels.ERROR)
+  local fleet, target = actions.target()
+  if target then return fleet, target end
+  vim.notify(o.name .. ": name a task or seat, or run it from a task note, a :FleetDiff! tab or a worker's file", vim.log.levels.ERROR)
 end
 
 local function complete_targets(lead)
@@ -107,9 +97,8 @@ local function complete_targets(lead)
 end
 
 vim.api.nvim_create_user_command("FleetDiff", function(o)
-  local fleet, target = diff_target(o)
+  local fleet, target = command_target(o)
   if not target then return end
-  local actions = require("fleet.actions")
   if o.bang then actions.diffview(fleet, target) else actions.run(fleet, "review", target) end
 end, {
   nargs = "?",
@@ -119,8 +108,8 @@ end, {
 })
 
 vim.api.nvim_create_user_command("FleetDiffTerm", function(o)
-  local fleet, target = diff_target(o)
-  if target then require("fleet.actions").diff(fleet, target) end
+  local fleet, target = command_target(o)
+  if target then actions.diff(fleet, target) end
 end, {
   nargs = "?",
   desc = "Open a fleet task's or worker branch's changes as a unified diff in a terminal tab",
@@ -130,32 +119,23 @@ end, {
 vim.keymap.set("n", "<Leader>d", "<cmd>FleetDiff<cr>", { desc = "fleet diff page for this note or worker file" })
 vim.keymap.set("n", "<Leader>D", "<cmd>FleetDiffTerm<cr>", { desc = "fleet diff in nvim for this note or worker file" })
 
--- The fleet comes from the note's path, as in the save hook below, so this
--- works from any nvim. It saves first: the worker reads the note from disk.
+-- From a task note, the fleet comes from the note's path, as in the save hook
+-- below, so this works from any nvim. It saves the note first: the worker
+-- reads it from disk.
 vim.api.nvim_create_user_command("FleetBump", function(o)
-  local fleet, id
-  if o.args ~= "" then
-    id = o.args
-  else
-    local meta = note.buffer()
-    if meta then
-      fleet, id = meta.fleet, meta.task
-      vim.cmd("silent update")
-    end
-  end
-  if not id then
-    vim.notify("FleetBump: name a task, or run it from a task note", vim.log.levels.ERROR)
+  local fleet, target = command_target(o)
+  if not target then return end
+  local task = actions.task(fleet, target)
+  if not task then
+    vim.notify("FleetBump: " .. target .. " holds no task", vim.log.levels.ERROR)
     return
   end
-  local args = fleet and { "fleet", "-s", fleet, "bump", id } or { "fleet", "bump", id }
-  vim.system(args, { text = true }, function(r)
-    vim.schedule(function()
-      vim.notify(vim.trim(r.stdout .. r.stderr), r.code == 0 and vim.log.levels.INFO or vim.log.levels.ERROR)
-    end)
-  end)
+  local meta = note.buffer()
+  if meta and meta.task == task then vim.cmd("silent update") end
+  actions.run(fleet, "bump", task)
 end, { nargs = "?", desc = "Tell a fleet task's worker its note has new work" })
 
-vim.keymap.set("n", "<Leader>b", "<cmd>FleetBump<cr>", { desc = "fleet bump for this task note" })
+vim.keymap.set("n", "<Leader>b", "<cmd>FleetBump<cr>", { desc = "fleet bump for this task" })
 
 -- The tasks folder of the note in the current buffer: the nearest folder
 -- named tasks above it, which reaches it from tasks/archive/<month>/; else
@@ -243,7 +223,7 @@ vim.api.nvim_create_user_command("FleetAssign", function(o)
     return
   end
   vim.cmd("silent update")
-  require("fleet.actions").run(meta.fleet, "assign", seat, meta.task)
+  actions.run(meta.fleet, "assign", seat, meta.task)
 end, {
   nargs = "?",
   desc = "Assign this fleet task note to a worker seat",
@@ -276,10 +256,6 @@ vim.api.nvim_create_user_command("FleetComment", function(o) require("fleet.revi
   range = true,
   desc = "Add a review comment on this line to the fleet task's note",
 })
-vim.api.nvim_create_user_command("FleetReview", function(o) require("fleet.review").send(o) end, {
-  nargs = "?",
-  desc = "Send a fleet task's review comments to its worker",
-})
 vim.keymap.set("n", "<Leader>m", "<cmd>FleetComment<cr>", { desc = "fleet review comment on this line" })
 vim.keymap.set("x", "<Leader>m", ":FleetComment<cr>", { desc = "fleet review comment on these lines" })
 
@@ -309,14 +285,10 @@ vim.api.nvim_create_user_command("FleetPair", function(o)
     args = { first }
     if meta then fleet = meta.fleet end
     if second then vim.list_extend(args, { pr_ref(second) and "--pr" or "--branch", second }) end
-  elseif meta then
-    fleet, args = meta.fleet, { meta.task }
-  elseif vim.t.fleet_target then
-    fleet, args = vim.t.fleet_name, { vim.t.fleet_target }
   else
-    local f, seat = buffer_worker()
-    if seat then
-      fleet, args = f, { seat }
+    local f, target = actions.target()
+    if target then
+      fleet, args = f, { target }
     else
       -- the current file's own checkout, used as it is
       local dir = vim.fn.expand("%:p:h")
@@ -328,7 +300,7 @@ vim.api.nvim_create_user_command("FleetPair", function(o)
       args = { "--dir", top }
     end
   end
-  require("fleet.actions").run(fleet, "pair", unpack(args))
+  actions.run(fleet, "pair", unpack(args))
 end, {
   nargs = "*",
   desc = "Open a window with nvim and an interactive claude on a fleet task, branch, folder, PR or MR",
@@ -358,14 +330,16 @@ vim.api.nvim_create_user_command("FleetShell", function(o)
   local fleet, seat = nil, o.fargs[1]
   local cmd = vim.list_slice(o.fargs, 2)
   if not (seat and seat:match("^w%d+$")) then
-    fleet, seat = buffer_worker()
+    local target
+    fleet, target = actions.target()
+    seat = actions.seat(fleet, target)
     cmd = o.fargs
     if not seat then
       vim.notify("FleetShell: name a seat, or run it from a worker's file or an assigned task note", vim.log.levels.ERROR)
       return
     end
   end
-  require("fleet.actions").run(fleet, "shell", seat, unpack(cmd))
+  actions.run(fleet, "shell", seat, unpack(cmd))
 end, {
   nargs = "*",
   desc = "Open a tmux window in a fleet worker's worktree",

@@ -185,7 +185,7 @@ Where follow-up goes depends on whether the worker has been cleared from the tas
 **Before `fleet clear`:** the worker still has the task and its context. Add unchecked items to the note's Todo list, then wake the worker:
 
 - `fleet bump csv-export` sends `Task csv-export was updated: re-read <path>` to the worker. It refuses unless the worker is still on csv-export. A stopped worker starts a turn when the message arrives, and a busy one reads it between tool calls, so the seat's state doesn't matter.
-- `:FleetBump` in nvim saves the note and bumps its worker. `<Leader>b` runs it. With a task id, `:FleetBump csv-export` works from any buffer inside a fleet.
+- `:FleetBump` in nvim saves the note and bumps its worker. `<Leader>b` runs it. From a `:FleetDiff!` tab or a file in a worker's worktree, it bumps that task's worker. With a task id, `:FleetBump csv-export` works from any buffer inside a fleet.
 
 The worker works the new items, updates Handoff and reports `done` again. Saving a note does not bump the worker, because a save often comes mid-edit. Bump once the follow-up is written.
 
@@ -343,7 +343,7 @@ Comments on a task's code go into its note as todos, so the worker gets them thr
    ```
 
    The quoted line lets the worker find the code after its edits move it. A comment from the old side of the diff, a revision buffer, adds `at <sha>`.
-3. Run `:FleetReview` when the batch is ready. It runs `fleet bump` once, so the worker reads all the comments in one turn.
+3. Run `:FleetBump`, or press `\b`, when the batch is ready. It bumps the worker once, so the worker reads all the comments in one turn.
 
 The worker skill tells the worker to make each change, check the item, and add a nested `- reply:` line when the fix needs explaining. The Stop hook and `fleet report done` treat review items as todos, and the board counts them.
 
@@ -524,10 +524,10 @@ hooks/session-end         SessionEnd hook: notices for a seat that ends on a tas
 hooks/notify              posts a notice from a worker's hooks to the orchestrator
 hooks/todo-check          Stop hook
 hooks/task-progress       counts done todos, total todos and open questions
-nvim/plugin/fleet.lua     :FleetDiff, :FleetDiffTerm, :FleetBump, :FleetFollowUp, :FleetAssign, :FleetComment, :FleetReview, :FleetPair, :FleetShell, :FleetBoard and the save hook, linked into ~/.config/nvim/plugin
+nvim/plugin/fleet.lua     :FleetDiff, :FleetDiffTerm, :FleetBump, :FleetFollowUp, :FleetAssign, :FleetComment, :FleetPair, :FleetShell, :FleetBoard and the save hook, linked into ~/.config/nvim/plugin
 nvim/lua/fleet/           note.lua (frontmatter reader), tree.lua (nvim-tree decorator and
                           cursor details), board.lua (:FleetBoard), review.lua
-                          (:FleetComment and :FleetReview) and actions.lua,
+                          (:FleetComment) and actions.lua,
                           linked as ~/.config/nvim/lua/fleet
 test/run                  end-to-end tests, see "Tests"
 test/claude-stub          the claude the tests' seats run
