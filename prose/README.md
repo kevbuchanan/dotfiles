@@ -43,6 +43,8 @@ prose start docs/design.md        # from a shell
 
 `PROSE_CLAUDE` sets the command the new pane runs, `claude` by default. The pane runs an interactive shell, so a shell alias works.
 
+`prose stop` leaves that pane and its session running, because the session holds the conversation about the draft. `prose stop --pane`, or `:ProseStop!`, also closes the pane, but only one prose opened, and only while it still runs the session prose started there by name in the session registry; see "Finding sessions" below. A pane where that session has exited stays open as a shell, and a session you started yourself is never closed. Claude Code keeps the closed session's transcript, so `claude --resume` picks it up again. `prose diff` records its pane the same way, by the review's label.
+
 ### How comments reach the session
 
 - **Own server:** a server the session started posts as one of the session's own child processes, with the token from `CLAUDE_CODE_MESSAGING_TOKEN`. Claude Code delivers those messages with no prompt.
@@ -99,7 +101,7 @@ A fleet task's review, `prose diff --task <id> [-s <fleet>]` or `fleet review <i
 | `prose serve <file> --bg [--port N] [--no-open] [--socket PATH \| --to NAME \| --here]` | start a server detached, with an explicit target |
 | `prose serve <file> [--port N] [--no-open] [--socket PATH]` | run the server in the foreground |
 | `prose ls` | port, pid and file of each running server |
-| `prose stop <port\|file>` | stop a server |
+| `prose stop <port\|file> [--pane]` | stop a server; `--pane` also closes the Claude pane prose opened for it, as below |
 | `prose respond <file\|port> <phase> [ids...] [--text T \| --text-file F] [--work W]` | post a reply, sending `start` first when needed |
 | `prose pending <file\|port>` | print unfinished requests with their text and status |
 | `prose port <file\|port>` | print the port of the server for a file |
@@ -115,7 +117,7 @@ In nvim:
 | `:Prose [session]` | `prose start` on the current file, with `--to` when a session is named |
 | `:Prose!` | `prose start --new` on the current file |
 | `:ProsePreview` | `prose preview` on the current file, live as you type; see "Previewing from nvim" |
-| `:ProseStop` | stop the server for the current file |
+| `:ProseStop[!]` | stop the server for the current file; `!` adds `--pane` |
 | `:ProseList` | list running servers |
 | `:ProseDiff[!] [git diff args]` | `prose diff` on the current file's checkout; `!` adds `--new`. Refs complete. |
 
@@ -137,6 +139,7 @@ Comments on a preview are held, as on any server started with no session, until 
 | Path | Contents |
 | --- | --- |
 | `~/.local/state/prose/<port>.pid`, `.log`, `.file` | a running server's pid, its log, and the file it serves |
+| `~/.local/state/prose/panes` | each Claude pane `prose start` or `prose diff` opened: the server's key as `prose ls` shows it, the tmux socket, the pane id and the session name |
 | `~/.local/state/prose/<flattened path>.comments.jsonl` | every comment on a file, kept across restarts |
 | `~/.local/state/prose/diff-<flattened key>-<hash>.comments.jsonl` | every comment in a diff review, keyed by its checkout and git arguments, or by its fleet task |
 | `~/.cache/prose/blobs/` | GitHub blob contents, kept forever for full commit shas |
@@ -157,6 +160,7 @@ bin/prose-pending    `pending`: lists unfinished requests
 bin/prose-port       `port`: finds the port of a file's server
 bin/prose-diff       `diff`: picks a session or a fleet task, then starts a diff server
 bin/prose-preview    `preview`: opens a file's preview with no session, for :ProsePreview
+bin/prose-pane       records the Claude panes prose opens, and closes one for stop --pane
 bin/prose-diff-serve runs bin/prose-diff.ts with deno.jsonc and its permission flags
 bin/prose.ts         the server
 bin/prose-client.ts  the page script, bundled by the server at startup

@@ -66,4 +66,6 @@ dir=$(git -C "$(dirname "$file")" rev-parse --show-toplevel 2>/dev/null || dirna
 name="prose-$(basename "$file" .md | tr -c 'A-Za-z0-9_-' '-' | sed 's/-*$//')"
 pane=$(tmux split-window -v -l 33% -t "$TMUX_PANE" -c "$dir" -P -F '#{pane_id}')
 tmux send-keys -t "$pane" "${PROSE_CLAUDE:-claude} -n $name $(quote "/prose $file")" Enter
+# prose stop --pane closes it later; the key is the file prose ls shows
+"$here/prose-pane" --record "$file" "$pane" "$name"
 echo "opened Claude session $name in pane $pane; it starts the prose server"

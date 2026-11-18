@@ -1,0 +1,62 @@
+#!/bin/sh
+# The Claude panes prose opens, recorded so `prose stop --pane` can close the
+# one it opened for a server, and never a session the user started. Each line
+# of <state>/panes is: the server's key, as prose ls shows it (the file's
+# real path, or a diff review's label); the tmux socket; the pane id; and the
+# Claude session name prose gave it.
+#
+#   prose-pane --record <key> <pane> <name>   after opening a pane
+#   prose-pane --close <key>                  close that key's pane, if it
+#                                             still runs the session prose
+#                                             started there
+set -eu
+here=$(cd "$(dirname "$(realpath "$0")")" && pwd)
+state="${XDG_STATE_HOME:-$HOME/.local/state}/prose"
+mkdir -p "$state"
+list="$state/panes"
+touch "$list"
+tab=$(printf '\t')
+
+# keeps the lines whose pane still exists, minus any for this key. sh has
+# no local variables, so the loop's names differ from the callers'.
+prune() {
+  tmp="$list.$$"
+  while IFS="$tab" read -r l_key l_socket l_pane l_name; do
+    [ "$l_key" = "$1" ] && continue
+    tmux -S "$l_socket" display -p -t "$l_pane" '#{pane_id}' >/dev/null 2>&1 || continue
+    printf '%s\t%s\t%s\t%s\n' "$l_key" "$l_socket" "$l_pane" "$l_name"
+  done <"$list" >"$tmp"
+  mv "$tmp" "$list"
+}
+
+case "${1:-}" in
+  --record)
+    key="${2:?key}" pane="${3:?pane}" name="${4:?name}"
+    socket=$(tmux display -p -t "$pane" '#{socket_path}')
+    prune "$key"
+    printf '%s\t%s\t%s\t%s\n' "$key" "$socket" "$pane" "$name" >>"$list"
+    ;;
+  --close)
+    key="${2:?key}"
+    line=$(awk -F '\t' -v k="$key" '$1 == k { l = $0 } END { print l }' "$list")
+    if [ -z "$line" ]; then
+      echo "prose opened no pane for $key"
+      exit 0
+    fi
+    socket=$(printf '%s' "$line" | cut -f2)
+    pane=$(printf '%s' "$line" | cut -f3)
+    name=$(printf '%s' "$line" | cut -f4)
+    prune "$key"
+    # the pane runs the session prose started there only while the registry
+    # lists a live session by that name in that pane; after it exits, the
+    # pane is the user's shell
+    running=$("$here/prose-session" --pane "$pane" 2>/dev/null || true)
+    if [ "$running" != "$name" ]; then
+      echo "left pane $pane open: it no longer runs Claude session $name"
+      exit 0
+    fi
+    tmux -S "$socket" kill-pane -t "$pane"
+    echo "closed pane $pane and its Claude session $name; claude --resume picks it up again"
+    ;;
+  *) sed -n '2,/^set/s/^# \{0,1\}//p' "$0" | sed '$d' >&2; exit 1 ;;
+esac

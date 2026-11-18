@@ -10,7 +10,9 @@
 --                      buffer's unsaved text as you type and scrolls to the
 --                      cursor line. It reuses a server already serving the
 --                      file.
---   :ProseStop         stop the server serving the current file
+--   :ProseStop[!]      stop the server serving the current file. With !,
+--                      also close the Claude pane :Prose opened for it, if
+--                      that pane still runs the session it started there.
 --   :ProseList         list running prose servers
 --   :ProseDiff[!] [git diff args]
 --                      review a diff of the current file's checkout in the
@@ -165,12 +167,12 @@ vim.api.nvim_create_user_command("ProsePreview", function()
   end)
 end, { desc = "Preview the current file in the browser, live, with no Claude session" })
 
-vim.api.nvim_create_user_command("ProseStop", function()
+vim.api.nvim_create_user_command("ProseStop", function(o)
   local file = current_file()
   if not file then return end
   -- prose stop finds the file's server itself
-  run({ "prose", "stop", file })
-end, { desc = "Stop the prose server for the current file" })
+  run(o.bang and { "prose", "stop", file, "--pane" } or { "prose", "stop", file })
+end, { bang = true, desc = "Stop the prose server for the current file; ! also closes its Claude pane" })
 
 vim.api.nvim_create_user_command("ProseList", function()
   run({ "prose", "ls" }, function(_, out)

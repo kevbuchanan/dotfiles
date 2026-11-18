@@ -12,7 +12,9 @@
 #                               preview a file with no session, for an editor
 #   prose serve <file> [--bg] [--port N] [--no-open] [--socket P | --to NAME | --here]
 #                               run the server; --bg detaches it
-#   prose stop <port|file>      stop a server
+#   prose stop <port|file> [--pane]
+#                               stop a server; --pane also closes the Claude
+#                               pane prose opened for it
 #   prose ls                    port, pid and file of each running server
 #   prose respond <file|port> <phase> [ids...] [--text T | --text-file F] [--work W]
 #                               post an agent reply to a page
@@ -47,7 +49,32 @@ case "$cmd" in
     if [ $bg -eq 1 ]; then exec "$here/prose-bg" "$@"; fi
     exec "$here/prose-serve" "$@"
     ;;
-  stop) exec "$here/prose-bg" --stop "$("$here/prose-port" "${1:?usage: prose stop <port|file>}")" ;;
+  stop)
+    # --pane also closes the Claude pane prose opened for the server, if it
+    # still runs the session prose started there
+    pane=0
+    target=""
+    for a in "$@"; do
+      case "$a" in
+        --pane) pane=1 ;;
+        *) target="$a" ;;
+      esac
+    done
+    : "${target:?usage: prose stop <port|file> [--pane]}"
+    key=""
+    if port=$("$here/prose-port" "$target" 2>/dev/null); then
+      key=$(cat "${XDG_STATE_HOME:-$HOME/.local/state}/prose/$port.file" 2>/dev/null || true)
+      "$here/prose-bg" --stop "$port"
+    elif [ $pane -eq 1 ] && [ -f "$target" ]; then
+      # the server is gone already; its pane is still recorded by file
+      echo "no prose server for $target"
+      key=$(realpath "$target")
+    else
+      "$here/prose-port" "$target"
+      exit 1
+    fi
+    if [ $pane -eq 1 ] && [ -n "$key" ]; then exec "$here/prose-pane" --close "$key"; fi
+    ;;
   ls) exec "$here/prose-bg" --list ;;
   respond | pending | post | port | join) exec "$here/prose-$cmd" "$@" ;;
   sessions) exec "$here/prose-session" "$@" ;;

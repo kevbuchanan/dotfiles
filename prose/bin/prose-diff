@@ -122,4 +122,6 @@ quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 cmdline="/prose diff $(jq -rn --argjson a "$gitargs" --arg top "$top" '["-C", $top] + (if $a == [] then [] else ["--"] + $a end) | map(@sh) | join(" ")')"
 pane=$(tmux split-window -v -l 33% -t "$TMUX_PANE" -c "$top" -P -F '#{pane_id}')
 tmux send-keys -t "$pane" "${PROSE_CLAUDE:-claude} -n prose-diff-$(basename "$top") $(quote "$cmdline")" Enter
+# prose stop --pane closes it later; the key is the label prose ls shows
+"$here/prose-pane" --record "$label" "$pane" "prose-diff-$(basename "$top")"
 echo "opened Claude session prose-diff-$(basename "$top") in pane $pane; it starts the review"

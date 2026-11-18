@@ -322,6 +322,10 @@ test_comment() {
   $real_nvim --clean --headless --cmd "set rtp+=$root/../prose/nvim" --cmd 'runtime plugin/prose.lua' \
     -c "edit $T/repo/README.md" -c 'ProsePreview' -c 'lua vim.wait(3000, function() return vim.uv.fs_stat("'$T/prose.args'") ~= nil end)' -c 'qa!' > /dev/null 2>&1
   eq ":ProsePreview on the file" "$(< $T/prose.args)" "preview $T/repo/README.md"
+  rm $T/prose.args
+  $real_nvim --clean --headless --cmd "set rtp+=$root/../prose/nvim" --cmd 'runtime plugin/prose.lua' \
+    -c "edit $T/repo/README.md" -c 'ProseStop!' -c 'lua vim.wait(3000, function() return vim.uv.fs_stat("'$T/prose.args'") ~= nil end)' -c 'qa!' > /dev/null 2>&1
+  eq ":ProseStop! also closes the pane" "$(< $T/prose.args)" "stop $T/repo/README.md --pane"
   sed -i.bak -e '/Review src\/x\.ts/d' -e '/Review old\.ts/d' -e '/reply: dropped/d' -e '/Review new\.ts/d' $n && rm $n.bak
   rm $(note zeta)
 }

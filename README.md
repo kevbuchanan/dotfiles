@@ -113,7 +113,7 @@ vim-test runs tests in a neoterm split.
 | `:Prose [session]` | open a [prose](prose/README.md) review of the current file |
 | `:Prose!` | open the review in a new Claude pane |
 | `:ProsePreview` | preview the current file in the browser with no Claude session, live as you type and following the cursor |
-| `:ProseStop` | stop the prose server for the current file |
+| `:ProseStop[!]` | stop the prose server for the current file; `!` also closes the Claude pane `:Prose` opened for it |
 | `:ProseList` | list running prose servers |
 | `:ProseDiff[!] [git diff args]` | open a [prose diff review](prose/README.md#diff-reviews) of the current file's checkout, with line comments for Claude |
 

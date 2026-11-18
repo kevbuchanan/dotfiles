@@ -9,6 +9,8 @@
 #   prose sessions --window [pane]    the session in the same tmux window as
 #                                    pane, default $TMUX_PANE; exit 2 if none
 #   prose sessions --list             name, tmux location and cwd of each
+#   prose sessions --pane <pane>      the name of the session running in that
+#                                    tmux pane, such as %21; exit 2 if none
 set -eu
 
 sessions() {
@@ -53,5 +55,11 @@ case "${1:-}" in
     one "$(sessions | awk -F '\t' -v w="$win." 'index($2, w) == 1')" "in tmux window $win"
     ;;
   --list) sessions | cut -f1,2,4 ;;
+  --pane)
+    pane="${2:?pane id}"
+    name=$(sessions | awk -F '\t' -v p=".$pane" 'substr($2, length($2) - length(p) + 1) == p { print $1; exit }')
+    [ -n "$name" ] || exit 2
+    printf '%s\n' "$name"
+    ;;
   *) sed -n '2,/^set/s/^# \{0,1\}//p' "$0" | sed '$d' >&2; exit 1 ;;
 esac
