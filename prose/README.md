@@ -13,7 +13,7 @@ prose start docs/design.md        # from a shell
 - `deno` to run the server
 - `nc` and `perl`, which macOS ships with. The server posts to a session's socket through `nc`, and `prose serve --bg` detaches with `perl`.
 - `jq` for `prose sessions`, `prose respond` and `prose pending`
-- `hx` (Helix), optional. With it, the page has an editor pane, toggled with Cmd+E. Without it, every page is preview-only.
+- `hx` (Helix), optional. With it, the page has an editor pane, toggled with Cmd+E. Without it, every page is preview-only. The pane auto-saves after typing stops. It doesn't reload the file when Claude edits it, so run `:reload` (`:rl`) in the pane to see those edits.
 - `gh`, optional. With it, GitHub blob permalinks render as code snippets.
 - tmux, for `prose start` to find or open a Claude pane
 - Claude Code 2.1.224 or later on macOS or Linux, for [cross-session messaging](https://code.claude.com/docs/en/cross-session-messaging)
