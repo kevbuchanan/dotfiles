@@ -14,6 +14,7 @@
 // or writes.
 
 import { type DiffLineAnnotation, FileDiff, type FileDiffMetadata, parsePatchFiles, type SelectedLineRange } from "@pierre/diffs"
+import { FileTree, type GitStatusEntry } from "@pierre/trees"
 import MarkdownExit from "markdown-exit"
 import { Conversation } from "./lib/prose/conversation.ts"
 import type { Event, FeedSnapshot, RequestState, UserInput } from "./lib/prose/events.ts"
@@ -32,6 +33,11 @@ type Meta = { id: string }
 const token = document.querySelector<HTMLMetaElement>('meta[name="prose-token"]')!.content
 const $ = (id: string) => document.getElementById(id)!
 const toast = $("toast")
+// the sticky sidebar and scroll targets sit below the bar, which wraps on a
+// narrow window
+new ResizeObserver(([e]) => {
+  document.documentElement.style.setProperty("--bar-height", `${e.target.getBoundingClientRect().height}px`)
+}).observe($("bar"))
 const markdown = new MarkdownExit({ html: false, linkify: true, breaks: true })
 markdown.disable("image")
 
@@ -421,22 +427,73 @@ function cardFor(t: Thread) {
   return el
 }
 
-function renderFileList(ts: Thread[]) {
-  const list = $("file-list")
-  list.replaceChildren(...views.map((v, i) => {
-    const li = document.createElement("li")
-    if (isViewed(v.file)) li.className = "is-viewed"
-    const a = document.createElement("a")
-    a.href = `#file-${i}`
-    a.textContent = v.file.path
-    const stat = document.createElement("span")
-    stat.className = "stat"
-    const n = ts.filter((t) => t.root.anchor.path === v.file.path).length + drafts.filter((d) => d.anchor.path === v.file.path).length
-    stat.textContent = `+${v.file.added} −${v.file.removed}${n ? ` · ${n} comment${n === 1 ? "" : "s"}` : ""}${isViewed(v.file) ? " · viewed" : ""}`
-    li.append(a, " ", stat)
-    return li
-  }))
-  ;($("files") as HTMLDetailsElement).querySelector("summary")!.textContent = `${views.length} file${views.length === 1 ? "" : "s"}`
+// ---------- the file tree ----------
+
+// What the tree's rows show for each file: its change counts, its comments,
+// and whether it is viewed. The tree reads this when it draws a row.
+type FileStat = { added: number; removed: number; comments: number; viewed: boolean }
+let fileStats = new Map<string, FileStat>()
+let tree: FileTree | null = null
+
+function gitStatus(f: PatchFile): GitStatusEntry["status"] {
+  if (/^new file mode/m.test(f.text)) return "added"
+  if (/^deleted file mode/m.test(f.text)) return "deleted"
+  if (f.oldPath && f.oldPath !== f.path) return "renamed"
+  return "modified"
+}
+const statuses = () => files.map((f) => ({ path: f.path, status: gitStatus(f) }))
+
+function makeTree() {
+  const t = new FileTree({
+    paths: files.map((f) => f.path),
+    gitStatus: statuses(),
+    flattenEmptyDirectories: true,
+    initialExpansion: "open",
+    search: true,
+    density: "compact",
+    // a file row scrolls its diff into view; a folder row only opens
+    onSelectionChange: (paths) => {
+      const i = files.findIndex((f) => f.path === paths[paths.length - 1])
+      if (i >= 0) document.getElementById(`file-${i}`)?.scrollIntoView({ block: "start" })
+    },
+    renderRowDecoration: ({ item }) => {
+      const s = item.kind === "file" ? fileStats.get(item.path) : undefined
+      if (!s) return null
+      const parts = [
+        ...(s.viewed ? [{ text: "✓\u00a0", color: "var(--muted)" }] : []),
+        ...(s.added ? [{ text: `+${s.added}`, color: "var(--green)" }] : []),
+        ...(s.removed ? [{ text: `${s.added ? "\u00a0" : ""}−${s.removed}`, color: "var(--red)" }] : []),
+        ...(s.comments ? [{ text: `\u00a0· ${s.comments}`, color: "var(--accent)" }] : []),
+      ]
+      const title = [
+        `+${s.added} −${s.removed}`,
+        ...(s.comments ? [`${s.comments} comment${s.comments === 1 ? "" : "s"}`] : []),
+        ...(s.viewed ? ["viewed"] : []),
+      ].join(" · ")
+      return { text: parts.map((x) => x.text).join(""), parts, title }
+    },
+  })
+  t.render({ containerWrapper: $("tree") })
+  return t
+}
+
+let treePaths = ""
+function renderTree(ts: Thread[]) {
+  fileStats = new Map(files.map((f) => [f.path, {
+    added: f.added,
+    removed: f.removed,
+    comments: ts.filter((t) => t.root.anchor.path === f.path).length + drafts.filter((d) => d.anchor.path === f.path).length,
+    viewed: isViewed(f),
+  }]))
+  $("files-head").textContent = `${files.length} file${files.length === 1 ? "" : "s"}`
+  const paths = files.map((f) => f.path)
+  if (!tree) tree = makeTree()
+  else if (paths.join("\0") !== treePaths) tree.resetPaths(paths)
+  treePaths = paths.join("\0")
+  tree.setGitStatus(statuses())
+  // The tree has no redraw call, and skips one for an unchanged git status.
+  // Setting the labels always redraws, so the rows pick up the new stats.
+  tree.setLabels({})
 }
 
 function updateBar() {
@@ -473,7 +530,7 @@ function renderAll() {
   }
   fillAnnotations(ts)
   renderOutdated(ts)
-  renderFileList(ts)
+  renderTree(ts)
   updateBar()
 }
 

@@ -35,6 +35,8 @@
     "npm:@codemirror/language@^6.12.4": "6.12.4",
     "npm:@lezer/highlight@^1.2.3": "1.2.3",
     "npm:@pierre/diffs@^1.6.4": "1.6.4",
+    "npm:@pierre/trees@1": "1.0.0",
+    "npm:@pierre/trees@1.0.0": "1.0.0",
     "npm:@typesafe-ai/sdk@0.6": "0.6.0",
     "npm:@xterm/addon-fit@0.11": "0.11.0",
     "npm:@xterm/addon-webgl@0.19": "0.19.0",
@@ -653,6 +655,14 @@
       "optionalPeers": [
         "@pierre/theme",
         "shiki"
+      ]
+    },
+    "@pierre/trees@1.0.0": {
+      "integrity": "sha512-skHNPs4LK1nScFrSvMwN4LnZyHfFf1M7I9ivWePecFqWSYYJYdgKUFCaxPBL0MPY/Z8c3q0yhl8bkkzdDfotug==",
+      "dependencies": [
+        "@pierre/theming",
+        "preact",
+        "preact-render-to-string"
       ]
     },
     "@shikijs/core@4.6.0": {
@@ -1438,6 +1448,15 @@
         "points-on-curve"
       ]
     },
+    "preact-render-to-string@6.6.5_preact@11.0.0-beta.0": {
+      "integrity": "sha512-O6MHzYNIKYaiSX3bOw0gGZfEbOmlIDtDfWwN1JJdc/T3ihzRT6tGGSEWE088dWrEDGa1u7101q+6fzQnO9XCPA==",
+      "dependencies": [
+        "preact"
+      ]
+    },
+    "preact@11.0.0-beta.0": {
+      "integrity": "sha512-IcODoASASYwJ9kxz7+MJeiJhvLriwSb4y4mHIyxdgaRZp6kPUud7xytrk/6GZw8U3y6EFJaRb5wi9SrEK+8+lg=="
+    },
     "property-information@7.2.0": {
       "integrity": "sha512-IAtzIB6sUiWaJYrX9smp3V46pBGbBeLFRGdh25kg1334VcBlD8HzhPeNIWQH9zhGmo2itIe25EHt9dQP7G5hmg=="
     },
@@ -1598,6 +1617,7 @@
       "npm:@codemirror/language@^6.12.4",
       "npm:@lezer/highlight@^1.2.3",
       "npm:@pierre/diffs@^1.6.4",
+      "npm:@pierre/trees@1",
       "npm:@typesafe-ai/sdk@0.6",
       "npm:@xterm/addon-fit@0.11",
       "npm:@xterm/addon-webgl@0.19",

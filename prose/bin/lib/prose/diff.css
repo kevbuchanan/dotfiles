@@ -1,4 +1,4 @@
-/* prose diff review page: the bar, the file list, and the comment cards
+/* prose diff review page: the bar, the file tree, and the comment cards
    that FileDiff slots in under their lines. The diff itself is styled by
    @pierre/diffs inside each file's shadow root. GitHub's palette, as the
    markdown page uses. */
@@ -10,6 +10,7 @@
   --border: #d1d9e0;
   --accent: #0969da;
   --green: #1f883d;
+  --red: #d1242f;
   --warn: #9a6700;
   --flash: rgba(255, 223, 93, 0.5);
   color-scheme: light dark;
@@ -22,7 +23,8 @@
     --subtle: #151b23;
     --border: #3d444d;
     --accent: #4493f8;
-    --green: #238636;
+    --green: #3fb950;
+    --red: #f85149;
     --warn: #d29922;
     --flash: rgba(187, 128, 9, 0.4);
   }
@@ -67,7 +69,7 @@ button.primary, #send-review:not(:disabled) {
 }
 #changed {
   position: sticky;
-  top: 52px;
+  top: var(--bar-height, 52px);
   z-index: 4;
   margin: 8px 16px;
   padding: 8px 12px;
@@ -75,14 +77,38 @@ button.primary, #send-review:not(:disabled) {
   border-radius: 6px;
   background: var(--subtle);
 }
-#files { margin: 12px 16px 0; }
-#files summary { cursor: pointer; color: var(--muted); }
-#file-list { margin: 6px 0 0; padding-left: 24px; font-size: 13px; }
-#file-list a { color: var(--accent); text-decoration: none; overflow-wrap: anywhere; }
-#file-list .stat { color: var(--muted); font-size: 12px; }
-#file-list .is-viewed a { color: var(--muted); }
+/* The file tree sits in a sidebar under the bar, and above the diff on a
+   narrow window. --bar-height is the bar's measured height. The tree draws
+   inside its own shadow root and takes these colors through its override
+   variables. */
+#layout { display: block; }
+#files {
+  margin: 12px 16px 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--subtle);
+  --trees-bg-override: var(--subtle);
+  --trees-fg-override: var(--fg);
+  --trees-accent-override: var(--accent);
+  --trees-font-family-override: inherit;
+}
+#files-head { padding: 6px 12px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--border); }
+#tree { height: min(240px, 40vh); }
+#content { min-width: 0; }
+@media (min-width: 900px) {
+  #layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); align-items: start; }
+  #files {
+    position: sticky;
+    top: calc(var(--bar-height, 52px) + 12px);
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - var(--bar-height, 52px) - 24px);
+    margin: 12px 0 0 16px;
+  }
+  #tree { flex: 1; min-height: 0; height: auto; }
+}
 main, #orphans { padding: 0 16px; }
-.file { margin: 16px 0; scroll-margin-top: 64px; }
+.file { margin: 16px 0; scroll-margin-top: calc(var(--bar-height, 52px) + 12px); }
 .raw-patch {
   margin: 0;
   padding: 8px 12px;

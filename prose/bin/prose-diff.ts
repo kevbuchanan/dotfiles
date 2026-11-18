@@ -119,9 +119,13 @@ function page() {
   <button id="send-review" type="button" disabled>Send review</button>
 </header>
 <div id="changed" hidden><span>The diff changed.</span> <button id="refresh" type="button">Refresh</button></div>
-<details id="files"><summary>Files</summary><ol id="file-list"></ol></details>
+<div id="layout">
+<aside id="files"><div id="files-head">Files</div><div id="tree"></div></aside>
+<div id="content">
 <section id="orphans" hidden></section>
 <main id="diff"></main>
+</div>
+</div>
 <div id="toast"></div>
 <script type="module" src="/bundle.js"></script>
 </body>
