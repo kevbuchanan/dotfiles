@@ -269,7 +269,7 @@ over, offer `prose diff` in one line. Start it only when the user agrees.
 - The conversation panel's general messages arrive as `kind: "message"`
   events, as in markdown reviews.
 
-A review of a fleet task (`fleet review <task>`, or `:FleetDiffPage` in nvim)
+A review of a fleet task (`fleet review <task>`, or `:FleetDiff` in nvim)
 never reaches a session. Its comments become review todos in the task's note,
 and Send review runs `fleet bump`.
 

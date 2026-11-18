@@ -100,13 +100,13 @@ vim-test runs tests in a neoterm split.
 | Command | Action |
 | --- | --- |
 | `\s` | run `fleet status` from a pane inside a fleet |
-| `:FleetDiff[!] [task \| seat]`, `\d` | open changes as a unified diff, `fleet diff` through delta in a terminal tab: a task's, or a worker's whole branch. `!` opens them side by side in diffview. With no argument, the branch of the worker the current buffer belongs to. See [fleet](fleet/README.md#reviewing-progress). |
+| `:FleetDiff[!] [task \| seat]`, `\d` | `fleet review`: open the task's changes in prose's diff page, whose line comments go to its note. `!` opens them side by side in diffview. With no argument, the current note's task, or the worker the current file belongs to. See [fleet](fleet/README.md#review-comments). |
+| `:FleetDiffTerm [task \| seat]`, `\D` | open the changes as a unified diff, `fleet diff` through delta in a terminal tab: a task's, or a worker's whole branch. See [fleet](fleet/README.md#reviewing-progress). |
 | `:FleetBoard [fleet]` | list a fleet's tasks with their status, worker and todos, with keys to open, diff, bump and follow up. See [fleet](fleet/README.md#note-state-in-nvim). |
 | `:FleetFollowUp[!] [id] [title]` | from a closed task's note, create a follow-up task and open it, or open the follow-up no worker has taken yet. `!` creates another. See [fleet](fleet/README.md#follow-up-work). |
 | `:FleetAssign [seat]` | from a task note with its Todo filled in, assign it, by default to the seat that did the task it follows |
 | `:[range]FleetComment [text]`, `\m` | add a review comment on the line or selection to the task's note, from `:FleetDiff!` or a worker's file. See [fleet](fleet/README.md#review-comments). |
 | `:FleetReview [task]` | send the task's review comments to its worker with `fleet bump` |
-| `:FleetDiffPage [task \| seat]` | `fleet review`: open the task's changes in prose's diff page, whose line comments go to its note. See [fleet](fleet/README.md#review-comments). |
 | `:FleetPair [task] [ref \| pr]` | open a window with nvim and an interactive claude: on a task at its note's state, on a branch (`:FleetPair csv-export feat/x`), on a PR or MR (`:FleetPair #431`, `!45`, a URL, or `#` for the note's `pr:`), or on the current file's checkout. See [fleet](fleet/README.md#working-in-a-workers-checkout). |
 | `:FleetShell [seat] [cmd]` | open or switch to a tmux window in a worker's worktree, running `cmd` or a shell. With no seat, the worker the current buffer belongs to. See [fleet](fleet/README.md#working-in-a-workers-checkout). |
 | `:FleetBump [task]`, `\b` | save the task note and tell its worker the note has new work. See [fleet](fleet/README.md#follow-up-work). |

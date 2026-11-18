@@ -1,21 +1,19 @@
 -- nvim commands for fleet task review.
 --
 --   :FleetDiff[!] [task | seat]
---                       open changes as a unified diff, `fleet diff` in a
---                       terminal tab: a task's, or a worker's whole branch
---                       through its working tree. With !, side by side in
---                       diffview. With no argument, the branch of the worker
---                       the current buffer belongs to: a file in its
---                       worktree, or a task note whose frontmatter names it
---                       as worker.
---   <Leader>d           :FleetDiff
---   :FleetDiffPage [task | seat]
 --                       `fleet review`: open the task's changes in prose's
 --                       diff page in the browser, where line comments
 --                       become review todos in its note and Send review
---                       bumps the worker. With no argument, the current
---                       note's task, or the task of the worker the file
---                       belongs to.
+--                       bumps the worker. A seat names the task it holds.
+--                       With !, side by side in diffview instead. With no
+--                       argument, the current note's task, or the worker
+--                       the current file belongs to.
+--   <Leader>d           :FleetDiff
+--   :FleetDiffTerm [task | seat]
+--                       the changes as a unified diff in nvim, `fleet diff`
+--                       through git's pager in a terminal tab: a task's, or
+--                       a worker's whole branch. No argument as :FleetDiff.
+--   <Leader>D           :FleetDiffTerm
 --   :FleetBump [task]   tell the task's worker its note has new work. With
 --                       no task, uses the task note in the current buffer.
 --   <Leader>b           :FleetBump
@@ -82,68 +80,55 @@ local function buffer_worker()
   return meta.fleet, (meta.worker or ""):match("%-(w%d+)$")
 end
 
-vim.api.nvim_create_user_command("FleetDiff", function(o)
-  local target, fleet = o.args, nil
-  if target == "" then
-    fleet, target = buffer_worker()
-    if not target then
-      vim.notify("FleetDiff: name a task or seat, or run it from a worker's file or an assigned task note", vim.log.levels.ERROR)
-      return
-    end
+-- The task or seat a diff command shows: its argument, else the current
+-- note's task, else the worker the current file belongs to
+local function diff_target(o)
+  if o.args ~= "" then return nil, o.args end
+  local meta = note.buffer()
+  if meta and meta.task then return meta.fleet, meta.task end
+  local fleet, seat = buffer_worker()
+  if seat then return fleet, seat end
+  vim.notify(o.name .. ": name a task or seat, or run it from a task note or a worker's file", vim.log.levels.ERROR)
+end
+
+local function complete_targets(lead)
+  local notes = fleet_notes()
+  if not notes then return {} end
+  local ids = {}
+  local seats = vim.fn.system({ "tmux", "list-panes", "-s", "-F", "#{@agent_seat}" })
+  for seat in seats:gmatch("(w%d+)") do
+    if vim.startswith(seat, lead) then table.insert(ids, seat) end
   end
+  for _, f in ipairs(vim.fn.glob(notes .. "/tasks/*.md", false, true)) do
+    local id = vim.fn.fnamemodify(f, ":t:r")
+    if vim.startswith(id, lead) then table.insert(ids, id) end
+  end
+  return ids
+end
+
+vim.api.nvim_create_user_command("FleetDiff", function(o)
+  local fleet, target = diff_target(o)
+  if not target then return end
   local actions = require("fleet.actions")
-  if o.bang then actions.diffview(fleet, target) else actions.diff(fleet, target) end
+  if o.bang then actions.diffview(fleet, target) else actions.run(fleet, "review", target) end
 end, {
   nargs = "?",
   bang = true,
-  desc = "Open a fleet task's or worker branch's changes, unified or with ! in diffview",
-  complete = function(lead)
-    local notes = fleet_notes()
-    if not notes then return {} end
-    local ids = {}
-    local seats = vim.fn.system({ "tmux", "list-panes", "-s", "-F", "#{@agent_seat}" })
-    for seat in seats:gmatch("(w%d+)") do
-      if vim.startswith(seat, lead) then table.insert(ids, seat) end
-    end
-    for _, f in ipairs(vim.fn.glob(notes .. "/tasks/*.md", false, true)) do
-      local id = vim.fn.fnamemodify(f, ":t:r")
-      if vim.startswith(id, lead) then table.insert(ids, id) end
-    end
-    return ids
-  end,
+  desc = "Open a fleet task's changes in prose's diff page, or with ! in diffview",
+  complete = complete_targets,
 })
 
-vim.keymap.set("n", "<Leader>d", "<cmd>FleetDiff<cr>", { desc = "fleet diff: this buffer's worker branch" })
-
-vim.api.nvim_create_user_command("FleetDiffPage", function(o)
-  local fleet, target = nil, o.args
-  if target == "" then
-    local meta = note.buffer()
-    if meta and meta.task then
-      fleet, target = meta.fleet, meta.task
-    else
-      fleet, target = buffer_worker()
-    end
-  end
-  if not target or target == "" then
-    vim.notify("FleetDiffPage: name a task or seat, or run it from a task note or a worker's file", vim.log.levels.ERROR)
-    return
-  end
-  require("fleet.actions").run(fleet, "review", target)
+vim.api.nvim_create_user_command("FleetDiffTerm", function(o)
+  local fleet, target = diff_target(o)
+  if target then require("fleet.actions").diff(fleet, target) end
 end, {
   nargs = "?",
-  desc = "Open a fleet task's changes in prose's diff page",
-  complete = function(lead)
-    local notes = fleet_notes()
-    if not notes then return {} end
-    local ids = {}
-    for _, f in ipairs(vim.fn.glob(notes .. "/tasks/*.md", false, true)) do
-      local id = vim.fn.fnamemodify(f, ":t:r")
-      if vim.startswith(id, lead) then table.insert(ids, id) end
-    end
-    return ids
-  end,
+  desc = "Open a fleet task's or worker branch's changes as a unified diff in a terminal tab",
+  complete = complete_targets,
 })
+
+vim.keymap.set("n", "<Leader>d", "<cmd>FleetDiff<cr>", { desc = "fleet diff page for this note or worker file" })
+vim.keymap.set("n", "<Leader>D", "<cmd>FleetDiffTerm<cr>", { desc = "fleet diff in nvim for this note or worker file" })
 
 -- The fleet comes from the note's path, as in the save hook below, so this
 -- works from any nvim. It saves first: the worker reads the note from disk.

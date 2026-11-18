@@ -328,7 +328,7 @@ Worker code lives on each worker's branch. A worker keeps its branch across task
 
 - `fleet diff csv-export` shows task csv-export's changes. While csv-export is still its seat's current task, the diff runs in the worktree from Base, so it includes edits the worker hasn't committed. Untracked new files don't show until the worker commits them. After `fleet clear`, it is `Base..End`, so later tasks on the same branch stay out of it. Other arguments go to `git diff`, such as `fleet diff csv-export --stat`.
 - `fleet diff w2` shows worker w2's whole branch: everything since it left the default branch, through its working tree, so uncommitted edits show too. The default branch is `origin`'s HEAD when the repo has one, else `main` or `master`. Run in a worker's own pane, `fleet diff` with no argument shows that worker's branch. A task note named like a seat wins, so a task can be called `w2`.
-- `:FleetDiff` in nvim runs `fleet diff` in a terminal in a new tab, so the diff is unified and git's pager renders it. With delta as the pager, it has syntax colors and `n`/`N` jump between files. Quitting the pager closes the tab. `:FleetDiff!` opens the same changes side by side in [diffview.nvim](https://github.com/sindrets/diffview.nvim), one tab with a file list. `:FleetDiff csv-export` shows the task, and `:FleetDiff w2` the branch. With no argument, and with `<Leader>d`, it shows the branch of the worker the current buffer belongs to: a file in that worker's worktree, or a task note whose `worker:` field names it. Task ids and seats complete.
+- `:FleetDiff` in nvim, or `<Leader>d`, opens the task's changes in prose's diff page in the browser; see [review comments](#review-comments). `:FleetDiff!` opens them side by side in [diffview.nvim](https://github.com/sindrets/diffview.nvim), one tab with a file list. `:FleetDiffTerm`, or `<Leader>D`, runs `fleet diff` in a terminal in a new tab, so the diff is unified and git's pager renders it. With delta as the pager, it has syntax colors and `n`/`N` jump between files. Quitting the pager closes the tab. Each takes a task id or a seat: `:FleetDiffTerm csv-export` shows the task, and `:FleetDiffTerm w2` and `:FleetDiff! w2` the branch, while the page shows the task a seat holds. With no argument, each uses the current note's task, or the worker the current file belongs to. Task ids and seats complete.
 - Worktrees share the repo's git database, so `git log` and `git diff` see every worker branch from any checkout.
 
 ### Review comments
@@ -347,7 +347,7 @@ Comments on a task's code go into its note as todos, so the worker gets them thr
 
 The worker skill tells the worker to make each change, check the item, and add a nested `- reply:` line when the fix needs explaining. The Stop hook and `fleet report done` treat review items as todos, and the board counts them.
 
-In the browser, `fleet review <task>` or `:FleetDiffPage` opens the same changes in [prose's diff page](../prose/README.md#diff-reviews). A comment there becomes the same todo, through `fleet comment`, and "Send review" runs `fleet bump`. The page shows each todo's thread: done once the worker checks it, with each indented `- reply:` line under the todo as the worker's reply. `fleet review` also takes a seat, for the task it holds.
+In the browser, `fleet review <task>` or `:FleetDiff` opens the same changes in [prose's diff page](../prose/README.md#diff-reviews). A comment there becomes the same todo, through `fleet comment`, and "Send review" runs `fleet bump`. The page shows each todo's thread: done once the worker checks it, with each indented `- reply:` line under the todo as the worker's reply. `fleet review` also takes a seat, for the task it holds.
 
 `fleet comment <task> <path>:<line>[-<end>] [--at <sha>] [--quote <text>] <comment>` writes one todo from the shell and prints it. `--at` marks a line on the old side, read at the base commit, and `--quote` is the line's text, shortened as `:FleetComment` shortens it.
 
@@ -524,7 +524,7 @@ hooks/session-end         SessionEnd hook: notices for a seat that ends on a tas
 hooks/notify              posts a notice from a worker's hooks to the orchestrator
 hooks/todo-check          Stop hook
 hooks/task-progress       counts done todos, total todos and open questions
-nvim/plugin/fleet.lua     :FleetDiff, :FleetDiffPage, :FleetBump, :FleetFollowUp, :FleetAssign, :FleetComment, :FleetReview, :FleetPair, :FleetShell, :FleetBoard and the save hook, linked into ~/.config/nvim/plugin
+nvim/plugin/fleet.lua     :FleetDiff, :FleetDiffTerm, :FleetBump, :FleetFollowUp, :FleetAssign, :FleetComment, :FleetReview, :FleetPair, :FleetShell, :FleetBoard and the save hook, linked into ~/.config/nvim/plugin
 nvim/lua/fleet/           note.lua (frontmatter reader), tree.lua (nvim-tree decorator and
                           cursor details), board.lua (:FleetBoard), review.lua
                           (:FleetComment and :FleetReview) and actions.lua,
