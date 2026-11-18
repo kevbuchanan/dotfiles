@@ -1,11 +1,17 @@
+import type { Anchor } from "./patch.ts"
+
 export type UserInput = {
-  kind: "message" | "comment" | "dellm"
+  kind: "message" | "comment" | "dellm" | "diff-comment"
   text?: string
   selection?: string
   prefix?: string
   suffix?: string
   embed?: string
   replyTo?: string
+  // diff-comment: the lines it is on
+  anchor?: Anchor
+  // diff-comment on a fleet task: the todo line it became in the task's note
+  todo?: string
 }
 
 export type ActivityInput = {
@@ -69,11 +75,42 @@ function identifier(body: Record<string, unknown>, key: string, required = false
   return value
 }
 
+function anchor(value: unknown): Anchor {
+  const body = record(value)
+  const side = body.side
+  if (side !== "old" && side !== "new") throw new InputError("Invalid anchor side")
+  const line = body.line
+  const end = body.end
+  if (
+    !Number.isInteger(line) || !Number.isInteger(end) || (line as number) < 1 ||
+    (end as number) < (line as number)
+  ) {
+    throw new InputError("Invalid anchor lines")
+  }
+  const rev = string(body, "rev", false, 64)
+  return {
+    path: string(body, "path", true, 4000)!,
+    side,
+    line: line as number,
+    end: end as number,
+    quote: string(body, "quote", false, 4000) ?? "",
+    ...(rev ? { rev } : {}),
+  }
+}
+
 export function parseUser(value: unknown): UserInput {
   const body = record(value)
   const kind = body.kind
-  if (kind !== "message" && kind !== "comment" && kind !== "dellm") {
+  if (kind !== "message" && kind !== "comment" && kind !== "dellm" && kind !== "diff-comment") {
     throw new InputError("Invalid message kind")
+  }
+  if (kind === "diff-comment") {
+    return {
+      kind,
+      text: string(body, "text", true),
+      anchor: anchor(body.anchor),
+      replyTo: identifier(body, "replyTo"),
+    }
   }
   return {
     kind,

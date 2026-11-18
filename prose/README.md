@@ -59,6 +59,29 @@ Config dirs searched:
 
 A session started with `CLAUDE_CONFIG_DIR` set registers under that folder, so add it to `PROSE_CLAUDE_DIRS`.
 
+## Diff reviews
+
+`prose diff` opens a unified diff of a git checkout in the browser, with line comments for a Claude Code session. With no git arguments it shows the checkout's changes since it left the default branch, with uncommitted edits and untracked files, so a branch's review covers what is about to be pushed. Any `git diff` arguments replace that, such as `main...HEAD`, `HEAD~3` or `--cached`, and show what `git diff` shows for them, which leaves out untracked files. Untracked files skip those `.gitignore` covers, and past 200 the rest are left out and the page's title counts them.
+
+```sh
+prose diff                        # this checkout, since the default branch
+prose diff -- main...HEAD         # committed work only
+fleet review <task>               # a fleet task's changes; comments go to its note
+```
+
+The page renders each file with [@pierre/diffs](https://diffs.com), with Shiki syntax colors and word-level highlights.
+
+- **Commenting:** hover a line and press the `+` in its gutter, or drag the `+` down several lines for a range. The comment form opens under the lines. ⌘⏎ or "Add to review" keeps the comment as a draft, which lives in the browser until "Send review" sends every draft in one delivery. "Send now" sends one comment by itself.
+- **Anchors:** each comment records its file, side (`new` or `old`), lines, the first line's text, and the commit that side was read at. The agent finds the code by that text, and so does the page after the diff changes. A line with fewer than three letters or digits, such as `}` or a blank line, matches too many others to follow, so a comment on one goes outdated when its line changes.
+- **Threads:** a sent comment shows under its lines with its status and the agent's replies from `prose respond`. "Reply" continues the thread. A comment whose line no longer reads as it did moves to an "Outdated" box above its file.
+- **The diff changing:** the page polls every four seconds while visible and shows a "The diff changed" bar with a Refresh button. It never re-renders on its own, so a line doesn't move under a comment being written.
+- **Viewed files:** the "Viewed" box in a file's header collapses it. The mark is keyed to that file's part of the diff, so a file the agent changes again shows as unviewed.
+- **The per-run token:** the server puts a random token in the page, and `/comment` and `/review` refuse a request without it. With the origin checks under "Requests from the browser", another site open in the browser can't send text to the agent. A local process can read the page, as it can write to the session's socket itself.
+
+`prose diff` picks the session as `prose start` does: `--to <name>`; the calling session, when run from a Claude Code session's Bash tool; the Claude session in the caller's tmux window; or, with none of those or with `--new`, a new pane running `claude` with `/prose diff`. A review already open for the same checkout and arguments opens again in the browser instead of starting twice. Replies take the port: `prose respond <port> done <id> --text '...'`.
+
+A fleet task's review, `prose diff --task <id> [-s <fleet>]` or `fleet review <id>`, reaches no session. Each comment becomes a review todo in the task's note through `fleet comment`, as nvim's `:FleetComment` writes one, and "Send review" runs `fleet bump`. The page reads the note as it changes: a checked todo shows its thread as done, and each indented `- reply:` line under the todo shows as the worker's reply. See [fleet](../fleet/README.md#review-comments).
+
 ## Commands
 
 `prose` is one entrypoint. Each subcommand runs a script in `bin/`, and `prose help` lists them.
@@ -66,6 +89,8 @@ A session started with `CLAUDE_CONFIG_DIR` set registers under that folder, so a
 | Command | Effect |
 | --- | --- |
 | `prose start <file> [--to NAME \| --new] [--no-open] [--port N]` | start a review and pick its session, as above |
+| `prose diff [-C DIR] [--to NAME \| --new] [--no-open] [--port N] [git diff args...]` | start a diff review of a checkout; see "Diff reviews" |
+| `prose diff --task ID [-s FLEET] [--no-open] [--port N]` | start a diff review of a fleet task, whose comments go to its note |
 | `prose serve <file> --bg [--port N] [--no-open] [--socket PATH \| --to NAME \| --here]` | start a server detached, with an explicit target |
 | `prose serve <file> [--port N] [--no-open] [--socket PATH]` | run the server in the foreground |
 | `prose ls` | port, pid and file of each running server |
@@ -95,6 +120,7 @@ In nvim:
 | --- | --- |
 | `~/.local/state/prose/<port>.pid`, `.log`, `.file` | a running server's pid, its log, and the file it serves |
 | `~/.local/state/prose/<flattened path>.comments.jsonl` | every comment on a file, kept across restarts |
+| `~/.local/state/prose/diff-<flattened key>-<hash>.comments.jsonl` | every comment in a diff review, keyed by its checkout and git arguments, or by its fleet task |
 | `~/.cache/prose/blobs/` | GitHub blob contents, kept forever for full commit shas |
 
 `XDG_STATE_HOME` moves the state folder, and `XDG_CACHE_HOME` moves the cache.
@@ -111,10 +137,16 @@ bin/prose-post       `post`: posts to and reads /activity
 bin/prose-respond    `respond`: replies to a page by file or port
 bin/prose-pending    `pending`: lists unfinished requests
 bin/prose-port       `port`: finds the port of a file's server
+bin/prose-diff       `diff`: picks a session or a fleet task, then starts a diff server
+bin/prose-diff-serve runs bin/prose-diff.ts with deno.jsonc and its permission flags
 bin/prose.ts         the server
 bin/prose-client.ts  the page script, bundled by the server at startup
+bin/prose-diff.ts    the diff review server
+bin/prose-diff-client.ts
+                     the diff page script, bundled by its server at startup
 bin/prose-pty.py     runs hx in a pty for the editor pane
-bin/lib/             CSS, and the conflict, event, conversation and session modules
+bin/lib/             CSS, and the conflict, event, conversation and session modules,
+                     and for diff reviews the patch, diff source and review modules
 ../lib/claude/session.ts
                      inbox socket posting, liveness and config dirs, shared with fleet
 deno.jsonc           import map
@@ -187,6 +219,8 @@ The server comes from `david-crespo/dotfiles` at the commit in `SOURCE`, under i
 - **Request checks:** the `Sec-Fetch-Site` check, and the media-only, sandboxed `/local`. See "Requests from the browser". Both follow `david-crespo/ah`, the same author's newer project.
 - **Reply hint:** each event's header names the `prose respond` command for its doc.
 - **Held requests and `prose join`:** held and delivered records in `bin/lib/prose/events.ts`, sending in `Doc.comment` and `Doc.flushHeld`, and a `/session` route. See "Held requests and joining". The idea follows `ah`'s delivery records.
+
+- **Diff reviews:** `prose-diff.ts`, `prose-diff-client.ts` and their `bin/lib/prose` modules (`patch.ts`, `diffsource.ts`, `review.ts`, `diff.css`). `prose-bg` takes `--server` and `--label` to start them. The `diff-comment` event kind and its anchor are in `events.ts`, and `conversation.ts` labels diff comments and sends the page's token. See "Diff reviews". Oxide's skepsis, which `ah` uses for diffs, is the model for the refresh bar and the viewed marks.
 
 The entrypoint and every `bin/prose-*` shell script exist only here. To update from upstream, diff the upstream files at a new commit against the ones at `SOURCE`, apply that diff here, and update `SOURCE`.
 

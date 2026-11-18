@@ -1,6 +1,7 @@
 /// <reference lib="dom" />
 import MarkdownExit from "markdown-exit"
 import type { Event as ProseEvent, FeedSnapshot, UserInput } from "./events.ts"
+import { anchorLabel } from "./patch.ts"
 
 // Feed messages need Markdown, but not raw HTML, embeds or remote image loads.
 const markdown = new MarkdownExit({ html: false, linkify: true, breaks: true })
@@ -28,7 +29,8 @@ export class Conversation {
   private sending = false
   private lastTick = Date.now()
 
-  constructor(private onOpen: () => void) {
+  // onAnchor shows a diff comment's lines, for the diff page
+  constructor(private onOpen: () => void, private onAnchor?: (event: ProseEvent) => void) {
     this.element.id = "conversation"
     this.element.setAttribute("aria-label", "Conversation")
     this.element.innerHTML = `
@@ -176,9 +178,12 @@ export class Conversation {
         const stateText = state && state.status !== "done"
           ? ` · ${state.status.replace("-", " ")}`
           : ""
-        label.textContent = `You${
-          event.kind === "message" ? "" : " · Selection comment"
-        }${stateText}`
+        const kind = event.kind === "message"
+          ? ""
+          : event.kind === "diff-comment"
+          ? " · Line comment"
+          : " · Selection comment"
+        label.textContent = `You${kind}${stateText}`
       }
     }
     this.showRows()
@@ -200,7 +205,18 @@ export class Conversation {
     meta.className = "conversation-meta"
     meta.textContent = event.kind === "activity" ? "Agent" : "You"
     row.append(meta)
-    if (event.kind !== "activity" && event.selection) {
+    if (event.kind === "diff-comment" && event.anchor) {
+      const where = document.createElement("button")
+      where.type = "button"
+      where.className = "conversation-anchor"
+      where.textContent = anchorLabel(event.anchor)
+      where.title = "Show these lines in the diff"
+      where.addEventListener("click", () => {
+        this.setOpen(false)
+        this.onAnchor?.(event)
+      })
+      row.append(where)
+    } else if (event.kind !== "activity" && event.selection) {
       const quote = document.createElement("button")
       quote.type = "button"
       quote.className = "conversation-anchor"
@@ -217,6 +233,8 @@ export class Conversation {
       )
       if (parent && "selection" in parent && parent.selection) {
         meta.textContent = `Agent · “${parent.selection.slice(0, 50)}”`
+      } else if (parent && "anchor" in parent && parent.anchor) {
+        meta.textContent = `Agent · ${anchorLabel(parent.anchor)}`
       }
     }
     const body = document.createElement("div")
@@ -406,9 +424,11 @@ export class Conversation {
   async send(input: UserInput) {
     // the doc this page shows, as in prose-client.ts
     const file = new URLSearchParams(location.search).get("file")
+    // the diff page's server takes comments only with its per-run token
+    const token = document.querySelector<HTMLMetaElement>('meta[name="prose-token"]')?.content
     const response = await fetch(file ? `/comment?${new URLSearchParams({ file })}` : "/comment", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...(token ? { "x-prose-token": token } : {}) },
       body: JSON.stringify(input),
     })
     if (!response.ok) throw new Error(await response.text())

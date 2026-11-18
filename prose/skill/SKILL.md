@@ -1,6 +1,6 @@
 ---
 name: prose
-description: "Review/edit a markdown draft in a local browser connected to this session: live preview, selection comments, general conversation, and agent activity. Use when the user wants to iterate on prose visually, or says /prose."
+description: "Review/edit a markdown draft in a local browser connected to this session: live preview, selection comments, general conversation, and agent activity. Also reviews a git diff of code changes in the browser, with line comments that come back to this session. Use when the user wants to iterate on prose visually, wants to review code changes or a branch's diff in the browser, or says /prose or /prose diff."
 ---
 
 # Prose GUI
@@ -230,6 +230,48 @@ interrupted request.
 `prose post <port>` is the raw form: it POSTs one JSON event from stdin to
 `/activity`, and `prose post <port> --get` prints the whole history and
 request states.
+
+## Diff reviews
+
+`/prose diff [args]`: run `prose diff [args]` with the arguments as given,
+as an ordinary foreground Bash call. Tell the user the page is up in one
+line, then end the turn. Comments wake the session on their own. A pane
+that `prose diff --new` opened arrives this way, with `-C <checkout>` and
+any git arguments after `--`.
+
+`prose diff` serves a unified diff of a checkout instead of a markdown file.
+The user comments on lines of it, and the comments reach this session the
+same way, headed `Prose diff review of <checkout> (<what it diffs>; port
+<n>; ...)`. Start one from this session with `prose diff -C <checkout>
+[git diff args]`, which posts to this session's own socket. With no git
+arguments it shows the checkout's changes since it left the default branch,
+uncommitted edits and untracked files included. `prose diff --help` lists the rest.
+Running it again for the same checkout and arguments reopens the page
+instead of starting a second server.
+
+When this session finishes a set of code changes the user will want to look
+over, offer `prose diff` in one line. Start it only when the user agrees.
+
+- Each comment is a `kind: "diff-comment"` event. Its `anchor` gives
+  `path` (relative to the checkout), `side` (`new` for the changed code,
+  `old` for the code before), `line` and `end`, `quote` (the first line's
+  text when the user wrote the comment) and `rev` (the commit that side was
+  read at, with `+` when it includes uncommitted edits). Find the code by
+  `quote` near `line`. Lines move as the code changes.
+- Comments usually arrive several at a time: the page holds drafts until
+  the user sends the review. Handle each, and finish each id with `prose
+  respond <port> done <id> --text '...'`. Reply by port, since the review has
+  no file. A reply lands in the comment's thread on the page.
+- A comment with `replyTo` continues the thread of that earlier comment.
+- Questions want answers in the thread. Instructions want the code
+  changed, in the checkout the header names. After an edit, the page
+  offers the user a refresh. It never re-renders on its own.
+- The conversation panel's general messages arrive as `kind: "message"`
+  events, as in markdown reviews.
+
+A review of a fleet task (`fleet review <task>`, or `:FleetDiffPage` in nvim)
+never reaches a session. Its comments become review todos in the task's note,
+and Send review runs `fleet bump`.
 
 ## Embeds
 

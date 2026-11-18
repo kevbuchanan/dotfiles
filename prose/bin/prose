@@ -4,6 +4,10 @@
 #
 #   prose start <file> [--to NAME | --new] [--no-open] [--port N]
 #                               open a review and pick its session
+#   prose diff [-C DIR] [--to NAME | --new] [git diff args...]
+#   prose diff --task ID [-s FLEET]
+#                               review a diff, with line comments for a
+#                               session or a fleet task
 #   prose serve <file> [--bg] [--port N] [--no-open] [--socket P | --to NAME | --here]
 #                               run the server; --bg detaches it
 #   prose stop <port|file>      stop a server
@@ -25,6 +29,7 @@ cmd="${1:-help}"
 [ $# -gt 0 ] && shift
 case "$cmd" in
   start) exec "$here/prose-start" "$@" ;;
+  diff) exec "$here/prose-diff" "$@" ;;
   serve)
     # --bg anywhere in the arguments picks the detached runner
     bg=0

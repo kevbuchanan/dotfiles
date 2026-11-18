@@ -8,6 +8,9 @@
 #   prose stop <port|file>
 #   prose ls
 #
+# --server NAME runs bin/NAME instead of prose-serve, and --label TEXT is what
+# prose ls shows in place of the file; prose diff starts its server this way.
+#
 # Comments go to the session inbox socket given by --socket, by --to (a
 # running session's name), or by --here (the Claude session in this tmux
 # window). With none of those the server posts to the calling session's own
@@ -48,6 +51,8 @@ esac
 # Rebuild the argument list, turning --to and --here into --socket.
 port=""
 file=""
+server=prose-serve
+label=""
 n=$#
 i=0
 while [ $i -lt $n ]; do
@@ -55,6 +60,8 @@ while [ $i -lt $n ]; do
   shift
   i=$((i + 1))
   case "$a" in
+    --server) server="$1"; shift; i=$((i + 1)) ;;
+    --label) label="$1"; shift; i=$((i + 1)) ;;
     -p|--port) port="$1"; shift; i=$((i + 1)); set -- "$@" --port "$port" ;;
     --port=*) port="${a#--port=}"; set -- "$@" --port "$port" ;;
     --socket) set -- "$@" --socket "$1"; shift; i=$((i + 1)) ;;
@@ -91,9 +98,11 @@ fi
 # setsid puts the server in its own session, so the harness killing the
 # calling shell's process group does not take the server with it.
 nohup perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die "exec: $!"' \
-  "$here/prose-serve" "$@" </dev/null >"$log" 2>&1 &
+  "$here/$server" "$@" </dev/null >"$log" 2>&1 &
 echo $! >"$pidfile"
-if [ -n "$file" ]; then
+if [ -n "$label" ]; then
+  printf '%s\n' "$label" >"$state/$port.file"
+elif [ -n "$file" ]; then
   realpath "$file" >"$state/$port.file" 2>/dev/null || true
 fi
 

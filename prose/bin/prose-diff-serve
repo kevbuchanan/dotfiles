@@ -1,0 +1,7 @@
+#!/bin/sh
+# Runs the diff review server with prose's import map, as prose-serve runs
+# the markdown one. It runs git for the diff and, for a fleet task, fleet
+# for the task's revision and its note.
+D=$(cd "$(dirname "$(realpath "$0")")/.." && pwd)
+exec deno run --config "$D/deno.jsonc" --allow-env --allow-read --allow-write \
+  --allow-net=127.0.0.1,localhost --allow-run=open,deno,git,fleet,nc "$D/bin/prose-diff.ts" "$@"

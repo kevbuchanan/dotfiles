@@ -1,0 +1,168 @@
+/* prose diff review page: the bar, the file list, and the comment cards
+   that FileDiff slots in under their lines. The diff itself is styled by
+   @pierre/diffs inside each file's shadow root. GitHub's palette, as the
+   markdown page uses. */
+:root {
+  --fg: #1f2328;
+  --muted: #59636e;
+  --bg: #ffffff;
+  --subtle: #f6f8fa;
+  --border: #d1d9e0;
+  --accent: #0969da;
+  --green: #1f883d;
+  --warn: #9a6700;
+  --flash: rgba(255, 223, 93, 0.5);
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: #f0f6fc;
+    --muted: #9198a1;
+    --bg: #0d1117;
+    --subtle: #151b23;
+    --border: #3d444d;
+    --accent: #4493f8;
+    --green: #238636;
+    --warn: #d29922;
+    --flash: rgba(187, 128, 9, 0.4);
+  }
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+#bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  padding: 10px 16px;
+  background: var(--subtle);
+  border-bottom: 1px solid var(--border);
+}
+.bar-title { flex: 1 1 320px; min-width: 0; overflow-wrap: anywhere; }
+#dir, .bar-stats, .bar-sink { color: var(--muted); font-size: 12px; }
+button {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+}
+button:hover { border-color: var(--muted); }
+button:disabled { opacity: 0.5; cursor: default; }
+button.primary, #send-review:not(:disabled) {
+  background: var(--green);
+  border-color: rgba(31, 35, 40, 0.15);
+  color: #ffffff;
+}
+#changed {
+  position: sticky;
+  top: 52px;
+  z-index: 4;
+  margin: 8px 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  background: var(--subtle);
+}
+#files { margin: 12px 16px 0; }
+#files summary { cursor: pointer; color: var(--muted); }
+#file-list { margin: 6px 0 0; padding-left: 24px; font-size: 13px; }
+#file-list a { color: var(--accent); text-decoration: none; overflow-wrap: anywhere; }
+#file-list .stat { color: var(--muted); font-size: 12px; }
+#file-list .is-viewed a { color: var(--muted); }
+main, #orphans { padding: 0 16px; }
+.file { margin: 16px 0; scroll-margin-top: 64px; }
+.raw-patch {
+  margin: 0;
+  padding: 8px 12px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--subtle);
+  font-size: 12px;
+}
+.empty { color: var(--muted); padding: 32px 0; text-align: center; }
+.viewed { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); cursor: pointer; }
+.outdated, #orphans {
+  margin: 0 0 8px;
+  padding: 8px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+}
+#orphans { margin: 12px 16px; }
+.outdated-head { color: var(--warn); font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+.note-card {
+  margin: 8px 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  white-space: normal;
+}
+.note-card.draft { border-style: dashed; }
+.note-card.compose { border-color: var(--accent); }
+.note-card.flash { animation: flash-fade 1.8s ease-out; }
+@keyframes flash-fade { from { background: var(--flash); } to { background: var(--bg); } }
+.card-head { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.chip {
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.status-done .chip { border-color: var(--green); color: var(--green); }
+.status-needs-reply .chip, .status-not-delivered .chip, .status-error .chip, .status-not-in-the-note .chip {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+.card-entry { margin-top: 6px; }
+.card-who { font-size: 12px; font-weight: 600; }
+.card-entry.from-agent .card-who, .card-entry.from-worker .card-who { color: var(--accent); }
+.card-body > :first-child { margin-top: 0; }
+.card-body > :last-child { margin-bottom: 0; }
+.card-body pre, .card-body code { font-size: 12px; }
+.card-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 8px; }
+.card-actions .hint { flex: 1; color: var(--muted); font-size: 11px; }
+.compose textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 72px;
+  margin-top: 6px;
+  padding: 8px;
+  resize: vertical;
+  font: inherit;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--subtle);
+  color: var(--fg);
+}
+.compose textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; background: var(--bg); }
+#toast {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  max-width: calc(100vw - 32px);
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  border-radius: 6px;
+  background: var(--green);
+  color: #ffffff;
+  font-size: 13px;
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+}

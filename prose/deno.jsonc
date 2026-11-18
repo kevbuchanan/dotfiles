@@ -24,6 +24,7 @@
     "@xterm/xterm": "npm:@xterm/xterm@^6.0.0",
     "@xterm/addon-fit": "npm:@xterm/addon-fit@^0.11.0",
     "@xterm/addon-webgl": "npm:@xterm/addon-webgl@^0.19.0",
-    "mermaid": "npm:mermaid@^11"
+    "mermaid": "npm:mermaid@^11",
+    "@pierre/diffs": "npm:@pierre/diffs@^1.6.4"
   }
 }

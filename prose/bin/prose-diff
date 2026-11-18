@@ -1,0 +1,124 @@
+#!/bin/sh
+# Opens a diff review in the browser, with line comments for a Claude Code
+# session or a fleet task:
+#
+#   prose diff [-C DIR] [--to NAME | --new] [--no-open] [--port N] [git diff args...]
+#   prose diff --task ID [-s FLEET] [--no-open] [--port N]
+#
+#   no git args        the checkout's changes since it left the default
+#                      branch, uncommitted edits and untracked files included
+#   git args           what git diff shows for them, such as main...HEAD,
+#                      HEAD~3 or --cached; put -- before args that start
+#                      with --
+#   -C DIR             the checkout, default the current folder
+#   --task ID          a fleet task's changes; comments become review todos
+#                      in its note and Send review bumps its worker. The
+#                      fleet is -s FLEET or the calling tmux session's.
+#
+# Comments go to, in order: the session named by --to; the calling session,
+# when run from a Claude Code session's Bash tool; the Claude session in the
+# caller's tmux window. With none of those, or with --new, a new pane right
+# of the caller runs claude with `/prose diff`, and that session starts the
+# server. Outside tmux the server starts with no session and holds comments
+# until one runs prose join.
+#
+# A review already open for the same checkout and arguments, or the same
+# task, is opened again instead of started twice.
+set -eu
+here=$(cd "$(dirname "$(realpath "$0")")" && pwd)
+usage="usage: prose diff [-C DIR] [--to NAME | --new] [--no-open] [--port N] [git diff args...] | --task ID [-s FLEET]"
+
+dir=$PWD
+to=""
+new=0
+task=""
+fleet=""
+open=1
+port=""
+gitargs="[]"
+add() { gitargs=$(jq -cn --argjson a "$gitargs" --arg v "$1" '$a + [$v]'); }
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -C) dir="${2:?-C needs a folder}"; shift 2 ;;
+    --to) to="${2:?--to needs a session name}"; shift 2 ;;
+    --new) new=1; shift ;;
+    --task) task="${2:?--task needs a task id}"; shift 2 ;;
+    -s) fleet="${2:?-s needs a fleet name}"; shift 2 ;;
+    --no-open) open=0; shift ;;
+    -p|--port) port="${2:?--port needs a number}"; shift 2 ;;
+    -h|--help) sed -n '2,/^set/s/^# \{0,1\}//p' "$0" | sed '$d'; exit 0 ;;
+    --) shift; for a in "$@"; do add "$a"; done; break ;;
+    *) add "$1"; shift ;;
+  esac
+done
+
+flags=""
+[ $open -eq 1 ] || flags="--no-open"
+[ -z "$port" ] || flags="$flags --port $port"
+
+# a running review with this label is reused
+reopen() {
+  existing=$("$here/prose-bg" --list | awk -F '\t' -v l="$1" '$3 == l { print $1; exit }')
+  [ -n "$existing" ] || return 1
+  echo "prose diff: already open on port $existing"
+  [ $open -eq 0 ] || open "http://localhost:$existing"
+  exit 0
+}
+
+if [ -n "$task" ]; then
+  [ "$gitargs" = "[]" ] || { echo "prose diff: --task takes no git diff arguments" >&2; exit 1; }
+  if [ -z "$fleet" ]; then
+    [ -n "${TMUX_PANE:-}" ] || { echo "prose diff: --task needs -s <fleet> outside tmux" >&2; exit 1; }
+    fleet=$(tmux display -p -t "$TMUX_PANE" '#S')
+  fi
+  notes=$(tmux show -qv -t "=$fleet:" @fleet_notes 2>/dev/null || true)
+  [ -n "$notes" ] || { echo "prose diff: $fleet is not a running fleet" >&2; exit 1; }
+  note="$notes/tasks/$task.md"
+  [ -f "$note" ] || { echo "prose diff: $task has no open note in $notes/tasks" >&2; exit 1; }
+  label="diff: task $task in fleet $fleet"
+  reopen "$label" || true
+  # shellcheck disable=SC2086
+  exec "$here/prose-bg" --server prose-diff-serve --label "$label" \
+    --task "$task" --fleet "$fleet" --note "$note" $flags
+fi
+
+top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) || { echo "prose diff: not a git checkout: $dir" >&2; exit 1; }
+shown=$(jq -rn --argjson a "$gitargs" 'if $a == [] then "" else " " + ($a | join(" ")) end')
+label="diff: $top$shown"
+reopen "$label" || true
+start() {
+  # shellcheck disable=SC2086
+  exec "$here/prose-bg" --server prose-diff-serve --label "$label" --dir "$top" --git-args "$gitargs" $flags "$@"
+}
+
+if [ -n "$to" ]; then
+  # set -e skips a failure inside another command's arguments
+  sock=$("$here/prose-session" --name "$to") || exit 1
+  start --socket "$sock"
+fi
+# from a Claude session's Bash tool: the server posts to that session as its
+# own child, with its token
+if [ -n "${CLAUDE_CODE_MESSAGING_SOCKET:-}" ] && [ $new -eq 0 ]; then
+  start
+fi
+if [ -z "${TMUX_PANE:-}" ]; then
+  [ $new -eq 0 ] || { echo "prose diff: --new opens a tmux pane, and this is not tmux" >&2; exit 1; }
+  echo "not in tmux: starting with no Claude session; comments wait until one runs prose join"
+  start
+fi
+rc=2
+[ $new -eq 1 ] || { rc=0; sock=$("$here/prose-session" --window "$TMUX_PANE" 2>/dev/null) || rc=$?; }
+if [ $rc -eq 0 ]; then
+  start --socket "$sock"
+elif [ $rc -ne 2 ]; then
+  "$here/prose-session" --window "$TMUX_PANE"
+  exit 1
+fi
+
+# No Claude session in this window: start one beside the caller, and let it
+# start the server through the skill, so comments reach its own socket
+quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+cmdline="/prose diff $(jq -rn --argjson a "$gitargs" --arg top "$top" '["-C", $top] + (if $a == [] then [] else ["--"] + $a end) | map(@sh) | join(" ")')"
+pane=$(tmux split-window -h -t "$TMUX_PANE" -c "$top" -P -F '#{pane_id}')
+tmux send-keys -t "$pane" "${PROSE_CLAUDE:-claude} -n prose-diff-$(basename "$top") $(quote "$cmdline")" Enter
+echo "opened Claude session prose-diff-$(basename "$top") in pane $pane; it starts the review"
