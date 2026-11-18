@@ -27,8 +27,9 @@ local function place()
   return path, nil
 end
 
--- fleet and task for the current buffer: the :FleetDiff! tab's target, or the
--- task of the worker whose worktree holds the file
+-- fleet and task for the current buffer, from actions.target. place() has
+-- already refused a note, so this is the :FleetDiff! tab's target, or the
+-- task of the worker whose worktree holds the file.
 local function target()
   local fleet, t = actions.target()
   fleet = fleet or actions.session_fleet()

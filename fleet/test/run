@@ -308,6 +308,8 @@ test_comment() {
     -c "edit $n" -c 'FleetDiff' -c 'lua vim.wait(3000, function() return vim.uv.fs_stat("'$T/prose.args'") ~= nil end)' -c 'qa!' > /dev/null 2>&1
   eq ":FleetDiff from the note opens the page" "$(< $T/prose.args)" "diff --task alpha -s demo"
   local listing='lua io.write(table.concat(vim.fn.getcompletion("FleetDiff ", "cmdline"), " "))'
+  mkdir -p $T/moved && cp $n $T/moved/alpha.md
+  eq "a note outside tasks/, such as an archived one, names its worker" "$($real_nvim --clean --headless --cmd "set rtp+=$root/nvim" -c "edit $T/moved/alpha.md" -c 'lua io.write(tostring(require("fleet.actions").seat(nil, "alpha")))' -c 'qa!' 2>&1)" "w1"
   eq ":FleetDiff completes the seats and open tasks" "$(as w1 $real_nvim --clean --headless --cmd "set rtp+=$root/nvim" --cmd 'runtime plugin/fleet.lua' -c "$listing" -c 'qa!' 2>&1)" "w1 w2 alpha beta zeta"
   rm $T/prose.args
   as w1 $real_nvim --clean --headless --cmd "set rtp+=$root/nvim" --cmd 'runtime plugin/fleet.lua' -c 'FleetBoard demo' \

@@ -131,7 +131,7 @@ vim.api.nvim_create_user_command("FleetBump", function(o)
   local meta = note.buffer()
   if meta and meta.task == task then vim.cmd("silent update") end
   actions.run(fleet, "bump", task)
-end, { nargs = "?", desc = "Tell a fleet task's worker its note has new work" })
+end, { nargs = "?", desc = "Tell a fleet task's worker its note has new work", complete = complete_targets })
 
 vim.keymap.set("n", "<Leader>b", "<cmd>FleetBump<cr>", { desc = "fleet bump for this task" })
 

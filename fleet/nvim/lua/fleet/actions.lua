@@ -68,11 +68,15 @@ function M.task(fleet, target)
   return M.seat_task(fleet, target)
 end
 
--- A target as a worker seat: a task note names its worker
+-- A target as a worker seat: a task note names its worker. The open note
+-- wins, saved or not and archived or not; else the note in tasks/
 function M.seat(fleet, target)
   if not target or target:match("^w%d+$") then return target end
-  fleet = fleet or M.session_fleet()
-  local s = fleet and note.summary(M.notes_dir(fleet) .. "/tasks/" .. target .. ".md")
+  local s = note.buffer()
+  if not (s and s.task == target) then
+    fleet = fleet or M.session_fleet()
+    s = fleet and note.summary(M.notes_dir(fleet) .. "/tasks/" .. target .. ".md")
+  end
   return s and (s.worker or ""):match("%-(w%d+)$") or nil
 end
 

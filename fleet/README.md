@@ -439,7 +439,7 @@ Claude Code refuses rapid bursts of messages to one session. fleet sends one mes
 | `fleet answer <id>` | tell a worker waiting on a question that the task's questions are answered |
 | `fleet report <id> <phase> <text>` | a worker's report on its task: `progress`, `review`, `done`, `blocked` or `error` |
 | `fleet bump <id>` | tell the worker still on the task that its note has new work |
-| `fleet diff [--rev] [<id> \| <seat>] [git diff args]` | show one task's changes, or a worker's whole branch. With neither, in a worker's pane, its branch. `--rev` prints the folder and revision `:FleetDiff` uses. |
+| `fleet diff [--rev] [<id> \| <seat>] [git diff args]` | show one task's changes, or a worker's whole branch. With neither, in a worker's pane, its branch. `--rev` prints the folder and revision `:FleetDiff!` uses. |
 | `fleet comment <id> <path>:<line>[-<end>] [--at <sha>] [--quote <text>] <comment>` | add a review comment to an open task's note as a todo, and print the line. See "Review comments". |
 | `fleet review <id \| seat> [--no-open] [--port N]` | open the task's changes in prose's diff page, whose comments go to the note. See "Review comments". |
 | `fleet repo [add <path>]` | list the fleet's repos, or record another one tasks may work in |
