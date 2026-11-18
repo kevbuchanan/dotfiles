@@ -17,8 +17,8 @@
 #
 # Comments go to, in order: the session named by --to; the calling session,
 # when run from a Claude Code session's Bash tool; the Claude session in the
-# caller's tmux window. With none of those, or with --new, a new pane right
-# of the caller runs claude with `/prose diff`, and that session starts the
+# caller's tmux window. With none of those, or with --new, a new pane below
+# the caller, a third of its height, runs claude with `/prose diff`, and that session starts the
 # server. Outside tmux the server starts with no session and holds comments
 # until one runs prose join.
 #
@@ -115,10 +115,11 @@ elif [ $rc -ne 2 ]; then
   exit 1
 fi
 
-# No Claude session in this window: start one beside the caller, and let it
-# start the server through the skill, so comments reach its own socket
+# No Claude session in this window: start one in a pane below the caller, a
+# third of its height, and let it start the server through the skill, so
+# comments reach its own socket
 quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 cmdline="/prose diff $(jq -rn --argjson a "$gitargs" --arg top "$top" '["-C", $top] + (if $a == [] then [] else ["--"] + $a end) | map(@sh) | join(" ")')"
-pane=$(tmux split-window -h -t "$TMUX_PANE" -c "$top" -P -F '#{pane_id}')
+pane=$(tmux split-window -v -l 33% -t "$TMUX_PANE" -c "$top" -P -F '#{pane_id}')
 tmux send-keys -t "$pane" "${PROSE_CLAUDE:-claude} -n prose-diff-$(basename "$top") $(quote "$cmdline")" Enter
 echo "opened Claude session prose-diff-$(basename "$top") in pane $pane; it starts the review"

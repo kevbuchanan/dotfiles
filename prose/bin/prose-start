@@ -6,8 +6,8 @@
 #   --to NAME          the server posts comments to that running session
 #   --new              open a new Claude pane even when the window has one
 #   inside tmux        the server posts to the Claude session in the same
-#                      window; with none there, a new pane right of the caller
-#                      runs claude with `/prose <file>`, and that session starts
+#                      window; with none there, a new pane below the caller,
+#                      a third of its height, runs claude with `/prose <file>`, and that session starts
 #                      the server itself through the skill
 #   outside tmux       the server starts with no session; comments wait until
 #                      a session joins it through the /prose skill
@@ -58,11 +58,12 @@ elif [ $rc -ne 2 ]; then
   exit 1
 fi
 
-# No Claude session in this window. Start one beside the caller and let the
-# skill start the server, so comments reach that session's own socket.
+# No Claude session in this window. Start one in a pane below the caller, a
+# third of its height, and let the skill start the server, so comments reach
+# that session's own socket.
 quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 dir=$(git -C "$(dirname "$file")" rev-parse --show-toplevel 2>/dev/null || dirname "$file")
 name="prose-$(basename "$file" .md | tr -c 'A-Za-z0-9_-' '-' | sed 's/-*$//')"
-pane=$(tmux split-window -h -t "$TMUX_PANE" -c "$dir" -P -F '#{pane_id}')
+pane=$(tmux split-window -v -l 33% -t "$TMUX_PANE" -c "$dir" -P -F '#{pane_id}')
 tmux send-keys -t "$pane" "${PROSE_CLAUDE:-claude} -n $name $(quote "/prose $file")" Enter
 echo "opened Claude session $name in pane $pane; it starts the prose server"

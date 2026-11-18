@@ -38,7 +38,7 @@ prose start docs/design.md        # from a shell
 
 1. `--to <name>`, or `:Prose <name>`, targets the running session with that name. Names complete in nvim.
 2. Inside tmux, the server targets the Claude session in the caller's tmux window.
-3. Inside tmux with no Claude session in the window, or with `--new` (`:Prose!`), a new pane opens right of the caller. It runs `claude -n prose-<file name> "/prose <file>"` from the file's git root, and that session starts the server itself through the skill.
+3. Inside tmux with no Claude session in the window, or with `--new` (`:Prose!`), a new pane opens below the caller, a third of its height. It runs `claude -n prose-<file name> "/prose <file>"` from the file's git root, and that session starts the server itself through the skill.
 4. Outside tmux, the server starts with no session. Comments are held until a session joins with `prose join`.
 
 `PROSE_CLAUDE` sets the command the new pane runs, `claude` by default. The pane runs an interactive shell, so a shell alias works.
