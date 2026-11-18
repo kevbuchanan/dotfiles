@@ -136,6 +136,11 @@ function page(title: string, previewOnly: boolean) {
     cursor: pointer;
   }
   #editor-toggle:hover { color: #1f2328; background: #eef1f4; }
+  /* the theme button sits left of the editor toggle, or in its place */
+  #theme-toggle { position: fixed; top: 10px; right: 44px; z-index: 11; width: 28px; height: 28px; padding: 0;
+    border: 1px solid #d1d9e0; border-radius: 6px; background: #f6f8fa; color: #59636e; font-size: 14px; line-height: 1; cursor: pointer; }
+  body.preview-only #theme-toggle { right: 10px; }
+  #theme-toggle:hover { color: #1f2328; background: #eef1f4; }
   @keyframes flash-fade {
     from { background-color: rgba(255, 223, 93, 0.5); }
     to { background-color: transparent; }
@@ -300,6 +305,8 @@ function page(title: string, previewOnly: boolean) {
       color-scheme: dark;
     }
     #editor-toggle:hover { color: #f0f6fc; background: #1c2330; }
+    #theme-toggle { background: #151b23; border-color: #3d444d; color: #9198a1; }
+    #theme-toggle:hover { color: #f0f6fc; background: #1c2330; }
     @keyframes flash-fade {
       from { background-color: rgba(187, 128, 9, 0.4); }
       to { background-color: transparent; }

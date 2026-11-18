@@ -19,6 +19,7 @@ import MarkdownExit from "markdown-exit"
 import { Conversation } from "./lib/prose/conversation.ts"
 import type { Event, FeedSnapshot, RequestState, UserInput } from "./lib/prose/events.ts"
 import { type Anchor, anchorLabel, locate, parsePatch, type PatchFile } from "./lib/prose/patch.ts"
+import { Theme } from "./lib/prose/theme.ts"
 import type { NoteThread } from "./lib/prose/review.ts"
 
 type DiffRead = { key: string; patch: string; hash: string; dir: string; label: string; base: string; head: string }
@@ -314,6 +315,14 @@ async function sendNow() {
 }
 
 const sendButton = $("send-review") as HTMLButtonElement
+const theme = new Theme()
+sendButton.before(theme.button("theme"))
+theme.onChange(() => {
+  for (const v of views) {
+    v.diff.setOptions({ ...v.diff.options, themeType: theme.mode })
+    v.diff.rerender()
+  }
+})
 sendButton.addEventListener("click", async () => {
   if (!drafts.length) return
   sendButton.disabled = true
@@ -569,7 +578,7 @@ function renderDiff() {
     }
     const fd = new FileDiff<Meta>({
       diffStyle: "unified",
-      themeType: "system",
+      themeType: theme.mode,
       lineDiffType: "word",
       collapsed: isViewed(file),
       enableLineSelection: true,

@@ -28,6 +28,8 @@ prose start docs/design.md        # from a shell
 
 **Activity.** Claude's replies and status updates. Claude posts them to the server's `/activity` endpoint with `prose respond`, which takes the draft's path or the port and sends `start` itself when work hasn't started, so quick work goes straight to `done`. The page shows them as toasts and keeps them in a history panel. Nothing in the page's activity is sent back to the session.
 
+**Theme.** Both pages follow the system's light or dark setting. The button at the top right, beside the editor toggle on the markdown page and beside "Send review" on the diff page, steps through system, light and dark. The choice is a cookie for localhost, so it carries to every prose page on any port. Mermaid diagrams redraw in the matching theme.
+
 **Skill.** `skill/SKILL.md` is the `/prose` skill. It covers starting a server, handling each event kind, replying, and joining a server started elsewhere.
 
 ## Starting a review
@@ -148,7 +150,7 @@ bin/prose-diff.ts    the diff review server
 bin/prose-diff-client.ts
                      the diff page script, bundled by its server at startup
 bin/prose-pty.py     runs hx in a pty for the editor pane
-bin/lib/             CSS, and the conflict, event, conversation and session modules,
+bin/lib/             CSS, and the conflict, event, conversation, session and theme modules,
                      and for diff reviews the patch, diff source and review modules
 ../lib/claude/session.ts
                      inbox socket posting, liveness and config dirs, shared with fleet
@@ -216,6 +218,7 @@ The server comes from `david-crespo/dotfiles` at the commit in `SOURCE`, under i
 
 - **Preview-only without Helix:** `prose.ts` checks for `hx` at startup. Without it, the server serves every page preview-only and refuses `/pty`.
 - **Mermaid:** `prose-client.ts` renders `mermaid` fenced blocks as diagrams.
+- **Theme:** `bin/lib/prose/theme.ts` and the buttons that force light or dark. See "Theme" under Concepts.
 - **Liveness across config dirs:** `sessionAlive` checks every config dir listed under "Finding sessions" above. Upstream checks only `~/.claude`.
 - **Shared session code:** `postToSession`, `sessionAlive` and `claudeDirs` live in `lib/claude/session.ts` at the dotfiles root, which fleet imports too. `bin/lib/prose/session.ts` re-exports them and keeps `resolveSession` and `formatForSession`. The shared module posts through `Deno.Command` in place of upstream's dax.
 - **Many docs per server:** the per-file state moved from `prose.ts` into `Doc` and `DocSet` in `bin/lib/prose/docs.ts`. Every route takes `?file=`, `/follow` and `/docs` are new, and the client sends its doc's `file` on every request. See "Following links".

@@ -15,6 +15,7 @@ import { WebglAddon } from "@xterm/addon-webgl"
 import MarkdownExit from "markdown-exit"
 import { Conversation } from "./lib/prose/conversation.ts"
 import { findConflictEnd, parseConflict } from "./lib/prose/conflict.ts"
+import { Theme } from "./lib/prose/theme.ts"
 // @ts-expect-error no type declarations
 import taskLists from "markdown-it-task-lists"
 import mermaid from "mermaid"
@@ -86,12 +87,22 @@ function applyDoc(text: string) {
 
 // ---------- preview ----------
 
-mermaid.initialize({
-  startOnLoad: false,
-  // Match the dark GitHub preview background (#0d1117).
-  theme: "dark",
-  // Suppress the "security level" banner that otherwise appears.
-  securityLevel: "loose",
+// Mermaid draws its diagrams in fixed colors, so a theme change draws them
+// again from the markdown
+const theme = new Theme()
+document.body.append(theme.button("theme-toggle"))
+function initMermaid() {
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: theme.dark ? "dark" : "default",
+    // Suppress the "security level" banner that otherwise appears.
+    securityLevel: "loose",
+  })
+}
+initMermaid()
+theme.onChange(() => {
+  initMermaid()
+  renderPreview()
 })
 
 const md = MarkdownExit({ html: true, linkify: true }).use(taskLists)
