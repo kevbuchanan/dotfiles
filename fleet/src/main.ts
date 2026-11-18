@@ -5,6 +5,7 @@ import { archive, migrate } from "./cmd/archive.ts"
 import { diff } from "./cmd/diff.ts"
 import { attach, clean, create, kill, ls, repo } from "./cmd/lifecycle.ts"
 import { pair } from "./cmd/pair.ts"
+import { comment, review } from "./cmd/review.ts"
 import * as seat from "./cmd/seat.ts"
 import { die, FleetError } from "./run.ts"
 
@@ -62,6 +63,14 @@ there shows what agents wrote since the last assignment.
                                branch; with neither, the calling worker's
                                branch. --rev prints the folder and revision
                                instead, for :FleetDiff
+  fleet comment <id> <path>:<line>[-<end>] [--at <sha>] [--quote <text>] <comment>
+                               add a review comment to an open task's note
+                               as a todo, and print the line
+  fleet review <id | seat> [--no-open] [--port N]
+                               open the task's changes, or those of the task
+                               the seat holds, in prose's diff page, whose
+                               comments go to the note; Send review runs
+                               fleet bump
   fleet shell <seat> [cmd]     open a window in a worker's worktree, running
                                cmd or a shell
   fleet pair [<task id | seat>] [--branch <ref> | --dir <path> | --pr [<ref>]]
@@ -110,6 +119,8 @@ const SEAT_COMMANDS: Record<string, (fleet: Fleet, args: string[]) => Promise<vo
   answer: seat.answer,
   report: seat.report,
   diff,
+  comment,
+  review,
   archive,
   migrate,
 }

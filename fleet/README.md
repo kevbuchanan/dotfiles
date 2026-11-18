@@ -347,6 +347,10 @@ Comments on a task's code go into its note as todos, so the worker gets them thr
 
 The worker skill tells the worker to make each change, check the item, and add a nested `- reply:` line when the fix needs explaining. The Stop hook and `fleet report done` treat review items as todos, and the board counts them.
 
+In the browser, `fleet review <task>` opens the same changes in [prose's diff page](../prose/README.md#diff-reviews). A comment there becomes the same todo, through `fleet comment`, and "Send review" runs `fleet bump`. The page shows each todo's thread: done once the worker checks it, with each indented `- reply:` line under the todo as the worker's reply. `fleet review` also takes a seat, for the task it holds.
+
+`fleet comment <task> <path>:<line>[-<end>] [--at <sha>] [--quote <text>] <comment>` writes one todo from the shell and prints it. `--at` marks a line on the old side, read at the base commit, and `--quote` is the line's text, shortened as `:FleetComment` shortens it.
+
 The task has to still be open: in `tasks/`, with no `end:`. Once `fleet clear` has closed it, `:FleetComment` refuses and points at `:FleetFollowUp`. The orchestrator clears a seat soon after `done`, so review before that, or put the comments in a follow-up. `:FleetComment` finds the task from the `:FleetDiff!` tab, or from the seat whose worktree holds the file, through tmux. It writes the note on disk, so an open copy of the note must have no unsaved changes.
 
 ### Uncommitted work at the close
@@ -436,6 +440,8 @@ Claude Code refuses rapid bursts of messages to one session. fleet sends one mes
 | `fleet report <id> <phase> <text>` | a worker's report on its task: `progress`, `review`, `done`, `blocked` or `error` |
 | `fleet bump <id>` | tell the worker still on the task that its note has new work |
 | `fleet diff [--rev] [<id> \| <seat>] [git diff args]` | show one task's changes, or a worker's whole branch. With neither, in a worker's pane, its branch. `--rev` prints the folder and revision `:FleetDiff` uses. |
+| `fleet comment <id> <path>:<line>[-<end>] [--at <sha>] [--quote <text>] <comment>` | add a review comment to an open task's note as a todo, and print the line. See "Review comments". |
+| `fleet review <id \| seat> [--no-open] [--port N]` | open the task's changes in prose's diff page, whose comments go to the note. See "Review comments". |
 | `fleet repo [add <path>]` | list the fleet's repos, or record another one tasks may work in |
 | `fleet pair [<task id \| seat>] [--branch <ref> \| --dir <path> \| --pr [<ref>]]` | open a window with nvim and an interactive claude: in a task's checkout at its note's state, or on a branch, an existing folder, or a pull or merge request's branch, with or without a task |
 | `fleet shell <seat> [cmd]` | open window `<seat>-shell` in a worker's worktree, running `cmd` or a shell |
@@ -501,7 +507,8 @@ src/note.ts               task note frontmatter, sections, migration and lookup 
 src/run.ts                subprocess and file helpers
 src/cmd/                  lifecycle.ts (new, attach, ls, kill, clean), seat.ts (tasks and seat
                           commands), diff.ts (diff and branch sync), archive.ts (archive,
-                          relink and migrate)
+                          relink and migrate), pair.ts (pair), review.ts (comment and
+                          review)
 deno.jsonc, deno.lock     import map and locked dependency versions
 prompts/orchestrator.md   orchestrator identity, appended to Claude Code's system prompt
 prompts/worker.md         worker identity, appended to Claude Code's system prompt

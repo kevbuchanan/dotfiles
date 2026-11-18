@@ -44,7 +44,10 @@ case "$*" in
   *) echo "glab stub: $*" >&2; exit 1 ;;
 esac
 EOF
-chmod +x $T/bin/tmux $T/bin/nvim $T/bin/gh $T/bin/glab
+# prose records its arguments, for fleet review
+print -r -- "#!/bin/sh
+echo \"\$*\" > $T/prose.args" > $T/bin/prose
+chmod +x $T/bin/tmux $T/bin/nvim $T/bin/gh $T/bin/glab $T/bin/prose
 print -r -- "set -g default-command \"env PATH=$T/bin:$root/bin:$PATH zsh -f\"" > $T/tmux.conf
 
 unset TMUX TMUX_PANE CLAUDE_CONFIG_DIR CLAUDE_CODE_MESSAGING_SOCKET CLAUDE_CODE_MESSAGING_TOKEN
@@ -281,6 +284,29 @@ vim.wait(3000, function() return false end)" > $lua
   rm $f
 }
 
+test_comment() {
+  local n=$(note alpha)
+  check "fleet comment adds a review todo" fleet comment alpha src/x.ts:4-6 --quote '  const  `a` = 1' -- check the bounds
+  check "the todo reads as :FleetComment writes it" has $n "^- \\[ \\] Review src/x\\.ts:4-6 \`const 'a' = 1\`: check the bounds\$"
+  eq "it prints the line, with the base commit for an old-side line" "$(fleet comment alpha old.ts:2 --at abc1234 drop this)" "- [ ] Review old.ts:2 at abc1234: drop this"
+  check "the second todo follows the first" eval "awk '/Review src\\/x\\.ts/ { a = NR } /Review old\\.ts/ { b = NR } END { exit !(a && b == a + 1) }' $n"
+  perl -pi -e 's/^(- \[ \] Review old\.ts:2 .*)$/$1\n  - reply: dropped/' $n
+  fleet comment alpha new.ts:1 after the reply > /dev/null
+  check "a new todo goes below the last one's reply" eval "awk '/reply: dropped/ { r = NR } /Review new\\.ts:1/ { t = NR } END { exit !(r && t == r + 1) }' $n"
+  refuses "a comment with no text" fleet comment alpha a.ts:1
+  refuses "a place with no line" fleet comment alpha a.ts hmm
+  fleet task zeta closed > /dev/null
+  sed -i.bak 's/^end:$/end: abc/' $(note zeta) && rm $(note zeta).bak
+  refuses "a comment on a closed task" fleet comment zeta a.ts:1 late
+  check "fleet review opens the task's diff in prose" fleet review alpha --no-open
+  eq "with the task and the fleet" "$(< $T/prose.args)" "diff --task alpha -s demo --no-open"
+  check "fleet review of a seat opens the task it holds" fleet review w1 --no-open
+  eq "the seat's task" "$(< $T/prose.args)" "diff --task alpha -s demo --no-open"
+  refuses "fleet review of a task with no note" fleet review nosuch
+  sed -i.bak -e '/Review src\/x\.ts/d' -e '/Review old\.ts/d' -e '/reply: dropped/d' -e '/Review new\.ts/d' $n && rm $n.bak
+  rm $(note zeta)
+}
+
 test_pair() {
   eq "fleet pair warns that the worker shares the checkout" "$(fleet pair alpha 2>&1 >/dev/null)" "fleet: w1 still holds alpha and may be editing $(wt w1) too"
   local win='=demo:alpha-pair'
@@ -422,6 +448,33 @@ test_diff() {
   git -C $(wt w1) commit -q -am "w1 more work"
   check "the branch diff shows it" eval "fleet diff w1 --stat | grep -q file.txt"
   check "the calling worker's branch, with no argument" eval "as w1 command fleet diff --stat | grep -q file.txt"
+}
+
+# prose's diff page on a task: its comments become review todos, Send review
+# bumps the worker, and the page reads the worker's replies from the note
+test_review_page() {
+  local port=$(( 5100 + $$ % 500 )) n=$(note alpha) log=$T/review-page.log
+  XDG_STATE_HOME=$T/state $root/../prose/bin/prose-diff-serve --task alpha --fleet demo --note $n \
+    --no-open --port $port > $log 2>&1 &
+  local pid=$!
+  check "the review page starts" within 30 eval "grep -q Listening $log"
+  local tok=$(curl -s localhost:$port/ | grep -o 'prose-token" content="[^"]*' | cut -d'"' -f3)
+  check "the page shows the task's diff" eval "curl -s localhost:$port/diff | jq -e '.label == \"task alpha in fleet demo\" and (.patch | contains(\"+change\"))'"
+  local body='{"comments":[{"kind":"diff-comment","text":"rename it","anchor":{"path":"file.txt","side":"new","line":1,"end":1,"quote":"change"}}]}'
+  eq "a review without the page's token is refused" "$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:$port/review -H 'content-type: application/json' -d $body)" 403
+  check "send review" eval "curl -sf -X POST localhost:$port/review -H 'x-prose-token: $tok' -H 'content-type: application/json' -d '$body' | jq -e .agentConnected"
+  check "the comment is a review todo" has $n '^- \[ \] Review file\.txt:1 `change`: rename it$'
+  check "send review bumps the worker" within 3 received w1 "Task alpha was updated"
+  local mixed='{"comments":[{"kind":"diff-comment","text":"keep me","anchor":{"path":"file.txt","side":"new","line":2,"end":2,"quote":"more"}},{"kind":"diff-comment","text":"bad place","anchor":{"path":"no\nline","side":"new","line":1,"end":1,"quote":""}}]}'
+  curl -s -X POST localhost:$port/review -H "x-prose-token: $tok" -H 'content-type: application/json' -d $mixed > $T/mixed.json
+  eq "a batch that fails partway keeps the first comment" "$(jq -r .saved $T/mixed.json)" 1
+  check "and says so" eval "jq -e '.warning | startswith(\"Saved 1 of 2\")' $T/mixed.json"
+  check "the kept comment is in the note" has $n '^- \[ \] Review file\.txt:2 `more`: keep me$'
+  perl -ni -e 'print unless /Review file\.txt:2 .*keep me/' $n
+  perl -pi -e 's/^- \[ \] (Review file\.txt:1 .*rename it)$/- [x] $1\n  - reply: renamed to note.txt/' $n
+  check "the page reads the worker's check and reply" within 3 eval "curl -s localhost:$port/activity | jq -e '[.note[]][0] | .checked and .replies[0] == \"renamed to note.txt\"'"
+  kill $pid
+  perl -ni -e 'print unless /Review file\.txt:1 .*rename it|reply: renamed to note\.txt/' $n
 }
 
 test_restart() {
@@ -674,11 +727,13 @@ run_test test_task
 run_test test_assign
 run_test test_seat_commands
 run_test test_nvim_review
+run_test test_comment
 run_test test_pair
 run_test test_pair_modes
 run_test test_report
 run_test test_todo_check
 run_test test_diff
+run_test test_review_page
 run_test test_restart
 run_test test_session_end
 run_test test_clear

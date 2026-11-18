@@ -80,14 +80,16 @@ local function quote(text)
   return text
 end
 
--- Appends lines after the last item of a note's ## Todo section
+-- Appends lines after the last item of a note's ## Todo section, below the
+-- indented lines under it, such as a worker's `- reply:`, which belong to it
 local function append_todo(path, item)
   local lines = vim.fn.readfile(path)
   local section, last = nil, nil
   for i, line in ipairs(lines) do
     local h = line:match("^## (.+)")
-    if h then section = h elseif section == "Todo" and line:match("^%s*%- %[") then last = i end
+    if h then section = h elseif section == "Todo" and line:match("^%- %[") then last = i end
   end
+  while last and lines[last + 1] and lines[last + 1]:match("^%s+%S") do last = last + 1 end
   if not last then
     for i, line in ipairs(lines) do
       if line == "## Todo" then last = i + 1; table.insert(lines, last, "") end
@@ -124,7 +126,8 @@ function M.comment(o)
   local first = o.range > 0 and o.line1 or vim.fn.line(".")
   local last = o.range > 0 and o.line2 or first
   local at = path .. ":" .. first .. (last > first and ("-" .. last) or "") .. (rev and (" at " .. rev) or "")
-  local item = ("- [ ] Review %s `%s`: %s"):format(at, quote(vim.fn.getline(first)), vim.trim(text))
+  local q = quote(vim.fn.getline(first))
+  local item = ("- [ ] Review %s%s: %s"):format(at, q ~= "" and (" `" .. q .. "`") or "", vim.trim(text))
   if not append_todo(notepath, item) then return err(task .. "'s note has no ## Todo section") end
   if buf ~= -1 then vim.cmd("checktime " .. buf) end
   vim.notify(("fleet: %s has %d review comments to send; :FleetReview sends them"):format(task, pending(notepath)))
