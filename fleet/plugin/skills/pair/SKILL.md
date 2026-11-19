@@ -25,11 +25,22 @@ The notes folder is the `--add-dir` folder, the parent of `tasks/`. It is a git 
 - **A finding the next task needs**: add or extend a page in `knowledge/` and list it in `knowledge/index.md`.
 - **A decision the user made that reaches beyond this task**: add a dated entry to `decisions.md` that links the task's note.
 - **What this session did**: append a dated line to the task note's `## Log`, as `- YYYY-MM-DD HH:MM pair: <what changed, the commits, and the backlog items added>`. The frontmatter belongs to fleet's commands, so leave it as it is.
+- **Commits, a push, or a pull or merge request**: the orchestrator plans from `backlog.md` and `brief.md`, and reads a closed task's Log only when something sends it there. Code that moves past the note's `end:` without a report leaves it planning from stale state, such as offering to push a branch that is already in review. Each time you commit, push, open a request, or change its state (draft, ready, reviewers, CI result), in the same turn:
+  1. Append the Log line, with the branch, the new commits' short SHAs, the head, and the request's URL and state.
+  2. Update in place the `backlog.md` item that tracks this task or its request, such as "push it" or "open the MR", to what is now true: pushed, which request, its state and head, and what is left. Add an item when none tracks it.
+  3. Message the orchestrator, the session named `<fleet>-orch` that ListAgents shows, in the form fleet's own messages take, so its skill handles it:
+
+     ```
+     From fleet, sent by the <task id> pairing session (handle per /fleet:orchestrator skill):
+     Pair: <task id>: <branch> at <head>, <n> commits past end:; <request URL and state, or unpushed>; <what is left>
+     ```
+
+     When its session isn't running, tell the user instead.
 - **More work on this task's code for a worker**: tell the user, who runs `:FleetFollowUp` in nvim or asks the orchestrator. When the user asks you to, `fleet task <new id> --from <id>` creates the follow-up note.
 
 ## What stays with fleet
 
-- Commands that drive seats are the orchestrator's and the workers': `fleet report`, `assign`, `clear`, `bump`, `answer`, `abandon` and `restart`. Do not run them, and do not message the orchestrator or the workers.
+- Commands that drive seats are the orchestrator's and the workers': `fleet report`, `assign`, `clear`, `bump`, `answer`, `abandon` and `restart`. Do not run them, and do not message the workers. Message the orchestrator only with the `Pair:` line above.
 - Edit only your task's note and the fleet-level files above. Other open notes belong to the workers on them.
 - Leave the notes repo uncommitted. fleet commits it under a lock when it assigns or archives, and other sessions' edits may be pending in it. Tell the user which notes files you changed.
 - Commit code in the repo's own convention, without the fleet task id or seat names. Push only when the user asks in this session: pushing a pull or merge request's branch updates it for its reviewers.

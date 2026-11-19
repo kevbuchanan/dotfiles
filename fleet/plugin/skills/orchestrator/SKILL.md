@@ -70,6 +70,10 @@ Workers report through fleet. A report arrives as `From fleet, sent by <worker> 
 - `progress`: note it. Act only if it changes the plan.
 - `error`: read the note and the worker's pane state, then decide whether to bump it, restart it with the user's approval, or report to the user. When the error is a push or PR that failed, such as a repo with no remote, tell the user. If they agree, set the note's `ship:` to `no` and `fleet bump` the worker, so the task can close.
 
+## Reports from pairing sessions
+
+A session `fleet pair` opened works a task with the user, and may commit, push or open a pull or merge request after the task closed. It messages you directly as `From fleet, sent by the <id> pairing session (handle per /fleet:orchestrator skill):` followed by `Pair: <id>: <branch> at <head>, <n> commits past end:; <request URL and state, or unpushed>; <what is left>`. It has already written the note's Log and updated the `backlog.md` item. Read both, then update the Status section of `brief.md` and any plan that assumed the earlier state, such as a queued push or a task stacked on the old head. Tell the user only when the report changes the plan. The note's frontmatter, including `end:` and `pr:`, still records the task's close, so take the branch's current state from the report and the Log.
+
 ## Notices from workers' hooks
 
 A worker's hooks send what the worker can't report itself, as `From fleet, sent by <worker> (handle per /fleet:orchestrator skill):` followed by `Notice: <text>`.
