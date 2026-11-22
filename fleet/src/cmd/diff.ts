@@ -6,6 +6,18 @@ import { defaultBranch } from "../git.ts"
 import * as note from "../note.ts"
 import { die, isFile, output, passthrough, print, run, test, warn } from "../run.ts"
 
+// Fetches origin, when the repo has one, so refs such as the default branch
+// and a pull request's branch are current. A failed fetch leaves the refs
+// on disk.
+export async function fetchOrigin(worktree: string, seat: string) {
+  if (!(await test("git", ["-C", worktree, "remote", "get-url", "origin"]))) return
+  if (
+    !(await test("git", ["-C", worktree, "fetch", "-q", "origin"], { env: { GIT_TERMINAL_PROMPT: "0" } }))
+  ) {
+    warn(`fetching origin failed; using ${seat}'s refs on disk`)
+  }
+}
+
 // Merges the default branch into a worker's branch: fetched first when the
 // repo has an origin, a fast-forward when the branch has nothing of its own,
 // and left alone with uncommitted changes or a conflict.
@@ -14,13 +26,7 @@ export async function sync(worktree: string, seat: string) {
     warn(`${seat}'s worktree has uncommitted changes; left it as is`)
     return
   }
-  if (await test("git", ["-C", worktree, "remote", "get-url", "origin"])) {
-    if (
-      !(await test("git", ["-C", worktree, "fetch", "-q", "origin"], { env: { GIT_TERMINAL_PROMPT: "0" } }))
-    ) {
-      warn(`fetching origin failed; updating ${seat} from the refs on disk`)
-    }
-  }
+  await fetchOrigin(worktree, seat)
   const ref = await defaultBranch(worktree)
   if (!ref) {
     warn(`no default branch found; ${seat}'s branch is not updated`)

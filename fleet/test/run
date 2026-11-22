@@ -716,6 +716,62 @@ test_multi_repo() {
   rm $(note multi-two)
 }
 
+# a task on a branch of its own: from a start ref, its diff holds only its
+# work, the worktree goes back to the seat's branch on close, and a
+# follow-up continues the branch on another seat
+test_start() {
+  local r=$T/repo w=$(wt w2)
+  local c=$(git -C $r commit-tree -p main -m "stacked work" "main^{tree}")
+  git -C $r branch stack $c
+  refuses "a start that is no commit" fleet task st-bad --start nope add panels
+  check "a refused start leaves no note" test ! -e $(note st-bad)
+  refuses "a bad branch name" fleet task st-bad --branch 'a..b' add panels
+  check "fleet task --start --branch" fleet task st-one --start stack --branch panels add panels
+  eq "the note records the start" "$(field $(note st-one) start)" stack
+  eq "the note records the branch" "$(field $(note st-one) branch)" panels
+  tmux set -p -t $(pane w2) @agent_state idle
+  check "fleet assign checks out the task branch" fleet assign w2 st-one
+  eq "w2's worktree is on the task branch" "$(git -C $w symbolic-ref -q --short HEAD)" panels
+  eq "base is the start" "$(field $(note st-one) base)" $c
+  eq "the branch doesn't track the start" "$(git -C $r config branch.panels.merge)" ""
+  print p > $w/p.txt && git -C $w add p.txt && git -C $w commit -q -m "add panels"
+  local head=$(git -C $w rev-parse HEAD)
+  eq "fleet diff holds only the task's work" "$(fleet diff st-one --name-only)" p.txt
+  check "fleet clear" fleet clear w2
+  eq "end is the task branch's head" "$(field $(note st-one) end)" $head
+  eq "the worktree is back on the seat's branch" "$(git -C $w symbolic-ref -q --short HEAD)" worktree-demo-w2
+
+  check "fleet pair on the closed task" fleet pair st-one
+  local pw=$r/.claude/worktrees/demo-pair-st-one
+  eq "the pair checks out the task branch" "$(git -C $pw symbolic-ref -q --short HEAD)" panels
+  tmux kill-window -t '=demo:st-one-pair'
+  git -C $r worktree remove --force $pw
+
+  check "a follow-up" fleet task st-two --from st-one
+  eq "it continues the branch" "$(field $(note st-two) branch)" panels
+  eq "from where the task ended" "$(field $(note st-two) start)" $head
+  tmux set -p -t $(pane w1) @agent_state idle
+  check "another seat takes the follow-up" fleet assign w1 st-two
+  eq "w1's worktree is on the task branch" "$(git -C $(wt w1) symbolic-ref -q --short HEAD)" panels
+  eq "the follow-up's base is the task's end" "$(field $(note st-two) base)" $head
+  check "fleet clear w1" fleet clear w1
+  eq "w1 is back on its seat's branch" "$(git -C $(wt w1) symbolic-ref -q --short HEAD)" worktree-demo-w1
+
+  git -C $r branch elsewhere $(git -C $r commit-tree -p main -m "other work" "main^{tree}")
+  check "a task on the existing branch from another start" fleet task st-three --start elsewhere --branch panels other
+  refuses "assign refuses a branch that doesn't contain the start" fleet assign w2 st-three
+  eq "the refusal leaves the worktree on the seat's branch" "$(git -C $w symbolic-ref -q --short HEAD)" worktree-demo-w2
+  eq "and the note unassigned" "$(field $(note st-three) worker)" ""
+  rm $(note st-three)
+
+  git -C $w switch -q panels
+  check "a plain task" fleet task st-plain plain work
+  check "fleet assign of a plain task" fleet assign w2 st-plain
+  eq "it puts the worktree back on the seat's branch" "$(git -C $w symbolic-ref -q --short HEAD)" worktree-demo-w2
+  eq "the note records the seat's branch" "$(field $(note st-plain) branch)" worktree-demo-w2
+  check "fleet clear the plain task" fleet clear w2
+}
+
 test_migrate() {
   local f=$T/agents/demo/tasks/old.md
   printf '# old: an old note\n\nFleet: demo\nTask: old\nStatus: done\n\n## Todo\n\n- [x] a\n' > $f
@@ -733,12 +789,12 @@ test_kill() {
 
 test_clean() {
   check "fleet clean --branches" eval "command fleet clean demo --branches > $T/clean.log 2>&1"
-  check "git's branch deletion shows" has $T/clean.log '^Deleted branch demo-w2' 
+  check "git's branch deletion shows" has $T/clean.log '^Deleted branch worktree-demo-w2'
   check "w2's worktree is removed" test ! -d $(wt w2)
   check "w1's worktree is removed" test ! -d $(wt w1)
   check "w2's worktree in the second repo is removed" test ! -d $T/repo2/.claude/worktrees/demo-w2
-  eq "w2's branch, merged into main, is deleted" "$(git -C $T/repo branch --list demo-w2)" ""
-  check "w1's branch, with unmerged work, stays" eval "git -C $T/repo branch --list demo-w1 | grep -q demo-w1"
+  eq "w2's branch, merged into main, is deleted" "$(git -C $T/repo branch --list worktree-demo-w2)" ""
+  check "w1's branch, with unmerged work, stays" eval "git -C $T/repo branch --list worktree-demo-w1 | grep -q worktree-demo-w1"
   check "the state folder is removed" test ! -d $T/state/fleet/demo
   check "the notes stay" test -d $T/agents/demo/.git
   eq "fleet ls shows only the notes" "$(command fleet ls | awk '$1 == "demo" { print $2 }')" notes
@@ -767,6 +823,7 @@ run_test test_archive
 run_test test_review
 run_test test_nvim_follow_up
 run_test test_multi_repo
+run_test test_start
 run_test test_migrate
 run_test test_kill
 run_test test_clean

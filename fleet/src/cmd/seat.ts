@@ -26,7 +26,8 @@ import {
   writeAtomic,
 } from "../run.ts"
 import { borders, launchLine } from "./lifecycle.ts"
-import { sync } from "./diff.ts"
+import { fetchOrigin, sync } from "./diff.ts"
+import { defaultBranch } from "../git.ts"
 import * as wip from "../wip.ts"
 
 const env = (name: string) => Deno.env.get(name) ?? ""
@@ -52,14 +53,21 @@ export async function status(fleet: Fleet) {
 }
 
 export async function task(fleet: Fleet, args: string[]) {
-  const usage = "usage: fleet task <id> [--repo <path>] [--from <id>] <title>"
+  const usage =
+    "usage: fleet task <id> [--repo <path>] [--from <id>] [--start <ref>] [--branch <name>] <title>"
   const id = args[0] || die(usage)
   let from = ""
   let repo = ""
+  let start = ""
+  let branch = ""
   const words: string[] = []
   for (let i = 1; i < args.length; i++) {
     if (args[i] === "--from") {
       from = args[++i] || die("--from needs a task id")
+    } else if (args[i] === "--start") {
+      start = args[++i] || die("--start needs a ref")
+    } else if (args[i] === "--branch") {
+      branch = args[++i] || die("--branch needs a name")
     } else if (args[i] === "--repo") {
       const dir = args[++i] || die("--repo needs a path")
       if (!(await test("git", ["-C", dir, "rev-parse", "--is-inside-work-tree"]))) {
@@ -88,6 +96,25 @@ export async function task(fleet: Fleet, args: string[]) {
     if (!isFile(prev)) die(`no task note for ${from}`)
     if (!note.get(prev, "end")) die(`${from} is still open; add the work to its note and fleet bump ${from}`)
     if (!words.length) words.push("follow-up", "to", from)
+  }
+  // A follow-up to a task on a branch of its own continues that branch from
+  // where the task ended, unless it names a start or a branch
+  if (from && !start && !branch && note.get(prev, "start") && note.get(prev, "end") !== "-") {
+    start = note.get(prev, "end")
+    branch = note.get(prev, "branch")
+  }
+  if (start || branch) {
+    const dir = repo || (prev && note.get(prev, "repo")) || fleet.repo
+    if (!dir) die("--start and --branch need the task to work in a repo")
+    start ||= await defaultBranch(dir)
+    if (!start) die(`no default branch found in ${dir}; give --start`)
+    if (!(await test("git", ["-C", dir, "rev-parse", "-q", "--verify", `${start}^{commit}`]))) {
+      die(`start ${start} is not a commit in ${dir}`)
+    }
+    branch ||= id
+    if (!(await test("git", ["-C", dir, "check-ref-format", "--branch", branch]))) {
+      die(`not a branch name: ${branch}`)
+    }
   }
   // a fleet's own guidance/default.md replaces the built-in one
   let guidance = join(root, "guidance", "default.md")
@@ -124,6 +151,11 @@ export async function task(fleet: Fleet, args: string[]) {
     ])
   }
   if (repo && repo !== fleet.repo) note.set(path, "repo", repo, fleet.name)
+
+  if (start) {
+    note.set(path, "start", start, fleet.name)
+    note.set(path, "branch", branch, fleet.name)
+  }
   print(path)
 }
 
@@ -183,17 +215,25 @@ export async function assign(fleet: Fleet, args: string[]) {
   // by `fleet clear`, so `fleet diff` can show this task apart from the
   // branch's earlier and later tasks
   const worktree = repo && repo !== fleet.repo ? await fleet.ensureWorktree(seat, repo) : fleet.checkout(seat)
-  let branch = `worktree-${fleet.name}-${seat}`
+  // A task with `start:` works on a branch of its own, checked out from that
+  // ref; any other task works on the seat's branch, brought up to date with
+  // the default branch
+  const start = note.get(path, "start")
+  let branch = start ? note.get(path, "branch") || id : seatBranch(fleet, seat)
   let base = "-"
-  if (worktree) {
+  let target = "HEAD"
+  if (worktree && start) {
+    target = await taskBranchHead(worktree, seat, branch, start)
+  } else if (worktree) {
+    await home(fleet, worktree, seat, die)
     if (doSync) await sync(worktree, seat)
     branch = (await output("git", ["-C", worktree, "symbolic-ref", "-q", "--short", "HEAD"])) || branch
-    base = await run("git", ["-C", worktree, "rev-parse", "HEAD"])
   }
 
-  // after the update, the worker's branch must contain the earlier task's end
+  // the task's branch must contain the earlier task's end, checked before a
+  // task branch is checked out, so a refusal leaves the worktree as it was
   if (follows && worktree && prevEnd !== "-") {
-    if (!(await test("git", ["-C", worktree, "merge-base", "--is-ancestor", prevEnd, "HEAD"]))) {
+    if (!(await test("git", ["-C", worktree, "merge-base", "--is-ancestor", prevEnd, target]))) {
       die(
         `${seat}'s branch doesn't contain ${follows}'s work (${prevEnd.slice(0, 12)}); assign ${id} to ${
           fleet.seatOf(note.get(prev, "worker"))
@@ -201,6 +241,8 @@ export async function assign(fleet: Fleet, args: string[]) {
       )
     }
   }
+  if (worktree && start) await checkoutTaskBranch(worktree, seat, branch, target)
+  if (worktree) base = await run("git", ["-C", worktree, "rev-parse", "HEAD"])
 
   note.set(path, "worker", `${fleet.name}-${seat}`, fleet.name)
   note.set(path, "branch", branch, fleet.name)
@@ -234,7 +276,59 @@ async function close(
   note.set(path, "end", end, fleet.name)
   note.set(path, "closed", today(), fleet.name)
   for (const [key, value] of Object.entries(extra)) note.set(path, key, value, fleet.name)
+  // frees a task branch for a pair or a follow-up on another seat, since git
+  // checks a branch out in one worktree at a time
+  if (worktree && note.get(path, "start")) await home(fleet, worktree, seat, warn)
   return worktree
+}
+
+// The branch a seat's worktree was made on: Claude Code names it after the
+// -w name on the launch line, and ensureWorktree uses the same name
+function seatBranch(fleet: Fleet, seat: string) {
+  return `worktree-${fleet.name}-${seat}`
+}
+
+// Puts a worktree back on its seat's branch after a task on a branch of its
+// own. Untracked files that fleet clear left in place stay.
+async function home(fleet: Fleet, worktree: string, seat: string, fail: (msg: string) => void) {
+  const branch = seatBranch(fleet, seat)
+  const current = await output("git", ["-C", worktree, "symbolic-ref", "-q", "--short", "HEAD"])
+  if (current === branch) return
+  if (!(await test("git", ["-C", worktree, "rev-parse", "-q", "--verify", `refs/heads/${branch}`]))) return
+  if (!(await test("git", ["-C", worktree, "switch", "-q", branch], { quiet: false }))) {
+    fail(`could not switch ${seat}'s worktree from ${current || "a detached HEAD"} back to ${branch}`)
+  }
+}
+
+// The commit a task branch is checked out at: an existing branch continues
+// when it contains the start, and a new one starts there
+async function taskBranchHead(worktree: string, seat: string, branch: string, start: string) {
+  if (await output("git", ["-C", worktree, "status", "--porcelain", "--untracked-files=no"])) {
+    die(`${seat}'s worktree has uncommitted changes; commit or stash them with fleet shell ${seat} first`)
+  }
+  await fetchOrigin(worktree, seat)
+  const commit = await output("git", ["-C", worktree, "rev-parse", "-q", "--verify", `${start}^{commit}`])
+  if (!commit) die(`start ${start} is not a commit in ${seat}'s worktree`)
+  const head = await output("git", ["-C", worktree, "rev-parse", "-q", "--verify", `refs/heads/${branch}`])
+  if (!head) return commit
+  if (!(await test("git", ["-C", worktree, "merge-base", "--is-ancestor", commit, head]))) {
+    die(
+      `branch ${branch} exists and doesn't contain ${start}; merge ${start} into it, or give the task another --branch`,
+    )
+  }
+  return head
+}
+
+// --no-track: a start such as origin/<mr branch> would otherwise become the
+// task branch's upstream, and a plain git push would go to that MR
+async function checkoutTaskBranch(worktree: string, seat: string, branch: string, at: string) {
+  const exists = await test("git", ["-C", worktree, "rev-parse", "-q", "--verify", `refs/heads/${branch}`])
+  const args = exists ? ["switch", "-q", branch] : ["switch", "-q", "--no-track", "-c", branch, at]
+  if (!(await test("git", ["-C", worktree, ...args], { quiet: false }))) {
+    die(
+      `could not check out ${branch} in ${seat}'s worktree; git checks a branch out in one worktree at a time`,
+    )
+  }
 }
 
 async function typeClear(pane: string) {

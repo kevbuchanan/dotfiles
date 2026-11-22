@@ -11,7 +11,18 @@ import { isDir, isFile, readText, run, writeAtomic } from "./run.ts"
 
 // Notes from before frontmatter kept "Key: value" lines under the title
 const LEGACY_FIELDS = ["Guidance", "Follows", "Ship", "PR", "Worker", "Branch", "Base", "End", "Status"]
-const FIELD_ORDER = ["guidance", "ship", "follows", "pr", "worker", "branch", "base", "end", "status"]
+const FIELD_ORDER = [
+  "guidance",
+  "ship",
+  "follows",
+  "start",
+  "pr",
+  "worker",
+  "branch",
+  "base",
+  "end",
+  "status",
+]
 
 // Lines of a file as awk sees them: a final newline ends the last line
 function lines(text: string): string[] {

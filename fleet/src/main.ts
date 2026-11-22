@@ -34,15 +34,19 @@ there shows what agents wrote since the last assignment.
                                its state; --branches also deletes merged
                                worker branches
   fleet status
-  fleet task <id> [--repo <path>] [--from <id>] <title>
+  fleet task <id> [--repo <path>] [--from <id>] [--start <ref>] [--branch <name>] <title>
                                create a task note and print its path;
                                --repo sets the repo it works in, one of the
                                fleet's; --from starts a follow-up to a
-                               closed task, in that task's repo
+                               closed task, in that task's repo; --start
+                               and --branch give the task a branch of its
+                               own, from <ref> or the default branch, named
+                               <name> or the task id
   fleet assign [--no-sync] <seat> <id>
                                point an idle worker at a task note, first
                                bringing its branch up to date with the
-                               default branch
+                               default branch, or checking out the task's
+                               own branch
   fleet clear <seat>           /clear an idle seat and drop its task
   fleet interrupt <seat>       send Escape to the seat
   fleet restart <seat>         kill the seat's process and relaunch claude;
