@@ -107,7 +107,12 @@ export async function pair(fleet: Fleet, args: string[]) {
 
 // The window, its two panes and the agent's launch line
 async function open(fleet: Fleet, win: string, name: string, dir: string, prompt: string) {
-  const command = fleet.agent.pairCommand(root, `${fleet.name}-${name}-pair`, fleet.notes, prompt)
+  const command = fleet.agent.pairCommand({
+    root,
+    name: `${fleet.name}-${name}-pair`,
+    notes: fleet.notes,
+    prompt,
+  })
   const paneEnv = fleet.agent.paneEnv(await opt(await fleet.pane("orch"), "@agent_cmd"))
   const editor = await run("tmux", [
     "new-window",

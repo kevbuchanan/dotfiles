@@ -8,7 +8,7 @@
 // run.
 
 import { basename, join, relative } from "@std/path"
-import { Fleet, isWorker, needId, opt, root, tmux } from "../fleet.ts"
+import { Fleet, isWorker, needId, opt, readState, root, setOpt, setState, tmux, unsetOpt } from "../fleet.ts"
 import * as note from "../note.ts"
 import {
   die,
@@ -39,7 +39,7 @@ export async function status(fleet: Fleet) {
     print(`${pad(c[0], 8)} ${pad(c[1], 10)} ${pad(c[2], 28)} ${pad(c[3], 10)} ${c[4]}`)
   row(["SEAT", "STATE", "TASK", "REPORT", "TODOS"])
   for (const { pane, seat } of await fleet.seats()) {
-    const st = await opt(pane, "@agent_state")
+    const st = await readState(pane)
     const task = await opt(pane, "@agent_task")
     let progress = ""
     let report = ""
@@ -254,10 +254,10 @@ export async function assign(fleet: Fleet, args: string[]) {
   // the commit is the baseline that `git diff` in the notes repo compares against
   await fleet.commit(`assign ${id} to ${seat}`)
 
-  await tmux("set", "-p", "-t", pane, "@agent_task", id)
+  await setOpt(pane, "@agent_task", id)
   await tmux("select-pane", "-t", pane, "-T", `${fleet.name}-${seat}: ${id}`)
   const where = repo && repo !== fleet.repo ? ` It works in ${repo}, in your worktree ${worktree}.` : ""
-  await fleet.post(pane, "worker", `Task ${id}: read ${path}.${where}`)
+  await fleet.post({ pane, skill: "worker" }, `Task ${id}: read ${path}.${where}`)
 }
 
 // Records the task's end at the worktree's HEAD, or `-` in a fleet outside a
@@ -340,7 +340,7 @@ export async function clear(fleet: Fleet, args: string[]) {
     }
     await close(fleet, seat, path, "clear")
   }
-  await tmux("set", "-p", "-u", "-t", pane, "@agent_task")
+  await unsetOpt(pane, "@agent_task")
   await tmux("select-pane", "-t", pane, "-T", `${fleet.name}-${seat}`)
   await fleet.agent.reset(pane)
 }
@@ -353,11 +353,11 @@ export async function restart(fleet: Fleet, args: string[]) {
   const seat = args[0] || die("seat")
   const pane = await fleet.pane(seat)
   const id = await opt(pane, "@agent_task")
-  await tmux("set", "-p", "-t", pane, "@agent_state", "restarting")
-  await tmux("set", "-p", "-u", "-t", pane, "@agent_socket")
-  await tmux("set", "-p", "-u", "-t", pane, "@agent_session")
+  await setState(pane, "restarting")
+  await unsetOpt(pane, "@agent_socket")
+  await unsetOpt(pane, "@agent_session")
   await tmux("respawn-pane", "-k", "-t", pane)
-  await tmux("set", "-p", "-u", "-t", pane, "@agent_state")
+  await unsetOpt(pane, "@agent_state")
   await tmux("send-keys", "-t", pane, await launchLine(fleet, pane), "Enter")
   if (!id) return
   const path = note.path(fleet.notes, id)
@@ -370,8 +370,7 @@ export async function restart(fleet: Fleet, args: string[]) {
     await sleep(500)
   }
   await fleet.post(
-    pane,
-    "worker",
+    { pane, skill: "worker" },
     `Task ${id}: your session restarted. Read ${path} and continue from its Todo and Log.`,
   )
   print(`restarted ${seat} on ${id}`)
@@ -394,11 +393,11 @@ export async function abandon(fleet: Fleet, args: string[]) {
     note.appendLog(
       path,
       `${stamp()} abandoned: closed by ${await fleet.sender()} from seat state ${
-        (await opt(pane, "@agent_state")) || "none"
+        (await readState(pane)) || "none"
       }`,
     )
   }
-  await tmux("set", "-p", "-u", "-t", pane, "@agent_task")
+  await unsetOpt(pane, "@agent_task")
   await tmux("select-pane", "-t", pane, "-T", `${fleet.name}-${seat}`)
   if (await fleet.agent.ready(pane)) {
     await fleet.agent.interrupt(pane)
@@ -465,7 +464,7 @@ export async function bump(fleet: Fleet, args: string[]) {
   needId(id)
   const path = join(fleet.notes, "tasks", `${id}.md`)
   const { seat, pane } = await fleet.workerOn(id, path)
-  await fleet.post(pane, "worker", `Task ${id} was updated: re-read ${path}`)
+  await fleet.post({ pane, skill: "worker" }, `Task ${id} was updated: re-read ${path}`)
   print(`told ${seat} that ${id} was updated`)
 }
 
@@ -477,7 +476,7 @@ export async function answer(fleet: Fleet, args: string[]) {
   if (state !== "question") die(`${seat} is ${state || "starting"}, not waiting on a question`)
   const [, , open] = await note.progress(root, path)
   if (open !== 0) die(`${id} still has ${open} open questions`)
-  await fleet.post(pane, "worker", `Questions in ${id} are answered: re-read ${path}`)
+  await fleet.post({ pane, skill: "worker" }, `Questions in ${id} are answered: re-read ${path}`)
   print(`told ${seat} that ${id}'s questions are answered`)
 }
 
@@ -545,6 +544,6 @@ export async function report(fleet: Fleet, args: string[]) {
   if (phase === "review") askApproval(path)
   note.set(path, "status", phase, fleet.name)
   note.appendLog(path, `${stamp()} ${phase}: ${text}`)
-  await fleet.post(orch, "orchestrator", `Report: ${id} ${phase}: ${text}`)
+  await fleet.post({ pane: orch, skill: "orchestrator" }, `Report: ${id} ${phase}: ${text}`)
   print(`reported ${id} ${phase} to the orchestrator`)
 }

@@ -18,11 +18,24 @@
 // running.
 
 import { join } from "@std/path"
-import { Fleet, opt, root, tmux } from "../fleet.ts"
+import { Fleet, opt, readState, root, setState, tmux, unsetOpt } from "../fleet.ts"
 import { addWorktree } from "../git.ts"
 import { die, FleetError, isFile, output, print, readText, run, shq, sleep, test, warn } from "../run.ts"
 import * as signal from "../signal.ts"
-import type { SeatCommands, Setup } from "./claude.ts"
+import {
+  asPane,
+  oneOf,
+  ORCH_COMMANDS,
+  type Pane,
+  parseRole,
+  type Role,
+  roleSettings,
+  SEAT_ROLES,
+  type SeatRole,
+  SETTING_PREFIX,
+  type Settings,
+} from "../types.ts"
+import type { PairLaunch, SeatCommands, Setup } from "./agent.ts"
 
 const env = (name: string) => Deno.env.get(name) ?? ""
 
@@ -30,39 +43,87 @@ export const name = "opencode"
 
 // auto approves every request no rule denies, as opencode's --auto does; ask
 // leaves opencode's default, which asks
-const MODES = ["auto", "ask"]
+const MODES = ["auto", "ask"] as const
+type Mode = (typeof MODES)[number]
 
-type Rule = { action: string; resource: string; effect: "allow" | "deny" | "ask" }
+// The permission actions fleet's rules name; opencode has more
+type Action = "*" | "shell" | "edit" | "external_directory"
+type Rule = { action: Action; resource: string; effect: "allow" | "deny" | "ask" }
 
-// What `fleet opencode launch` reads from the state folder for each role
-type Config = { notes: string; mode: string; models: Record<string, string>; efforts: Record<string, string> }
+// An opencode session id, which opencode requires to start with "ses"
+type SessionId = string & { readonly __session: unique symbol }
+function asSessionId(value: string): SessionId {
+  if (!value.startsWith("ses")) die(`not an opencode session id: ${value || "(empty)"}`)
+  return value as SessionId
+}
 
-export function check(settings: Record<string, string>) {
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
+// What `fleet opencode launch` reads from the state folder
+type Config = {
+  notes: string
+  mode: Mode
+  models: Record<SeatRole, string>
+  efforts: Record<SeatRole, string>
+}
+
+function readConfig(file: string, notes: string): Config {
+  const fallback: Config = {
+    notes,
+    mode: "ask",
+    models: { orchestrator: "", worker: "" },
+    efforts: { orchestrator: "", worker: "" },
+  }
+  if (!isFile(file)) return fallback
+  let value: unknown
+  try {
+    value = JSON.parse(readText(file))
+  } catch {
+    die(`${file} isn't JSON; fleet new writes it`)
+  }
+  const roles = (field: unknown): Record<SeatRole, string> => {
+    const record = isRecord(field) ? field : {}
+    const at = (role: SeatRole) => typeof record[role] === "string" ? record[role] : ""
+    return { orchestrator: at("orchestrator"), worker: at("worker") }
+  }
+  if (!isRecord(value)) return fallback
+  return {
+    notes: typeof value.notes === "string" ? value.notes : notes,
+    mode: typeof value.mode === "string" && oneOf(MODES, value.mode) ? value.mode : "ask",
+    models: roles(value.models),
+    efforts: roles(value.efforts),
+  }
+}
+
+export function check(settings: Settings) {
   const mode = settings.FLEET_WORKER_MODE
-  if (mode && !MODES.includes(mode)) die(`worker mode for opencode must be auto or ask: ${mode}`)
-  for (const role of ["ORCH", "WORKER"]) {
-    const model = settings[`FLEET_${role}_MODEL`] ?? ""
+  if (mode && !oneOf(MODES, mode)) die(`worker mode for opencode must be auto or ask: ${mode}`)
+  for (const role of SEAT_ROLES) {
+    const { model, effort } = roleSettings(settings, role)
+    const prefix = SETTING_PREFIX[role]
     if (model && !/^[^/\s]+\/[^#\s]+(#\S+)?$/.test(model)) {
-      die(`FLEET_${role}_MODEL for opencode is provider/model or provider/model#variant: ${model}`)
+      die(`FLEET_${prefix}_MODEL for opencode is provider/model or provider/model#variant: ${model}`)
     }
-    if (settings[`FLEET_${role}_EFFORT`] && !model) {
-      die(`FLEET_${role}_EFFORT for opencode is the model's variant, so it needs FLEET_${role}_MODEL`)
+    if (effort && !model) {
+      die(`FLEET_${prefix}_EFFORT for opencode is the model's variant, so it needs FLEET_${prefix}_MODEL`)
     }
   }
 }
 
 export async function prepare(s: Setup): Promise<SeatCommands> {
+  const mode = s.settings.FLEET_WORKER_MODE || "auto"
   const config: Config = {
     notes: s.notes,
-    mode: s.settings.FLEET_WORKER_MODE || "auto",
-    models: { orch: s.settings.FLEET_ORCH_MODEL ?? "", worker: s.settings.FLEET_WORKER_MODEL ?? "" },
-    efforts: { orch: s.settings.FLEET_ORCH_EFFORT ?? "", worker: s.settings.FLEET_WORKER_EFFORT ?? "" },
+    mode: oneOf(MODES, mode) ? mode : "auto",
+    models: { orchestrator: s.settings.FLEET_ORCH_MODEL, worker: s.settings.FLEET_WORKER_MODEL },
+    efforts: { orchestrator: s.settings.FLEET_ORCH_EFFORT, worker: s.settings.FLEET_WORKER_EFFORT },
   }
   Deno.writeTextFileSync(join(s.rundir, "opencode.json"), JSON.stringify(config, null, 2) + "\n")
   await server()
   const fleet = `${shq(s.root)}/bin/fleet`
   return {
-    orch: (name) => `${fleet} opencode launch orchestrator ${name}`,
+    orchestrator: (name) => `${fleet} opencode launch orchestrator ${name}`,
     worker: (name) => `${fleet} opencode launch worker ${name}`,
   }
 }
@@ -79,37 +140,43 @@ export async function createWorktree(repo: string, name: string): Promise<string
 }
 
 // The seat's instructions hold its role's skill, so the header names it
-export function header(sender: string, skill: string): string {
+export function header(sender: string, skill: SeatRole): string {
   return `From fleet, sent by ${sender} (handle per the fleet:${skill} skill in your instructions):`
 }
 
-export async function ready(pane: string): Promise<boolean> {
-  return (await opt(pane, "@agent_session")) !== ""
+// The session the seat's pane runs, or empty before one starts
+async function sessionIn(pane: Pane): Promise<SessionId | ""> {
+  const id = await opt(pane, "@agent_session")
+  return id ? asSessionId(id) : ""
+}
+
+export async function ready(pane: Pane): Promise<boolean> {
+  return (await sessionIn(pane)) !== ""
 }
 
 // A queued prompt waits in the session's inbox while it works, and starts a
 // turn when it is idle
-export async function deliver(pane: string, message: string) {
-  const id = (await opt(pane, "@agent_session")) || die("the seat has no opencode session")
-  await api("POST", `/api/session/${id}/prompt`, { text: message, delivery: "queue" })
+export async function deliver(pane: Pane, message: string) {
+  const id = (await sessionIn(pane)) || die("the seat has no opencode session")
+  await queue(id, message)
 }
 
 // A fresh context is a new session: the pane runs its launch line again,
 // which creates one
-export async function reset(pane: string) {
+export async function reset(pane: Pane) {
   const cmd = await opt(pane, "@agent_cmd")
   const dir = await output("tmux", ["display", "-p", "-t", pane, "#{pane_current_path}"])
-  await tmux("set", "-p", "-u", "-t", pane, "@agent_session")
+  await unsetOpt(pane, "@agent_session")
   await tmux("respawn-pane", "-k", "-t", pane, ...(dir ? ["-c", dir] : []))
   await tmux("send-keys", "-t", pane, cmd, "Enter")
 }
 
-export async function interrupt(pane: string) {
-  const id = await opt(pane, "@agent_session")
+export async function interrupt(pane: Pane) {
+  const id = await sessionIn(pane)
   if (id) await api("POST", `/api/session/${id}/interrupt`)
 }
 
-export function pairCommand(root: string, name: string, _notes: string, prompt: string): string {
+export function pairCommand({ root, name, prompt }: PairLaunch): string {
   return `${shq(root)}/bin/fleet opencode launch pair ${name} --prompt ${shq(prompt)}`
 }
 
@@ -121,19 +188,21 @@ export function paneEnv(_orchCmd: string): string[] {
 // @agent_seat, so seat commands and `fleet status` skip it, and `fleet kill`
 // stops it with the session.
 export async function started(fleet: Fleet, dir: string) {
-  const pane = await run("tmux", [
-    "new-window",
-    "-d",
-    "-t",
-    fleet.target,
-    "-n",
-    "watch",
-    "-c",
-    dir,
-    "-P",
-    "-F",
-    "#{pane_id}",
-  ])
+  const pane = asPane(
+    await run("tmux", [
+      "new-window",
+      "-d",
+      "-t",
+      fleet.target,
+      "-n",
+      "watch",
+      "-c",
+      dir,
+      "-P",
+      "-F",
+      "#{pane_id}",
+    ]),
+  )
   await tmux("set", "-p", "-t", pane, "allow-set-title", "off")
   await tmux("select-pane", "-t", pane, "-T", `${fleet.name}-watch`)
   await tmux("send-keys", "-t", pane, `${shq(root)}/bin/fleet -s ${fleet.name} opencode watch`, "Enter")
@@ -152,25 +221,39 @@ function recorded(): Server | null {
     return { url: env("FLEET_OPENCODE_URL"), password: env("FLEET_OPENCODE_PASSWORD"), own: false }
   }
   if (!isFile(serviceFile())) return null
+  let value: unknown
   try {
-    const { url, password } = JSON.parse(readText(serviceFile()))
-    return url ? { url, password: password ?? "", own: true } : null
+    value = JSON.parse(readText(serviceFile()))
   } catch {
     return null
+  }
+  if (!isRecord(value) || typeof value.url !== "string" || !value.url) return null
+  return { url: value.url, password: typeof value.password === "string" ? value.password : "", own: true }
+}
+
+const auth = (s: Server) => ({ authorization: `Basic ${btoa(`opencode:${s.password}`)}` })
+
+// fetch, with a failure to reach the server as a FleetError, so callers
+// tell a server that is down from a mistake in fleet
+async function request(s: Server, path: string, init: RequestInit = {}): Promise<Response> {
+  try {
+    return await fetch(`${s.url}${path}`, { ...init, headers: { ...auth(s), ...init.headers } })
+  } catch (e) {
+    if (!(e instanceof TypeError)) throw e
+    die(`can't reach opencode at ${s.url}: ${e.message}`)
   }
 }
 
 async function reachable(s: Server): Promise<boolean> {
   try {
-    const r = await fetch(`${s.url}/api/info`, { headers: auth(s) })
+    const r = await request(s, "/api/info")
     await r.body?.cancel()
     return r.ok
-  } catch {
+  } catch (e) {
+    if (!(e instanceof FleetError)) throw e
     return false
   }
 }
-
-const auth = (s: Server) => ({ authorization: `Basic ${btoa(`opencode:${s.password}`)}` })
 
 let cached: Server | null = null
 
@@ -190,37 +273,47 @@ async function server(): Promise<Server> {
   die("opencode's background service did not start; run opencode service status")
 }
 
-async function api(method: string, path: string, body?: unknown) {
+// One API call. The reply is unknown until a caller narrows it.
+async function api(method: string, path: string, body?: unknown): Promise<unknown> {
   const s = await server()
-  const r = await fetch(`${s.url}${path}`, {
+  const r = await request(s, path, {
     method,
-    headers: { ...auth(s), "content-type": "application/json" },
+    headers: { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   const text = await r.text()
   if (!r.ok) die(`opencode ${method} ${path}: ${r.status} ${text.slice(0, 300)}`)
-  return text ? JSON.parse(text) : null
+  if (!text) return null
+  try {
+    return JSON.parse(text)
+  } catch {
+    die(`opencode ${method} ${path} answered with something other than JSON: ${text.slice(0, 300)}`)
+  }
+}
+
+// The data field of an API reply
+const dataOf = (reply: unknown): unknown => isRecord(reply) ? reply.data : undefined
+
+const queue = (id: SessionId, text: string) =>
+  api("POST", `/api/session/${id}/prompt`, { text, delivery: "queue" })
+
+// Sessions running a turn now
+async function activeSessions(): Promise<Set<string>> {
+  const data = dataOf(await api("GET", "/api/session/active"))
+  return new Set(isRecord(data) ? Object.keys(data) : [])
+}
+
+// Sessions with a permission request waiting on an answer
+async function askingSessions(): Promise<Set<string>> {
+  const data = dataOf(await api("GET", "/api/permission/request"))
+  return new Set(Array.isArray(data) ? data.map(sessionOf).filter(Boolean) : [])
 }
 
 // --- fleet opencode launch ---
 
-const ORCH_COMMANDS = [
-  "status",
-  "task",
-  "assign",
-  "clear",
-  "interrupt",
-  "rename",
-  "path",
-  "diff",
-  "answer",
-  "bump",
-  "archive",
-]
-
 // Every seat may edit the notes. A worker may report, the orchestrator may
 // run seat commands, and in mode auto a worker's other requests are approved.
-function rules(role: string, config: Config): Rule[] {
+function rules(role: Role, config: Config): Rule[] {
   const notes = `${config.notes}/*`
   const out: Rule[] = []
   if (role === "worker" && config.mode === "auto") out.push({ action: "*", resource: "*", effect: "allow" })
@@ -228,7 +321,11 @@ function rules(role: string, config: Config): Rule[] {
     { action: "external_directory", resource: notes, effect: "allow" },
     { action: "edit", resource: notes, effect: "allow" },
   )
-  const commands = role === "worker" ? ["report"] : role === "orchestrator" ? ORCH_COMMANDS : []
+  const commands: readonly string[] = role === "worker"
+    ? ["report"]
+    : role === "orchestrator"
+    ? ORCH_COMMANDS
+    : []
   for (const c of commands) {
     out.push(
       { action: "shell", resource: `fleet ${c}`, effect: "allow" },
@@ -242,7 +339,10 @@ function modelRef(model: string, effort: string) {
   if (!model) return undefined
   const [ref, variant] = model.split("#")
   const slash = ref.indexOf("/")
-  const out: Record<string, string> = { providerID: ref.slice(0, slash), id: ref.slice(slash + 1) }
+  const out: { providerID: string; id: string; variant?: string } = {
+    providerID: ref.slice(0, slash),
+    id: ref.slice(slash + 1),
+  }
   if (variant || effort) out.variant = variant || effort
   return out
 }
@@ -252,24 +352,20 @@ function modelRef(model: string, effort: string) {
 // When the interface exits, the session has ended.
 async function launch(args: string[]) {
   const usage = "usage: fleet opencode launch <orchestrator|worker|pair> <name> [--prompt <text>]"
-  const role = args[0] || die(usage)
+  const role = parseRole(args[0] || die(usage))
   const name = args[1] || die(usage)
   const prompt = args[2] === "--prompt" ? args[3] ?? "" : ""
-  const pane = env("TMUX_PANE") || die("fleet opencode launch runs in a fleet pane")
+  const pane = asPane(env("TMUX_PANE") || die("fleet opencode launch runs in a fleet pane"))
   const fleet = await Fleet.current()
-  const configFile = join(fleet.rundir, "opencode.json")
-  const config: Config = isFile(configFile)
-    ? JSON.parse(readText(configFile))
-    : { notes: fleet.notes, mode: "ask", models: {}, efforts: {} }
-  const seatRole = role === "orchestrator" ? "orch" : role
-  const id = `ses-fleet-${name}-${Date.now().toString(36)}`
+  const config = readConfig(join(fleet.rundir, "opencode.json"), fleet.notes)
+  const id = asSessionId(`ses-fleet-${name}-${Date.now().toString(36)}`)
   const dir = Deno.cwd()
   await api("POST", "/api/session", {
     id,
     title: name,
     location: { directory: dir },
     permissions: rules(role, config),
-    model: modelRef(config.models[seatRole] ?? "", config.efforts[seatRole] ?? ""),
+    model: role === "pair" ? undefined : modelRef(config.models[role], config.efforts[role]),
   })
   // the pane's environment, TMUX_PANE among it, so `fleet report` from the
   // session's shell commands finds the seat
@@ -284,8 +380,8 @@ async function launch(args: string[]) {
       value: parts.join("\n\n"),
     })
   }
-  await signal.started(pane, "", id)
-  if (prompt) await api("POST", `/api/session/${id}/prompt`, { text: prompt, delivery: "queue" })
+  await signal.started(pane, { session: id })
+  if (prompt) await queue(id, prompt)
 
   const s = await server()
   const tui = new Deno.Command("opencode", {
@@ -301,9 +397,10 @@ async function launch(args: string[]) {
 
 // --- fleet opencode watch ---
 
-// The session id anywhere in an event's data
+// The session id anywhere in an event's data. opencode's event payloads put
+// it at different depths, so this searches rather than naming one path.
 function sessionOf(value: unknown): string {
-  if (!value || typeof value !== "object") return ""
+  if (typeof value !== "object" || value === null) return ""
   for (const [k, v] of Object.entries(value)) {
     if (k === "sessionID" && typeof v === "string") return v
     const found = sessionOf(v)
@@ -312,7 +409,15 @@ function sessionOf(value: unknown): string {
   return ""
 }
 
-const STOPS = /^session\.execution\.(succeeded|failed|interrupted|cancelled)$/
+// The events the watcher acts on, and what each does to the seat
+const STOPS = [
+  "session.execution.succeeded",
+  "session.execution.failed",
+  "session.execution.interrupted",
+  "session.execution.cancelled",
+] as const
+const WATCHED = ["session.execution.started", "permission.asked", "permission.replied", ...STOPS] as const
+type Watched = (typeof WATCHED)[number]
 
 // fleet opencode watch: follows the server's events for the fleet's seats.
 // A turn that starts makes the seat busy, a permission request makes it
@@ -322,7 +427,7 @@ const STOPS = /^session\.execution\.(succeeded|failed|interrupted|cancelled)$/
 // which sessions are running or waiting.
 async function watch(fleet: Fleet) {
   // the panes whose last stop fleet answered, so their next stop is a second one
-  const answered = new Set<string>()
+  const answered = new Set<Pane>()
   const panes = async () => {
     const out = await output("tmux", [
       "list-panes",
@@ -332,14 +437,14 @@ async function watch(fleet: Fleet) {
       "-F",
       "#{pane_id}\t#{@agent_session}",
     ])
-    const map = new Map<string, string>()
+    const map = new Map<string, Pane>()
     for (const line of out.split("\n")) {
       const [pane, id] = line.split("\t")
-      if (id) map.set(id, pane)
+      if (pane && id) map.set(id, asPane(pane))
     }
     return map
   }
-  const stop = async (pane: string) => {
+  const stop = async (pane: Pane) => {
     const again = answered.delete(pane)
     const reply = await signal.stopped(fleet, pane, again)
     if (reply) {
@@ -347,36 +452,43 @@ async function watch(fleet: Fleet) {
       await deliver(pane, reply)
     }
   }
+  const actions: Record<Watched, (pane: Pane) => Promise<void>> = {
+    "session.execution.started": (pane) => setState(pane, "busy"),
+    "permission.asked": (pane) => setState(pane, "waiting"),
+    "permission.replied": (pane) => setState(pane, "busy"),
+    "session.execution.succeeded": stop,
+    "session.execution.failed": stop,
+    "session.execution.interrupted": stop,
+    "session.execution.cancelled": stop,
+  }
   const reconcile = async () => {
-    const active = Object.keys((await api("GET", "/api/session/active"))?.data ?? {})
-    const asking = new Set(((await api("GET", "/api/permission/request"))?.data ?? []).map(sessionOf))
+    const active = await activeSessions()
+    const asking = await askingSessions()
     for (const [id, pane] of await panes()) {
-      const state = await opt(pane, "@agent_state")
-      if (asking.has(id)) await signal.setState(pane, "waiting")
-      else if (active.includes(id)) await signal.setState(pane, "busy")
+      const state = await readState(pane)
+      if (asking.has(id)) await setState(pane, "waiting")
+      else if (active.has(id)) await setState(pane, "busy")
       else if (state === "busy" || state === "waiting") await stop(pane)
     }
   }
-  const handle = async (event: { type?: string; data?: unknown }) => {
-    const type = event.type ?? ""
-    if (type !== "session.execution.started" && !type.startsWith("permission.") && !STOPS.test(type)) return
+  const handle = async (event: unknown) => {
+    if (!isRecord(event) || typeof event.type !== "string" || !oneOf(WATCHED, event.type)) return
     const pane = (await panes()).get(sessionOf(event.data))
-    if (!pane) return
-    if (type === "session.execution.started") await signal.setState(pane, "busy")
-    else if (type === "permission.asked") await signal.setState(pane, "waiting")
-    else if (type === "permission.replied") await signal.setState(pane, "busy")
-    else if (STOPS.test(type)) await stop(pane)
+    if (pane) await actions[event.type](pane)
   }
 
   for (;;) {
     try {
       const s = await server()
-      const r = await fetch(`${s.url}/api/event`, { headers: auth(s) })
-      if (!r.ok || !r.body) throw new FleetError(`opencode events: ${r.status}`)
+      const r = await request(s, "/api/event")
+      if (!r.ok || !r.body) die(`opencode events: ${r.status}`)
       print(`watching ${fleet.name}'s seats on ${s.url}`)
       await reconcile()
+      const reader = r.body.pipeThrough(new TextDecoderStream()).getReader()
       let buffer = ""
-      for await (const chunk of r.body.pipeThrough(new TextDecoderStream())) {
+      for (;;) {
+        const chunk = await readFrom(reader, s)
+        if (chunk === null) break
         buffer += chunk
         let end
         while ((end = buffer.indexOf("\n\n")) >= 0) {
@@ -385,21 +497,42 @@ async function watch(fleet: Fleet) {
           const data = block.split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim())
             .join("")
           if (!data) continue
+          let event: unknown
           try {
-            await handle(JSON.parse(data))
+            event = JSON.parse(data)
+          } catch {
+            warn(`skipped an event that isn't JSON: ${data.slice(0, 200)}`)
+            continue
+          }
+          try {
+            await handle(event)
           } catch (e) {
-            if (!(e instanceof FleetError) && !(e instanceof SyntaxError)) throw e
+            // a seat that went away mid-event; the stream goes on
+            if (!(e instanceof FleetError)) throw e
             warn(e.message)
           }
         }
       }
+      warn("the event stream ended; reconnecting")
     } catch (e) {
-      if (!(e instanceof FleetError) && !(e instanceof TypeError)) throw e
+      if (!(e instanceof FleetError)) throw e
       warn(`${e.message}; reconnecting`)
       cached = null
     }
     if (!(await test("tmux", ["has-session", "-t", fleet.target]))) return
     await sleep(1000)
+  }
+}
+
+// The next chunk of the event stream, or null at its end. A dropped
+// connection is a FleetError, like any other trouble reaching the server.
+async function readFrom(reader: ReadableStreamDefaultReader<string>, s: Server): Promise<string | null> {
+  try {
+    const { value, done } = await reader.read()
+    return done ? null : value
+  } catch (e) {
+    if (!(e instanceof TypeError) && !(e instanceof DOMException)) throw e
+    die(`lost opencode's event stream at ${s.url}: ${e.message}`)
   }
 }
 

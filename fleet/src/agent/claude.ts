@@ -1,8 +1,5 @@
 // What fleet needs from Claude Code that another agent would do its own way.
 
-// The agent's name, for pane titles
-export const name = "claude"
-
 import { dirname, join, resolve } from "@std/path"
 import { postToSession } from "../../../lib/claude/session.ts"
 import { type Fleet, opt, tmux } from "../fleet.ts"
@@ -22,10 +19,40 @@ import {
   tilde,
   warn,
 } from "../run.ts"
+import {
+  oneOf,
+  ORCH_COMMANDS,
+  type Pane,
+  roleSettings,
+  type SeatRole,
+  SETTING_PREFIX,
+  type Settings,
+} from "../types.ts"
+import type { PairLaunch, SeatCommands, Setup } from "./agent.ts"
+
+// The agent's name, for pane titles
+export const name = "claude"
 
 const env = (name: string) => Deno.env.get(name) ?? ""
 
-type HookGroup = { hooks?: { type?: string; command?: string }[] }
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
+// The command of the first command hook in a settings file's WorktreeCreate
+// groups, or empty when the file has none. A file in another shape has none.
+function hookIn(settings: unknown): string {
+  const groups = isRecord(settings) && isRecord(settings.hooks) ? settings.hooks.WorktreeCreate : undefined
+  if (!Array.isArray(groups)) return ""
+  for (const group of groups) {
+    if (!isRecord(group) || !Array.isArray(group.hooks)) continue
+    for (const hook of group.hooks) {
+      if (isRecord(hook) && hook.type === "command" && typeof hook.command === "string" && hook.command) {
+        return hook.command
+      }
+    }
+  }
+  return ""
+}
 
 // The WorktreeCreate hook command Claude Code would run for a repo: the
 // repo's local settings, then its shared settings, then the user's, as
@@ -39,16 +66,14 @@ function worktreeHook(repo: string): string {
   ]
   for (const file of files) {
     if (!isFile(file)) continue
-    let groups: HookGroup[] = []
+    let settings: unknown
     try {
-      groups = JSON.parse(Deno.readTextFileSync(file))?.hooks?.WorktreeCreate ?? []
+      settings = JSON.parse(Deno.readTextFileSync(file))
     } catch {
       continue
     }
-    for (const group of groups) {
-      const hook = group.hooks?.find((h) => h.type === "command" && h.command)
-      if (hook) return hook.command!
-    }
+    const hook = hookIn(settings)
+    if (hook) return hook
   }
   return ""
 }
@@ -84,44 +109,35 @@ function isWorktreeAt(printed: string, wt: string): boolean {
   }
 }
 
+// The branch a hook's worktree is on. fleet puts a worktree back on its
+// seat's branch between tasks, so a detached one has nothing to go back to.
 async function branchOf(wt: string): Promise<string> {
-  return await output("git", ["-C", wt, "symbolic-ref", "-q", "--short", "HEAD"])
+  const branch = await output("git", ["-C", wt, "symbolic-ref", "-q", "--short", "HEAD"])
+  if (!branch) die(`the WorktreeCreate hook left ${wt} on a detached HEAD; fleet needs it on a branch`)
+  return branch
 }
 
 // Claude Code's permission modes, for --worker-mode
-const MODES = ["acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan"]
+const MODES = ["acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan"] as const
+const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const
 
 // Refuses a fleet's settings that Claude Code can't run with: the worker
 // mode, and each role's effort
-export function check(settings: Record<string, string>) {
+export function check(settings: Settings) {
   const mode = settings.FLEET_WORKER_MODE
-  if (mode && !MODES.includes(mode)) {
+  if (mode && !oneOf(MODES, mode)) {
     die(`worker mode must be acceptEdits, auto, bypassPermissions, manual, dontAsk or plan: ${mode}`)
   }
-  roleFlags("ORCH", settings)
-  roleFlags("WORKER", settings)
+  roleFlags("orchestrator", settings)
+  roleFlags("worker", settings)
 }
-
-export type Setup = {
-  // fleet's own folder, for the plugin and the hooks
-  root: string
-  // the fleet's state folder, where the rendered settings go
-  rundir: string
-  notes: string
-  // the fleet's repos besides the one its seats start in
-  others: string[]
-  // FLEET_* settings for this fleet: worker mode, and model and effort per role
-  settings: Record<string, string>
-}
-
-export type SeatCommands = { orch: (name: string) => string; worker: (name: string) => string }
 
 // Renders the settings each role's sessions run with, trusts the notes
 // folder, and returns each role's launch command
 export async function prepare(s: Setup): Promise<SeatCommands> {
   const mode = s.settings.FLEET_WORKER_MODE || "auto"
-  const orchFlags = roleFlags("ORCH", s.settings)
-  const workerFlags = roleFlags("WORKER", s.settings)
+  const orchFlags = roleFlags("orchestrator", s.settings)
+  const workerFlags = roleFlags("worker", s.settings)
 
   // every seat may edit the notes; the orchestrator may also run seat commands
   const edit = `Edit(/${s.notes}/**)`
@@ -131,22 +147,9 @@ export async function prepare(s: Setup): Promise<SeatCommands> {
   const withAllow = (allow: string[]) =>
     JSON.stringify({ ...base, permissions: { ...base.permissions, allow } }, null, 2) + "\n"
   Deno.writeTextFileSync(join(s.rundir, "worker-settings.json"), withAllow([edit, "Bash(fleet report *)"]))
-  const orchCommands = [
-    "status",
-    "task",
-    "assign",
-    "clear",
-    "interrupt",
-    "rename",
-    "path",
-    "diff",
-    "answer",
-    "bump",
-    "archive",
-  ]
   Deno.writeTextFileSync(
     join(s.rundir, "orch-settings.json"),
-    withAllow([edit, ...orchCommands.flatMap((c) => [`Bash(fleet ${c})`, `Bash(fleet ${c} *)`])]),
+    withAllow([edit, ...ORCH_COMMANDS.flatMap((c) => [`Bash(fleet ${c})`, `Bash(fleet ${c} *)`])]),
   )
 
   // the plugin carries the fleet:orchestrator and fleet:worker skills, which
@@ -164,7 +167,7 @@ export async function prepare(s: Setup): Promise<SeatCommands> {
   await checkTrust(s.notes, s.others)
   const rundir = shq(s.rundir)
   return {
-    orch: (name) =>
+    orchestrator: (name) =>
       `${claude} -n ${name} --settings ${rundir}/orch-settings.json --append-system-prompt-file ${rundir}/${name}.md${orchFlags}`,
     worker: (name) =>
       `${claude} -n ${name} --settings ${rundir}/worker-settings.json --append-system-prompt-file ${rundir}/${name}.md --permission-mode ${mode}${workerFlags}`,
@@ -173,14 +176,13 @@ export async function prepare(s: Setup): Promise<SeatCommands> {
 
 // --model and --effort for one role from FLEET_<role>_MODEL and _EFFORT. They
 // become part of each seat's launch line, so `restart` keeps them.
-function roleFlags(role: string, settings: Record<string, string>): string {
-  const model = settings[`FLEET_${role}_MODEL`] ?? ""
-  const effort = settings[`FLEET_${role}_EFFORT`] ?? ""
+function roleFlags(role: SeatRole, settings: Settings): string {
+  const { model, effort } = roleSettings(settings, role)
   let flags = ""
   if (model) flags += ` --model ${shq(model)}`
   if (effort) {
-    if (!["low", "medium", "high", "xhigh", "max"].includes(effort)) {
-      die(`FLEET_${role}_EFFORT must be low, medium, high, xhigh or max: ${effort}`)
+    if (!oneOf(EFFORTS, effort)) {
+      die(`FLEET_${SETTING_PREFIX[role]}_EFFORT must be low, medium, high, xhigh or max: ${effort}`)
     }
     flags += ` --effort ${effort}`
   }
@@ -203,11 +205,20 @@ function claudeJson(): string {
 type Projects = Record<string, { hasTrustDialogAccepted?: boolean }>
 
 function readProjects(): Projects | null {
+  let config: unknown
   try {
-    return JSON.parse(Deno.readTextFileSync(claudeJson())).projects ?? {}
+    config = JSON.parse(Deno.readTextFileSync(claudeJson()))
   } catch {
     return null
   }
+  if (!isRecord(config)) return null
+  const projects = config.projects ?? {}
+  if (!isRecord(projects)) return null
+  const out: Projects = {}
+  for (const [dir, project] of Object.entries(projects)) {
+    out[dir] = { hasTrustDialogAccepted: isRecord(project) && project.hasTrustDialogAccepted === true }
+  }
+  return out
 }
 
 async function untrusted(projects: Projects, dirs: string[]): Promise<string[]> {
@@ -233,9 +244,12 @@ async function untrusted(projects: Projects, dirs: string[]): Promise<string[]> 
 // hasTrustDialogAccepted are Claude Code's defaults for a new project.
 function trust(dir: string) {
   const file = claudeJson()
-  const config = JSON.parse(Deno.readTextFileSync(file))
-  config.projects ??= {}
-  config.projects[dir] = {
+  const config: unknown = JSON.parse(Deno.readTextFileSync(file))
+  if (!isRecord(config)) die(`${file} isn't a JSON object, so fleet can't add the notes folder to it`)
+  const projects = isRecord(config.projects) ? config.projects : {}
+  const existing = projects[dir]
+  config.projects = projects
+  projects[dir] = {
     allowedTools: [],
     mcpContextUris: [],
     mcpServers: {},
@@ -243,7 +257,7 @@ function trust(dir: string) {
     disabledMcpjsonServers: [],
     hasClaudeMdExternalIncludesApproved: false,
     hasClaudeMdExternalIncludesWarningShown: false,
-    ...config.projects[dir],
+    ...(isRecord(existing) ? existing : {}),
     hasTrustDialogAccepted: true,
   }
   const tmp = `${file}.fleet-${Deno.pid}`
@@ -278,38 +292,43 @@ export function addDir(cmd: string, path: string): string {
 
 // The header fleet puts on every message, which names the skill that
 // handles it, so a session reads that skill for it
-export function header(sender: string, skill: string): string {
+export function header(sender: string, skill: SeatRole): string {
   return `From fleet, sent by ${sender} (handle per /fleet:${skill} skill):`
 }
 
 // Whether the session in pane can take a message: its register hook has
 // recorded its inbox socket
-export async function ready(pane: string): Promise<boolean> {
+export async function ready(pane: Pane): Promise<boolean> {
   return isSocket(await opt(pane, "@agent_socket"))
 }
 
 // Writes a message to the session's inbox socket. Claude Code wakes an idle
 // session with it, and a busy one reads it between tool calls.
-export async function deliver(pane: string, message: string) {
-  await postToSession({ socket: await opt(pane, "@agent_socket") }, message)
+export async function deliver(pane: Pane, message: string) {
+  const socket = await opt(pane, "@agent_socket")
+  try {
+    await postToSession({ socket }, message)
+  } catch (e) {
+    die(`the inbox socket ${socket} refused it: ${e instanceof Error ? e.message : String(e)}`)
+  }
 }
 
 // Starts the session in pane on a fresh context. Claude Code runs its
 // SessionStart hooks again, so the seat registers again.
-export async function reset(pane: string) {
+export async function reset(pane: Pane) {
   await tmux("send-keys", "-t", pane, "-l", "/clear")
   await tmux("send-keys", "-t", pane, "Enter")
 }
 
 // Stops the session's current turn
-export async function interrupt(pane: string) {
+export async function interrupt(pane: Pane) {
   await tmux("send-keys", "-t", pane, "Escape")
 }
 
 // The command a pairing window's agent pane runs. --add-dir takes any number
 // of folders, so -- ends the options and keeps the prompt from being read as
 // one.
-export function pairCommand(root: string, name: string, notes: string, prompt: string): string {
+export function pairCommand({ root, name, notes, prompt }: PairLaunch): string {
   return `claude -n ${name} --plugin-dir ${shq(root)}/plugin --add-dir ${shq(notes)} -- ${shq(prompt)}`
 }
 

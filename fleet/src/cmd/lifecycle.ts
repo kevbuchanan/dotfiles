@@ -2,7 +2,8 @@
 
 import { basename, join, resolve } from "@std/path"
 import { agentNamed } from "../agent/agent.ts"
-import { Fleet, home, isFleet, opt, root, statedir, target, tmux } from "../fleet.ts"
+import { asPane, isFlag, NEW_FLAGS, type Pane, type Settings } from "../types.ts"
+import { Fleet, home, isFleet, opt, root, setOpt, statedir, target, tmux } from "../fleet.ts"
 import {
   die,
   exists,
@@ -52,7 +53,7 @@ export async function borders(window: string) {
 // own worktree, which fleet creates on first launch. @agent_cmd holds the
 // line without the worktree; lines saved by older versions end in `-w
 // <fleet>-<seat>`, which had Claude Code create it, so that is dropped.
-export async function launchLine(fleet: Fleet, pane: string): Promise<string> {
+export async function launchLine(fleet: Fleet, pane: Pane): Promise<string> {
   const seat = await opt(pane, "@agent_seat")
   let cmd = await opt(pane, "@agent_cmd")
   const suffix = ` -w ${fleet.name}-${seat}`
@@ -64,9 +65,9 @@ export async function launchLine(fleet: Fleet, pane: string): Promise<string> {
 
 // Claude's own terminal-title updates would overwrite the pane title, so each
 // pane keeps the title set here. @agent_cmd is what `restart` relaunches.
-async function launch(fleet: Fleet, pane: string, seat: string, line: string) {
-  await tmux("set", "-p", "-t", pane, "@agent_seat", seat)
-  await tmux("set", "-p", "-t", pane, "@agent_cmd", line)
+async function launch(fleet: Fleet, pane: Pane, seat: string, line: string) {
+  await setOpt(pane, "@agent_seat", seat)
+  await setOpt(pane, "@agent_cmd", line)
   await tmux("set", "-p", "-t", pane, "allow-set-title", "off")
   await tmux("select-pane", "-t", pane, "-T", `${fleet.name}-${seat}`)
   await tmux("send-keys", "-t", pane, await launchLine(fleet, pane), "Enter")
@@ -87,21 +88,18 @@ async function fleetFiles(fleet: Fleet) {
   if (added) await fleet.commit(`fleet ${fleet.name}: brief, backlog, decisions and knowledge`)
 }
 
-const NEW_FLAGS: Record<string, string> = {
-  "--agent": "FLEET_AGENT",
-  "--workers": "FLEET_WORKERS",
-  "--worker-mode": "FLEET_WORKER_MODE",
-  "--orch-model": "FLEET_ORCH_MODEL",
-  "--worker-model": "FLEET_WORKER_MODEL",
-  "--orch-effort": "FLEET_ORCH_EFFORT",
-  "--worker-effort": "FLEET_WORKER_EFFORT",
-}
-
 export async function create(args: string[]) {
   // Each flag sets the environment variable of the same setting for this
   // fleet, so flags win and the variables remain the fallback.
-  const settings: Record<string, string> = {}
-  for (const name of Object.values(NEW_FLAGS)) settings[name] = env(name)
+  const settings: Settings = {
+    FLEET_AGENT: env("FLEET_AGENT"),
+    FLEET_WORKERS: env("FLEET_WORKERS"),
+    FLEET_WORKER_MODE: env("FLEET_WORKER_MODE"),
+    FLEET_ORCH_MODEL: env("FLEET_ORCH_MODEL"),
+    FLEET_WORKER_MODEL: env("FLEET_WORKER_MODEL"),
+    FLEET_ORCH_EFFORT: env("FLEET_ORCH_EFFORT"),
+    FLEET_WORKER_EFFORT: env("FLEET_WORKER_EFFORT"),
+  }
   const positional: string[] = []
   const extraRepos: string[] = []
   for (let i = 0; i < args.length; i++) {
@@ -123,9 +121,8 @@ export async function create(args: string[]) {
       extraRepos.push(value)
       continue
     }
-    const name = NEW_FLAGS[flag]
-    if (!name) die(`unknown option ${flag}; see fleet help`)
-    settings[name] = value
+    if (!isFlag(flag)) die(`unknown option ${flag}; see fleet help`)
+    settings[NEW_FLAGS[flag]] = value
   }
   const workers = settings.FLEET_WORKERS
   if (workers && !(/^[0-9]+$/.test(workers) && Number(workers) >= 1)) {
@@ -185,26 +182,28 @@ export async function create(args: string[]) {
   const commands = await agent.prepare({ root, rundir, notes, others, settings })
   // If this call starts the tmux server, the server's environment would carry
   // CLAUDE_CONFIG_DIR into every later pane, fleet or not
-  const pane = await run("tmux", [
-    "new-session",
-    "-d",
-    "-s",
-    name,
-    "-n",
-    "orch",
-    "-c",
-    dir,
-    "-P",
-    "-F",
-    "#{pane_id}",
-  ], {
-    unset: ["CLAUDE_CONFIG_DIR"],
-  })
+  const pane = asPane(
+    await run("tmux", [
+      "new-session",
+      "-d",
+      "-s",
+      name,
+      "-n",
+      "orch",
+      "-c",
+      dir,
+      "-P",
+      "-F",
+      "#{pane_id}",
+    ], {
+      unset: ["CLAUDE_CONFIG_DIR"],
+    }),
+  )
   await tmux("set", "-t", target(name), "@fleet", "1")
   await tmux("set", "-t", target(name), "@fleet_notes", notes)
   await borders(`=${name}:orch`)
   render("orchestrator.md", orch)
-  await launch(fleet, pane, "orch", commands.orch(orch))
+  await launch(fleet, pane, "orch", commands.orchestrator(orch))
 
   // nvim on the notes folder, left of the orchestrator. It has no @agent_seat,
   // so seat commands and `fleet status` skip it.
@@ -224,24 +223,27 @@ export async function create(args: string[]) {
   await tmux("select-pane", "-t", editor, "-T", `${name}-notes`)
   await tmux("send-keys", "-t", editor, "nvim .", "Enter")
 
-  const panes = [
-    await run("tmux", [
-      "new-window",
-      "-d",
-      "-t",
-      target(name),
-      "-n",
-      "workers",
-      "-c",
-      dir,
-      "-P",
-      "-F",
-      "#{pane_id}",
-    ]),
+  const panes: Pane[] = [
+    asPane(
+      await run("tmux", [
+        "new-window",
+        "-d",
+        "-t",
+        target(name),
+        "-n",
+        "workers",
+        "-c",
+        dir,
+        "-P",
+        "-F",
+        "#{pane_id}",
+      ]),
+    ),
   ]
   for (let i = 2; i <= count; i++) {
+    const last = panes[panes.length - 1]
     panes.push(
-      await run("tmux", ["split-window", "-d", "-t", panes.at(-1)!, "-c", dir, "-P", "-F", "#{pane_id}"]),
+      asPane(await run("tmux", ["split-window", "-d", "-t", last, "-c", dir, "-P", "-F", "#{pane_id}"])),
     )
     await run("tmux", ["select-layout", "-t", `=${name}:workers`, "tiled"])
   }
@@ -413,7 +415,7 @@ export async function repo(fleet: Fleet, args: string[]) {
     for (const { pane } of await fleet.seats()) {
       const cmd = await opt(pane, "@agent_cmd")
       const added = fleet.agent.addDir(cmd, path)
-      if (added !== cmd) await tmux("set", "-p", "-t", pane, "@agent_cmd", added)
+      if (added !== cmd) await setOpt(pane, "@agent_cmd", added)
     }
     return print(`added ${path}; each seat can edit there after fleet restart <seat>`)
   }

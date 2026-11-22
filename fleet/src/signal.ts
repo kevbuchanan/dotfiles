@@ -4,28 +4,27 @@
 // orchestrator's notices here, the same for every agent.
 
 import { join } from "@std/path"
-import { Fleet, isFleet, isWorker, opt, root, tmux } from "./fleet.ts"
+import { Fleet, isFleet, isWorker, opt, readState, root, setOpt, setState, unsetOpt } from "./fleet.ts"
 import * as note from "./note.ts"
 import { die, FleetError, isFile, output } from "./run.ts"
+import { asPane, oneOf, type Pane } from "./types.ts"
 
-// The session in pane started, after a launch, a restart or a context reset.
-// socket is where fleet delivers messages to it, for an agent that has one,
-// and session the agent's id for it, for an agent fleet reaches by id.
-export async function started(pane: string, socket = "", session = "") {
-  if (socket) await tmux("set", "-p", "-t", pane, "@agent_socket", socket)
-  if (session) await tmux("set", "-p", "-t", pane, "@agent_session", session)
+// How fleet reaches a session: an inbox socket, for an agent that has one, or
+// the agent's id for it, for one fleet reaches by id
+export type Reach = { socket?: string; session?: string }
+
+// The session in pane started, after a launch, a restart or a context reset
+export async function started(pane: Pane, reach: Reach = {}) {
+  if (reach.socket) await setOpt(pane, "@agent_socket", reach.socket)
+  if (reach.session) await setOpt(pane, "@agent_session", reach.session)
   await setState(pane, "idle")
-}
-
-export async function setState(pane: string, state: string) {
-  await tmux("set", "-p", "-t", pane, "@agent_state", state)
 }
 
 // The agent finished a turn. While the pane's task note has unchecked todos
 // and no open question, the first stop sends it back to the list: the
 // returned text is what to tell it. A second stop in a row, again, is let
 // through and marked stalled, and the orchestrator gets a notice.
-export async function stopped(fleet: Fleet, pane: string, again: boolean): Promise<string> {
+export async function stopped(fleet: Fleet, pane: Pane, again: boolean): Promise<string> {
   const task = await opt(pane, "@agent_task")
   const path = task ? join(fleet.notes, "tasks", `${task}.md`) : ""
   if (!path || !isFile(path)) {
@@ -58,9 +57,9 @@ export async function stopped(fleet: Fleet, pane: string, again: boolean): Promi
 // orchestrator, since the note stays open with nobody working it. `fleet
 // clear` drops the task before its reset and `fleet restart` marks the pane
 // restarting, so neither sends a notice.
-export async function ended(fleet: Fleet, pane: string, reason: string) {
+export async function ended(fleet: Fleet, pane: Pane, reason: string) {
   const task = await opt(pane, "@agent_task")
-  if (task && (await opt(pane, "@agent_state")) !== "restarting") {
+  if (task && (await readState(pane)) !== "restarting") {
     await notice(
       fleet,
       pane,
@@ -69,20 +68,20 @@ export async function ended(fleet: Fleet, pane: string, reason: string) {
       }) while it held the task. The note is still open. fleet restart relaunches the seat with the task; fleet abandon closes it.`,
     )
   }
-  await tmux("set", "-p", "-u", "-t", pane, "@agent_state")
-  await tmux("set", "-p", "-u", "-t", pane, "@agent_socket")
-  await tmux("set", "-p", "-u", "-t", pane, "@agent_session")
+  await unsetOpt(pane, "@agent_state")
+  await unsetOpt(pane, "@agent_socket")
+  await unsetOpt(pane, "@agent_session")
 }
 
 // A notice from a worker's pane to the orchestrator, for what the worker
 // can't report itself. It is dropped while the fleet stops, and when it
 // can't be delivered: the orchestrator also sees the seat's state in `fleet
 // status`.
-async function notice(fleet: Fleet, pane: string, text: string) {
-  if (!isWorker(await opt(pane, "@agent_seat"))) return
+async function notice(fleet: Fleet, from: Pane, text: string) {
+  if (!isWorker(await opt(from, "@agent_seat"))) return
   if (await output("tmux", ["show", "-qv", "-t", fleet.target, "@fleet_stopping"])) return
   try {
-    await fleet.post(await fleet.pane("orch"), "orchestrator", `Notice: ${text}`, pane)
+    await fleet.post({ pane: await fleet.pane("orch"), skill: "orchestrator" }, `Notice: ${text}`, from)
   } catch (e) {
     if (!(e instanceof FleetError)) throw e
   }
@@ -91,29 +90,33 @@ async function notice(fleet: Fleet, pane: string, text: string) {
 // fleet signal <start|busy|waiting|stop|end> [--pane <id>] [--socket <path>]
 // [--again] [--reason <text>]: the pane defaults to $TMUX_PANE. A pane in no
 // fleet is left alone, so an agent's hooks can call this in any session.
+const EVENTS = ["start", "busy", "waiting", "stop", "end"] as const
+
 export async function signal(args: string[]) {
   const usage =
     "usage: fleet signal <start|busy|waiting|stop|end> [--pane <id>] [--socket <path>] [--again] [--reason <text>]"
-  const event = args[0] || die(usage)
-  let pane = Deno.env.get("TMUX_PANE") ?? ""
+  const event = args[0] ?? ""
+  if (!oneOf(EVENTS, event)) die(usage)
+  let given = Deno.env.get("TMUX_PANE") ?? ""
   let socket = ""
   let reason = ""
   let again = false
   for (let i = 1; i < args.length; i++) {
     const a = args[i]
-    if (a === "--pane") pane = args[++i] || die("--pane needs a pane id")
+    if (a === "--pane") given = args[++i] || die("--pane needs a pane id")
     else if (a === "--socket") socket = args[++i] ?? ""
     else if (a === "--reason") reason = args[++i] ?? ""
     else if (a === "--again") again = true
     else die(usage)
   }
-  if (!pane) return
+  if (!given) return
+  const pane = asPane(given)
   const name = await output("tmux", ["display", "-p", "-t", pane, "#S"])
   if (!name || !(await isFleet(name))) return
   const fleet = await Fleet.current(name)
   switch (event) {
     case "start":
-      return await started(pane, socket)
+      return await started(pane, { socket })
     case "busy":
     case "waiting":
       return await setState(pane, event)
@@ -124,7 +127,5 @@ export async function signal(args: string[]) {
     }
     case "end":
       return await ended(fleet, pane, reason)
-    default:
-      die(usage)
   }
 }

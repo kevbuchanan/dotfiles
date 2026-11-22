@@ -1,6 +1,7 @@
 // Diffs of a task or a worker's branch, and bringing a worker's branch up to
 // date with the default branch before it starts a task.
 
+import { asPane } from "../types.ts"
 import { Fleet, isWorker, needId, opt } from "../fleet.ts"
 import { defaultBranch } from "../git.ts"
 import * as note from "../note.ts"
@@ -82,7 +83,7 @@ export async function diff(fleet: Fleet, args: string[]) {
   if (!id || id.startsWith("-")) {
     rest = args
     const pane = Deno.env.get("TMUX_PANE")
-    id = pane ? await opt(pane, "@agent_seat") : ""
+    id = pane ? await opt(asPane(pane), "@agent_seat") : ""
     if (!isWorker(id)) die("usage: fleet diff [--rev] [<task id> | <seat>] [git diff args]")
   }
   needId(id)

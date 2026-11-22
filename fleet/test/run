@@ -194,6 +194,8 @@ test_new_flags() {
   refuses "a word for workers" command fleet new bad --workers many
   refuses "an unknown worker mode" command fleet new bad --worker-mode yolo
   refuses "an unknown effort" command fleet new bad --orch-effort huge
+  refuses "an unknown agent" command fleet new bad --agent nope
+  refuses "an agent name that is an object property" command fleet new bad --agent constructor
   refuses "an unknown flag" command fleet new bad --colour blue
   refuses "a flag with no value" command fleet new bad --workers
   refuses "a name with a slash" command fleet new a/b

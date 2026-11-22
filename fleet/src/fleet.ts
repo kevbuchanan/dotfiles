@@ -7,7 +7,19 @@
 import { dirname, fromFileUrl, join } from "@std/path"
 import { type Agent, agentNamed } from "./agent/agent.ts"
 import { get, path as notePath } from "./note.ts"
-import { die, isDir, isFile, output, readRecord, readText, run, sleep, writeAtomic } from "./run.ts"
+import {
+  die,
+  FleetError,
+  isDir,
+  isFile,
+  output,
+  readRecord,
+  readText,
+  run,
+  sleep,
+  writeAtomic,
+} from "./run.ts"
+import { asPane, isSeatState, type Pane, type PaneOption, type SeatRole, type SeatState } from "./types.ts"
 
 export const root = dirname(dirname(fromFileUrl(import.meta.url)))
 const env = (name: string) => Deno.env.get(name) ?? ""
@@ -19,9 +31,28 @@ export const statedir = join(env("XDG_STATE_HOME") || join(env("HOME"), ".local"
 
 export const tmux = (...args: string[]) => run("tmux", args)
 
-// A pane or session option, empty when unset
-export const opt = (target: string, name: string) =>
-  output("tmux", ["display", "-p", "-t", target, `#{${name}}`])
+// A pane option fleet keeps, empty when unset
+export const opt = (pane: Pane, name: PaneOption) =>
+  output("tmux", ["display", "-p", "-t", pane, `#{${name}}`])
+
+export async function setOpt(pane: Pane, name: PaneOption, value: string) {
+  await tmux("set", "-p", "-t", pane, name, value)
+}
+
+export async function unsetOpt(pane: Pane, name: PaneOption) {
+  await tmux("set", "-p", "-u", "-t", pane, name)
+}
+
+// A seat's state, or empty when it has none, such as before its session
+// starts. A value fleet didn't write reads as none.
+export async function readState(pane: Pane): Promise<SeatState | ""> {
+  const value = await opt(pane, "@agent_state")
+  return isSeatState(value) ? value : ""
+}
+
+export async function setState(pane: Pane, state: SeatState) {
+  await setOpt(pane, "@agent_state", state)
+}
 
 // A session target that names the session itself: `=name` alone would match
 // a window of that name inside option commands
@@ -101,7 +132,7 @@ export class Fleet {
 
   // [pane id, seat, task] for every seat pane; the notes editor and shell
   // windows have no @agent_seat, so they are left out
-  async seats(): Promise<{ pane: string; seat: string; task: string }[]> {
+  async seats(): Promise<{ pane: Pane; seat: string; task: string }[]> {
     const out = await run("tmux", [
       "list-panes",
       "-s",
@@ -111,12 +142,12 @@ export class Fleet {
       "#{pane_id}\t#{@agent_seat}\t#{@agent_task}",
     ])
     return out.split("\n").map((line) => {
-      const [pane, seat, task] = line.split("\t")
-      return { pane, seat, task }
+      const [pane, seat = "", task = ""] = line.split("\t")
+      return { pane: asPane(pane), seat, task }
     }).filter((s) => s.seat)
   }
 
-  async pane(seat: string): Promise<string> {
+  async pane(seat: string): Promise<Pane> {
     const found = (await this.seats()).find((s) => s.seat === seat)
     if (!found) die(`no seat ${seat} in ${this.name}`)
     return found.pane
@@ -193,13 +224,13 @@ export class Fleet {
     }
   }
 
-  async needIdle(pane: string, seat: string) {
-    const st = await opt(pane, "@agent_state")
+  async needIdle(pane: Pane, seat: string) {
+    const st = await readState(pane)
     if (st !== "idle") die(`${seat} is ${st || "starting"}, not idle`)
   }
 
   // Stops fleet when the seat's session can't take a message yet
-  async needReady(pane: string) {
+  async needReady(pane: Pane) {
     if (!(await this.agent.ready(pane))) {
       const seat = await opt(pane, "@agent_seat")
       die(
@@ -210,7 +241,8 @@ export class Fleet {
 
   // Who a message is from: the seat of the pane, the calling one by default,
   // when it belongs to this fleet, otherwise the user.
-  async sender(pane = env("TMUX_PANE")): Promise<string> {
+  async sender(from?: Pane): Promise<string> {
+    const pane = from ?? (env("TMUX_PANE") ? asPane(env("TMUX_PANE")) : undefined)
     let seat = ""
     if (pane && (await output("tmux", ["display", "-p", "-t", pane, "#S"])) === this.name) {
       seat = await opt(pane, "@agent_seat")
@@ -220,15 +252,17 @@ export class Fleet {
     return "the user"
   }
 
-  // Delivers one message to a seat, headed with its sender, the seat of the
-  // pane from when given, and the skill that handles it
-  async post(pane: string, skill: string, text: string, from?: string) {
-    await this.needReady(pane)
-    const seat = await opt(pane, "@agent_seat")
+  // Delivers one message to a seat, headed with its sender and the skill that
+  // handles it. The sender is the seat of the from pane when given, else the
+  // calling pane's.
+  async post(to: { pane: Pane; skill: SeatRole }, text: string, from?: Pane) {
+    await this.needReady(to.pane)
+    const seat = await opt(to.pane, "@agent_seat")
     try {
-      await this.agent.deliver(pane, `${this.agent.header(await this.sender(from), skill)}\n${text}`)
-    } catch {
-      die(`could not deliver to ${seat}`)
+      await this.agent.deliver(to.pane, `${this.agent.header(await this.sender(from), to.skill)}\n${text}`)
+    } catch (e) {
+      if (!(e instanceof FleetError)) throw e
+      die(`could not deliver to ${seat}: ${e.message}`)
     }
   }
 
@@ -246,6 +280,6 @@ export class Fleet {
     if ((await opt(pane, "@agent_task")) !== id) {
       die(`${seat} is no longer on ${id}; start a follow-up task with fleet task`)
     }
-    return { seat, pane, state: await opt(pane, "@agent_state") }
+    return { seat, pane, state: await readState(pane) }
   }
 }
