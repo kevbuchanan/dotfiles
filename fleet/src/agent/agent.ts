@@ -43,6 +43,10 @@ export interface Agent {
   // a fresh context, after which the session reports `fleet signal start`
   reset(pane: Pane): Promise<void>
   interrupt(pane: Pane): Promise<void>
+  // whether the seat's session still has work running in the background,
+  // such as subagents or shell commands. record is what the agent's stop
+  // report names, such as Claude Code's transcript path, or empty.
+  backgroundWork(pane: Pane, record: string): Promise<boolean>
   // a pairing window's agent pane: its command, and the environment for the
   // window's panes from the orchestrator's launch line
   pairCommand(pair: PairLaunch): string

@@ -1,8 +1,14 @@
 // A scripted OpenAI-compatible chat model for test/opencode-run, so opencode
-// runs with no credentials or cost. The last user text drives it: "RUN:
-// <cmd>" calls the shell tool, "SKILL: <id>" calls the skill tool, "SLOW"
-// waits 8 s first, and anything else gets "OK: <text>". After a tool result
-// it says DONE. Every request is appended to the log file, as JSON lines.
+// runs with no credentials or cost. The last user text drives it:
+//
+//   RUN: <cmd>       calls the shell tool
+//   BGRUN: <cmd>     calls the shell tool with background set
+//   BGSUB: <prompt>  starts a general subagent with background set
+//   SKILL: <id>      calls the skill tool
+//   SLOW             waits 8 s before anything else
+//
+// Anything else gets "OK: <text>". After a tool result it says DONE. Every
+// request is appended to the log file, as JSON lines.
 //
 //   deno run --allow-net=127.0.0.1 --allow-write=<log> fake-model.ts <log> <port>
 const log = Deno.args[0]
@@ -22,16 +28,22 @@ Deno.serve({ port, hostname: "127.0.0.1" }, async (req) => {
   const tools = (body.tools ?? []).map((
     t: { function: { name: string; parameters: { properties?: Record<string, unknown> } } },
   ) => t.function)
-  let call: { name: string; args: Record<string, string> } | null = null
+  let call: { name: string; args: Record<string, string | boolean> } | null = null
   let reply = ""
   if (last?.role === "tool") reply = "DONE"
   else {
     if (said.includes("SLOW")) await new Promise((r) => setTimeout(r, 8000))
-    const run = said.match(/RUN: (.+)/)
+    const bgrun = said.match(/BGRUN: (.+)/)
+    const bgsub = said.match(/BGSUB: (.+)/)
+    const run = said.match(/(?<!BG)RUN: (.+)/)
     const skill = said.match(/SKILL: (\S+)/)
-    if (run) {
+    if (bgrun) {
+      call = { name: "shell", args: { command: bgrun[1], description: "test", background: true } }
+    } else if (bgsub) {
+      call = { name: "subagent", args: { agent: "general", description: "test child", prompt: bgsub[1], background: true } }
+    } else if (run) {
       const t = tools.find((f: { name: string }) => /bash|shell/i.test(f.name))
-      const args: Record<string, string> = {}
+      const args: Record<string, string | boolean> = {}
       for (const k of Object.keys(t?.parameters?.properties ?? {})) {
         if (/command/i.test(k)) args[k] = run[1]
         else if (/description/i.test(k)) args[k] = "spike"
@@ -39,7 +51,7 @@ Deno.serve({ port, hostname: "127.0.0.1" }, async (req) => {
       call = { name: t?.name ?? "bash", args }
     } else if (skill) {
       const t = tools.find((f: { name: string }) => /skill/i.test(f.name))
-      const args: Record<string, string> = {}
+      const args: Record<string, string | boolean> = {}
       for (const k of Object.keys(t?.parameters?.properties ?? { id: 1 })) args[k] = skill[1]
       call = { name: t?.name ?? "skill", args }
     } else reply = "OK: " + said.slice(0, 60).replace(/\s+/g, " ")

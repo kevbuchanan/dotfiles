@@ -23,8 +23,17 @@ export async function started(pane: Pane, reach: Reach = {}) {
 // The agent finished a turn. While the pane's task note has unchecked todos
 // and no open question, the first stop sends it back to the list: the
 // returned text is what to tell it. A second stop in a row, again, is let
-// through and marked stalled, and the orchestrator gets a notice.
-export async function stopped(fleet: Fleet, pane: Pane, again: boolean): Promise<string> {
+// through and marked stalled, and the orchestrator gets a notice. A stop
+// while the agent still has work running in the background, such as
+// subagents it is waiting on, is neither: the agent ends its turn to wait,
+// and the work's result starts the next one. background answers that, and
+// runs only when the task has todos left.
+export async function stopped(
+  fleet: Fleet,
+  pane: Pane,
+  again: boolean,
+  background: () => Promise<boolean> = () => Promise.resolve(false),
+): Promise<string> {
   const task = await opt(pane, "@agent_task")
   const path = task ? join(fleet.notes, "tasks", `${task}.md`) : ""
   if (!path || !isFile(path)) {
@@ -36,7 +45,9 @@ export async function stopped(fleet: Fleet, pane: Pane, again: boolean): Promise
     await setState(pane, "question")
   } else if (checked < total) {
     const left = total - checked
-    if (again) {
+    if (await background()) {
+      await setState(pane, "busy")
+    } else if (again) {
       await setState(pane, "stalled")
       await notice(
         fleet,
@@ -88,25 +99,29 @@ async function notice(fleet: Fleet, from: Pane, text: string) {
 }
 
 // fleet signal <start|busy|waiting|stop|end> [--pane <id>] [--socket <path>]
-// [--again] [--reason <text>]: the pane defaults to $TMUX_PANE. A pane in no
+// [--again] [--transcript <path>] [--reason <text>]: the pane defaults to
+// $TMUX_PANE. --transcript is the agent's record of the session, which its
+// adapter reads for background work still running. A pane in no
 // fleet is left alone, so an agent's hooks can call this in any session.
 const EVENTS = ["start", "busy", "waiting", "stop", "end"] as const
 
 export async function signal(args: string[]) {
   const usage =
-    "usage: fleet signal <start|busy|waiting|stop|end> [--pane <id>] [--socket <path>] [--again] [--reason <text>]"
+    "usage: fleet signal <start|busy|waiting|stop|end> [--pane <id>] [--socket <path>] [--again] [--transcript <path>] [--reason <text>]"
   const event = args[0] ?? ""
   if (!oneOf(EVENTS, event)) die(usage)
   let given = Deno.env.get("TMUX_PANE") ?? ""
   let socket = ""
   let reason = ""
   let again = false
+  let transcript = ""
   for (let i = 1; i < args.length; i++) {
     const a = args[i]
     if (a === "--pane") given = args[++i] || die("--pane needs a pane id")
     else if (a === "--socket") socket = args[++i] ?? ""
     else if (a === "--reason") reason = args[++i] ?? ""
     else if (a === "--again") again = true
+    else if (a === "--transcript") transcript = args[++i] ?? ""
     else die(usage)
   }
   if (!given) return
@@ -121,7 +136,7 @@ export async function signal(args: string[]) {
     case "waiting":
       return await setState(pane, event)
     case "stop": {
-      const reply = await stopped(fleet, pane, again)
+      const reply = await stopped(fleet, pane, again, () => fleet.agent.backgroundWork(pane, transcript))
       if (reply) console.log(reply)
       return
     }

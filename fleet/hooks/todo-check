@@ -2,11 +2,13 @@
 # Claude Code Stop hook: tells fleet the session in this pane stopped. While
 # its task has unchecked todos, fleet answers with what to tell the agent, and
 # this blocks the stop with that reason. Claude Code sets stop_hook_active on
-# a stop that follows a blocked one, which fleet treats as a stall.
+# a stop that follows a blocked one, which fleet treats as a stall, unless the
+# transcript shows subagents or background commands still running.
 
 input=$(cat)
 [ -n "$TMUX_PANE" ] || exit 0
 again=""
 [ "$(printf '%s' "$input" | jq -r '.stop_hook_active // false')" = true ] && again=--again
-reason=$("$(dirname "$0")/../bin/fleet" signal stop $again)
+transcript=$(printf '%s' "$input" | jq -r '.transcript_path // ""')
+reason=$("$(dirname "$0")/../bin/fleet" signal stop $again --transcript "$transcript")
 [ -z "$reason" ] || jq -cn --arg r "$reason" '{decision: "block", reason: $r}'

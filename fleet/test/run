@@ -464,6 +464,18 @@ test_todo_check() {
   eq "the second stop is stalled" "$(popt w1 @agent_state)" stalled
   check "the orchestrator gets a stall notice" within 3 received orch "Notice: alpha stalled"
   tmux set -p -t $(pane w1) @agent_state idle
+  # a stop while a subagent the worker launched is still running is a wait:
+  # no block and no stall, whatever stop_hook_active says
+  local tr=$T/transcript.jsonl
+  print -r -- '{"type":"user","message":{"content":"Async agent launched successfully.\nagentId: abc123def (internal ID)"}}' > $tr
+  out=$(jq -cn --arg t $tr '{stop_hook_active: true, transcript_path: $t}' | as w1 $root/hooks/todo-check)
+  eq "a stop waiting on a subagent isn't blocked" "$out" ""
+  eq "nor stalled" "$(popt w1 @agent_state)" busy
+  eq "and sends no notice" "$(messages orch | grep -c 'Notice: alpha stalled')" 1
+  print -r -- '{"type":"user","message":{"content":"<task-notification>\n<task-id>abc123def</task-id>\n<status>completed</status>\n</task-notification>"}}' >> $tr
+  out=$(jq -cn --arg t $tr '{stop_hook_active: false, transcript_path: $t}' | as w1 $root/hooks/todo-check)
+  eq "once it has finished, a stop with todos left is blocked" "$(print -r -- $out | jq -r .decision)" block
+  tmux set -p -t $(pane w1) @agent_state idle
   # an agent with no hooks reports through a watcher outside the seat's pane
   check "fleet signal busy --pane" command fleet signal busy --pane $(pane w1)
   eq "sets the seat's state" "$(popt w1 @agent_state)" busy

@@ -158,6 +158,24 @@ prompt w1 "RUN: fleet report alpha progress halfway"
 check "fleet report from the session's shell" within 15 eval "[[ \$(field $(note alpha) status) == progress ]]"
 check "the orchestrator gets the report" within 10 said orch "Report: alpha progress: halfway"
 
+# a turn that ends while a background command or subagent the worker started
+# still runs is a wait: no answer and no stall until the work finishes
+answers() { texts w1 | grep -c 'alpha has 1 unchecked todos' }
+before=$(answers)
+prompt w1 "BGRUN: sleep 4"
+check "the background command runs" within 10 eval "api /api/shell | grep -q 'sleep 4' || api '/api/shell?location%5Bdirectory%5D=$wt' | grep -q 'sleep 4'"
+check "the turn that started it ends" within 10 eval "api /api/session/active | jq -e '.data | has(\"$(sid w1)\") | not'"
+sleep 1
+eq "a stop waiting on a background command isn't answered" "$(answers)" $before
+eq "the seat stays busy" "$(popt w1 @agent_state)" busy
+check "once it exits, the next stop is answered" within 20 eval "[[ \$(answers) -gt $before ]]"
+before=$(answers)
+prompt w1 "BGSUB: SLOW child work"
+check "the subagent's child session starts" within 20 eval "api '/api/session?parentID=$(sid w1)' | jq -e '.data | length > 0'"
+sleep 1
+eq "a stop waiting on a subagent isn't answered" "$(answers)" $before
+check "once it finishes, the next stop is answered" within 30 eval "[[ \$(answers) -gt $before ]]"
+
 # with the todo done, a stop leaves the seat idle, and clear starts a new session
 todos alpha '[x] the work'
 prompt w1 "all done"

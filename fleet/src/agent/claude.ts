@@ -325,6 +325,27 @@ export async function interrupt(pane: Pane) {
   await tmux("send-keys", "-t", pane, "Escape")
 }
 
+// Whether the session's transcript shows background work still running: a
+// subagent or a background shell command it launched, whose task
+// notification hasn't arrived with a final status. Claude Code records a
+// launch as `agentId: <id>` or "backgroundTaskId":"<id>", and each
+// notification as <task-id>, then a <status>.
+export async function backgroundWork(_pane: Pane, transcript: string): Promise<boolean> {
+  if (!transcript || !isFile(transcript)) return false
+  const text = await Deno.readTextFile(transcript)
+  const launched = new Set<string>()
+  for (const m of text.matchAll(/agentId: ([a-z0-9]+)|"backgroundTaskId":"([A-Za-z0-9]+)"/g)) {
+    launched.add(m[1] ?? m[2])
+  }
+  if (!launched.size) return false
+  const notification =
+    /<task-id>([A-Za-z0-9]+)<\/task-id>((?:(?!<task-id>)[\s\S]){0,1000}?)<status>([a-z_]+)<\/status>/g
+  for (const m of text.matchAll(notification)) {
+    if (m[3] !== "running") launched.delete(m[1])
+  }
+  return launched.size > 0
+}
+
 // The command a pairing window's agent pane runs. --add-dir takes any number
 // of folders, so -- ends the options and keeps the prompt from being read as
 // one.

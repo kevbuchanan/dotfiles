@@ -176,6 +176,31 @@ export async function interrupt(pane: Pane) {
   if (id) await api("POST", `/api/session/${id}/interrupt`)
 }
 
+// Whether the seat's session has work running in the background. A
+// subagent started with background set runs as a child session, listed by
+// its parentID and running while it is in session.active. A shell command
+// started with background set is listed, while it runs, among its folder's
+// shells with the session's id. Either way the parent's turn can end first,
+// and the work's result starts its next turn.
+export async function backgroundWork(pane: Pane, _record: string): Promise<boolean> {
+  const id = await sessionIn(pane)
+  if (!id) return false
+  const children = dataOf(await api("GET", `/api/session?parentID=${encodeURIComponent(id)}`))
+  if (Array.isArray(children) && children.length) {
+    const active = await activeSessions()
+    if (children.some((child) => isRecord(child) && typeof child.id === "string" && active.has(child.id))) {
+      return true
+    }
+  }
+  const session = dataOf(await api("GET", `/api/session/${id}`))
+  const location = isRecord(session) && isRecord(session.location) ? session.location.directory : undefined
+  if (typeof location !== "string") return false
+  const shells = dataOf(
+    await api("GET", `/api/shell?location%5Bdirectory%5D=${encodeURIComponent(location)}`),
+  )
+  return Array.isArray(shells) && shells.some((shell) => isRecord(shell) && sessionOf(shell.metadata) === id)
+}
+
 export function pairCommand({ root, name, prompt }: PairLaunch): string {
   return `${shq(root)}/bin/fleet opencode launch pair ${name} --prompt ${shq(prompt)}`
 }
@@ -446,7 +471,7 @@ async function watch(fleet: Fleet) {
   }
   const stop = async (pane: Pane) => {
     const again = answered.delete(pane)
-    const reply = await signal.stopped(fleet, pane, again)
+    const reply = await signal.stopped(fleet, pane, again, () => backgroundWork(pane, ""))
     if (reply) {
       answered.add(pane)
       await deliver(pane, reply)
