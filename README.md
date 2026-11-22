@@ -11,6 +11,14 @@ $ ./activate.rb
 - Install [Homebrew](https://brew.sh/)
 - `cat brew.txt | xargs brew install`
 
+## Claude Code
+
+Anthropic's native installer puts `claude` in `~/.local/bin` and updates it in place. Homebrew's cask lags the native release and updates only on `brew upgrade`.
+
+```bash
+curl -fsSL https://claude.ai/install.sh | bash
+```
+
 ## vim-plug
 
 For vim:
