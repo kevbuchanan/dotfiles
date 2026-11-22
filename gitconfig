@@ -20,8 +20,6 @@
   navigate = true
   line-numbers = true
 
-[interactive]
-  diffFilter = "diff-so-fancy --patch"
 
 [rerere]
   enabled = true
@@ -60,3 +58,8 @@
 
 [includeIf "gitdir:~/code/example/"]
   path = ~/code/example/.gitconfig
+
+# machine-specific settings, kept out of this public repo. Last, so they
+# win a conflict. git skips a missing include.
+[include]
+  path = ~/.gitconfig.local
