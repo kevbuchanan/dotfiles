@@ -1,36 +1,12 @@
 #!/bin/sh
-# Claude Code Stop hook for fleet seats. While the pane's task note has
-# unchecked todos and no open question, it blocks the first stop and sends
-# Claude back to the list. A second stop in a row is let through and marked
-# "stalled" so `fleet status` shows it, and the orchestrator gets a notice.
-# Sets @agent_state for every outcome.
+# Claude Code Stop hook: tells fleet the session in this pane stopped. While
+# its task has unchecked todos, fleet answers with what to tell the agent, and
+# this blocks the stop with that reason. Claude Code sets stop_hook_active on
+# a stop that follows a blocked one, which fleet treats as a stall.
 
 input=$(cat)
 [ -n "$TMUX_PANE" ] || exit 0
-here=$(dirname "$0")
-
-task=$(tmux display -p -t "$TMUX_PANE" '#{@agent_task}')
-note=$(tmux display -p -t "$TMUX_PANE" '#{@fleet_notes}')/tasks/$task.md
-if [ -z "$task" ] || [ ! -f "$note" ]; then
-  "$here/agent-state" idle
-  exit 0
-fi
-
-read -r checked total open <<EOF
-$("$here/task-progress" "$note")
-EOF
-
-if [ "$open" -gt 0 ]; then
-  "$here/agent-state" question
-elif [ "$checked" -lt "$total" ]; then
-  if [ "$(printf '%s' "$input" | jq -r '.stop_hook_active // false')" = true ]; then
-    "$here/agent-state" stalled
-    "$here/notify" "$task stalled: the worker stopped twice with $((total - checked)) unchecked todos and no open question in $note."
-  else
-    "$here/agent-state" busy
-    reason="$task has $((total - checked)) unchecked todos in $note. Re-read the note and continue with the next item. If you are blocked, add a question under ## Questions, run fleet report $task blocked with the question, and stop."
-    jq -cn --arg r "$reason" '{decision: "block", reason: $r}'
-  fi
-else
-  "$here/agent-state" idle
-fi
+again=""
+[ "$(printf '%s' "$input" | jq -r '.stop_hook_active // false')" = true ] && again=--again
+reason=$("$(dirname "$0")/../bin/fleet" signal stop $again)
+[ -z "$reason" ] || jq -cn --arg r "$reason" '{decision: "block", reason: $r}'

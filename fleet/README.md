@@ -64,7 +64,7 @@ Decisions go into the note, not chat. That keeps a task's history in one file yo
 1. Creates `$FLEET_HOME/<name>/` as a git repo for task notes, if it does not exist yet.
 2. Renders each seat's prompt from `prompts/` into `~/.local/state/fleet/<name>/`, filling in the names of the fleet, the seat, the orchestrator and the workers. In a git repo, it also records the repo's root there for `fleet clean`.
 3. Renders two settings files from `settings.json`. Both enable the hooks and allow edits under the notes folder. The orchestrator's file also allows the per-seat `fleet` commands.
-4. Creates the tmux session and its `orch` and `workers` windows. In each seat pane it types a `claude` command with `--name`, `--settings`, `--append-system-prompt-file`, `--add-dir <notes folder>` and `--plugin-dir <fleet>/plugin`. Workers also get `--permission-mode`, and in a git repo `-w <seat name>` the first time. See "Worker worktrees" below. See the [CLI reference](https://code.claude.com/docs/en/cli-reference).
+4. Creates the tmux session and its `orch` and `workers` windows. In each seat pane it types a `claude` command with `--name`, `--settings`, `--append-system-prompt-file`, `--add-dir <notes folder>` and `--plugin-dir <fleet>/plugin`. Workers also get `--permission-mode`, and in a git repo they start in their own worktree. See "Worker worktrees" below. See the [CLI reference](https://code.claude.com/docs/en/cli-reference).
 5. Opens `nvim .` in the notes folder, in a pane left of the orchestrator. That pane is not a seat, so seat commands and `fleet status` skip it.
 6. Opens window `shell` after the workers, with a shell in the project folder. It is not a seat either.
 7. Turns off `allow-set-title` on each pane, so terminal-title updates from Claude Code or nvim do not replace the pane name.
@@ -75,9 +75,9 @@ Claude Code asks every session to trust each `--add-dir` folder it doesn't trust
 
 ### Worker worktrees
 
-The first time a worker seat launches in a git repo, its launch line ends in `-w <fleet>-w<n>`, and Claude Code creates the worktree under `<repo>/.claude/worktrees/`. If the repo has a [`WorktreeCreate` hook](https://code.claude.com/docs/en/hooks), Claude Code runs that hook in place of its own setup, so the hook also picks the branch name and base commit. `fleet assign` reads the real branch from the worktree.
+fleet creates each worker's worktree, `<repo>/.claude/worktrees/<fleet>-w<n>`, the first time the seat launches in a git repo or takes a task in one of the fleet's other repos. It creates it the way `claude -w <fleet>-w<n>` would. If the repo has a [`WorktreeCreate` hook](https://code.claude.com/docs/en/hooks) in `.claude/settings.local.json`, `.claude/settings.json` or the user's Claude Code settings, fleet runs that hook with the input Claude Code sends, `{"name", "cwd"}` on stdin, from the repo root, and the hook picks the branch name and base commit and may provision the worktree. The hook must print the worktree's path. Without a hook, fleet runs `git worktree add` on a new branch `worktree-<fleet>-w<n>` from the repo's default branch. Either way fleet records the seat's branch in the state folder's `branches` file, which `fleet assign` and task branches use to put the worktree back on the seat's own branch.
 
-Once a seat's worktree exists, `fleet new` and `fleet restart` start the worker inside it, with `cd <worktree> && claude ...` and no `-w`. That covers a fleet started again under the name of one whose worktrees were never cleaned, and every restart. Asking for the same worktree again fails under a hook that refuses an existing name, as some repos' hooks do. It reports `WorktreeCreate hook failed: ... already exists`.
+Every launch, including `fleet restart`, starts the worker with `cd <worktree> && claude ...`. An existing worktree is reused, so a fleet started again under the name of one whose worktrees were never cleaned picks them up, and a hook that refuses an existing name never runs twice. Launch lines saved by older versions end in `-w <fleet>-w<n>`, which fleet drops.
 
 ### Tasks in more than one repo
 
@@ -102,7 +102,7 @@ One task works in one repo. Work that spans repos becomes a task per repo, linke
 
 ### The todo check
 
-The `Stop` hook (`hooks/todo-check`) reads the seat's current task note when Claude ends a turn.
+The `Stop` hook (`hooks/todo-check`) runs `fleet signal stop` when Claude ends a turn, and fleet reads the seat's current task note.
 
 - With unchecked todos and no open question, it blocks the stop and tells Claude how many items remain. See [hooks](https://code.claude.com/docs/en/hooks).
 - If Claude stops again straight after that, the hook lets the stop through, marks the seat `stalled` and sends the orchestrator a notice. Blocking only once means a confused worker can't loop forever.
@@ -207,7 +207,7 @@ The orchestrator owns follow-up. Tell it what's needed, and it writes the items 
 
 ### Working in a worker's checkout
 
-Each worker's Claude session runs in its worktree, `<repo>/.claude/worktrees/<fleet>-w<n>`. The pane's shell does not: it starts in the repo root, because `-w` moves only Claude's own working folder.
+Each worker's Claude session runs in its worktree, `<repo>/.claude/worktrees/<fleet>-w<n>`. The launch line changes the pane's shell into it first, so the shell is there when Claude exits.
 
 - `fleet path w2` prints the worktree path, such as `cd "$(fleet path w2)"` in a shell or ``:e `fleet path w2`/docs/design.md`` in nvim.
 - `fleet shell w2` opens a tmux window named `w2-shell` in the worktree and switches to it. `fleet shell w2 nvim .` opens an editor there, and any other command works the same way. The window is not a seat, so `fleet status` and the seat commands skip it. Running `fleet shell w2` again switches to the open window. In nvim, `:FleetShell w2` runs it, and `:FleetShell` with no seat uses the worker the current buffer belongs to: a file in its worktree, or a task note that names it. `:FleetShell nvim .` opens nvim in that worker's worktree.
@@ -380,12 +380,12 @@ A worker reports on its task with `fleet report <id> <phase> "<one line>"`, wher
 
 ### Notices
 
-A worker's hooks tell the orchestrator about what the worker can't report itself, through `hooks/notify`, in the same message format as a report, with `Notice:` in place of `Report:`:
+A worker's session reports to fleet through `fleet signal`, and fleet tells the orchestrator about what the worker can't report itself, in the same message format as a report, with `Notice:` in place of `Report:`:
 
 - **Stalled:** the `Stop` hook marks the seat `stalled`, as in "The todo check".
-- **Session ended:** the `SessionEnd` hook (`hooks/session-end`) runs while the seat still holds a task, such as when Claude Code exits or crashes, or someone types `/clear` in the pane. The notice names the hook's `reason`.
+- **Session ended:** the `SessionEnd` hook (`hooks/session-end`) runs `fleet signal end` while the seat still holds a task, such as when Claude Code exits or crashes, or someone types `/clear` in the pane. The notice names the hook's `reason`.
 
-`fleet clear` drops the task before it types `/clear`, `fleet restart` marks the seat `restarting`, and `fleet kill` sets `@fleet_stopping` on the session, so none of them sends a notice. A notice that can't be delivered, because the orchestrator has no socket, is dropped. `fleet status` still shows the seat's state.
+`fleet clear` drops the task before it types `/clear`, `fleet restart` marks the seat `restarting`, and `fleet kill` sets `@fleet_stopping` on the session, so none of them sends a notice. A notice that can't be delivered, because the orchestrator's session can't take messages, is dropped. `fleet status` still shows the seat's state.
 
 ### Recovering a seat
 
@@ -410,6 +410,25 @@ Task pay-1022-retry-queue: read ~/agents/shop/tasks/pay-1022-retry-queue.md
 The sender is the seat of the calling pane, or `the user` from any other shell. `settings.json` sets [`crossSessionInbound`](https://code.claude.com/docs/en/settings-reference#crosssessioninbound) to `accept`, so no seat holds these messages for approval. Seats can still message each other directly with `SendMessage`, but the skills route task traffic through fleet, so it lands in the notes.
 
 A seat started before fleet recorded sockets has no `@agent_socket`, and fleet refuses to message it until `fleet restart` relaunches it. `fleet assign` checks for the socket before it changes anything.
+
+### Other agents
+
+fleet runs Claude Code in its seats, through one module, `src/agent/claude.ts`. `src/agent/agent.ts` lists what that module does for fleet:
+
+- **Launch:** check the fleet's settings, render what each role runs with, and return each role's launch command, and add a repo to a launch line for `fleet repo add`.
+- **Worktrees:** create a seat's worktree and return its branch.
+- **Messages:** the header line, whether a session can take a message, and delivery.
+- **Keys:** reset a session's context, as `/clear` does, and interrupt its turn.
+- **Pairing:** the pair pane's launch command and environment.
+
+Everything else, tasks, notes, git, tmux and seat state, is fleet's own. A session tells fleet about itself with `fleet signal`, the same for any agent:
+
+- `fleet signal start [--socket <path>]`: the session started, after a launch, a restart or a reset, and the socket is where fleet delivers to it. The seat shows `idle`.
+- `fleet signal busy` and `fleet signal waiting`: set the seat's state.
+- `fleet signal stop [--again]`: the agent ended a turn. fleet runs "The todo check" and prints what to tell an agent that still has todos. `--again` marks a stop straight after one fleet answered, which stalls the seat.
+- `fleet signal end [--reason <text>]`: the session ended. See "Notices".
+
+Each takes `--pane <id>`, the seat's pane, and defaults to `$TMUX_PANE`, so Claude Code's hooks call it from the seat and a watcher outside the pane can call it for an agent with no hooks. A pane in no fleet is left alone.
 
 ### Pane titles
 
@@ -439,6 +458,7 @@ Claude Code refuses rapid bursts of messages to one session. fleet sends one mes
 | `fleet path <seat>` | print a worker's worktree path |
 | `fleet answer <id>` | tell a worker waiting on a question that the task's questions are answered |
 | `fleet report <id> <phase> <text>` | a worker's report on its task: `progress`, `review`, `done`, `blocked` or `error` |
+| `fleet signal <start\|busy\|waiting\|stop\|end> [--pane <id>] [--socket <path>] [--again] [--reason <text>]` | a seat's session reports on itself, from its hooks or a watcher. See "Other agents". |
 | `fleet bump <id>` | tell the worker still on the task that its note has new work |
 | `fleet diff [--rev] [<id> \| <seat>] [git diff args]` | show one task's changes, or a worker's whole branch. With neither, in a worker's pane, its branch. `--rev` prints the folder and revision `:FleetDiff!` uses. |
 | `fleet comment <id> <path>:<line>[-<end>] [--at <sha>] [--quote <text>] <comment>` | add a review comment to an open task's note as a todo, and print the line. See "Review comments". |
@@ -503,7 +523,11 @@ Fleet's `--settings` file adds to the config folder's own settings. If that fold
 ```
 bin/fleet                 the command: runs src/main.ts with deno.jsonc and its permission flags
 src/main.ts               argument parsing, usage and dispatch
-src/fleet.ts              a fleet's session, seats, notes lock and message posting
+src/fleet.ts              a fleet's session, seats, worktrees, notes lock and message posting
+src/signal.ts             fleet signal: a session's start, state, stop and end, and the notices they send
+src/agent/agent.ts        what fleet needs from the agent its seats run
+src/agent/claude.ts       Claude Code: launch lines and settings, folder trust, worktree creation with
+                          WorktreeCreate hooks, socket delivery, /clear, and the pair launch line
 src/note.ts               task note frontmatter, sections, migration and lookup by id
 src/run.ts                subprocess and file helpers
 src/cmd/                  lifecycle.ts (new, attach, ls, kill, clean), seat.ts (tasks and seat
@@ -519,11 +543,10 @@ templates/brief.md, backlog.md, decisions.md, knowledge/index.md
                           fleet-level files fleet new creates in a notes folder
 guidance/default.md       default working rules linked from each note
 settings.json             crossSessionInbound and hooks, with {{ROOT}} for this folder
-hooks/agent-state         sets @agent_state on the calling pane
-hooks/register            SessionStart hook: records the session's inbox socket
-hooks/session-end         SessionEnd hook: notices for a seat that ends on a task, then unsets its state and socket
-hooks/notify              posts a notice from a worker's hooks to the orchestrator
-hooks/todo-check          Stop hook
+hooks/agent-state         busy and waiting: sets @agent_state on the calling pane, quicker than fleet
+hooks/register            SessionStart hook: fleet signal start with the session's inbox socket
+hooks/session-end         SessionEnd hook: fleet signal end with Claude Code's reason
+hooks/todo-check          Stop hook: fleet signal stop, and blocks the stop with fleet's answer
 hooks/task-progress       counts done todos, total todos and open questions
 nvim/plugin/fleet.lua     :FleetDiff, :FleetDiffTerm, :FleetBump, :FleetFollowUp, :FleetAssign, :FleetComment, :FleetPair, :FleetShell, :FleetBoard and the save hook, linked into ~/.config/nvim/plugin
 nvim/lua/fleet/           note.lua (frontmatter reader), tree.lua (nvim-tree decorator and
@@ -540,7 +563,7 @@ Run state lives outside this folder:
 
 - `~/.local/state/fleet/<fleet>/`: rendered prompts and settings, and the repo root. `XDG_STATE_HOME` moves it. Seats read these files at every launch, including `fleet restart`, so they don't go in `$TMPDIR`, where macOS deletes files nobody has opened for a few days.
 - `$FLEET_HOME/<fleet>/`: the notes folder, a git repo. See "The notes folder" above.
-- `<repo>/.claude/worktrees/<fleet>-w<n>/`: worker checkouts
+- `<repo>/.claude/worktrees/<fleet>-w<n>/`: worker checkouts, whose branches the state folder's `branches` file records
 
 ### Cleaning up
 
@@ -569,8 +592,7 @@ A fleet started before fleet kept a repo record shows `-` for its repo and workt
 
 Each seat runs `test/claude-stub` in place of `claude`. The stub does what fleet relies on a seat doing:
 
-- With `-w <name>`, it creates the worktree under `.claude/worktrees/<name>`.
-- It binds an inbox socket and runs the real `register` and `agent-state` hooks, as `SessionStart` would, and again after a typed `/clear`.
+- It binds an inbox socket and runs the real `register` hook, as `SessionStart` would, and again after a typed `/clear`.
 - It records each socket message and each typed line, which the tests read back.
 
 The stub never runs `Stop` or `SessionEnd` hooks, so the tests call `hooks/todo-check` and `hooks/session-end` themselves, with the input Claude Code sends. What the tests can't cover is Claude Code itself: the inbox message format, which hook events fire when, and how a model follows the skills.

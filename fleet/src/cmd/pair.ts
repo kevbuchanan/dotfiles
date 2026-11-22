@@ -13,10 +13,11 @@
 //   - --pr <ref>: a worktree of its own at a pull or merge request's branch
 
 import { basename, join } from "@std/path"
+import { agent } from "../agent/agent.ts"
 import { Fleet, isWorker, needId, opt, root, tmux } from "../fleet.ts"
 import { defaultBranch } from "../git.ts"
 import * as note from "../note.ts"
-import { die, isDir, isFile, output, print, run, shq, test, warn } from "../run.ts"
+import { die, isDir, isFile, output, print, run, test, warn } from "../run.ts"
 import * as wip from "../wip.ts"
 import { borders } from "./lifecycle.ts"
 
@@ -105,19 +106,10 @@ export async function pair(fleet: Fleet, args: string[]) {
   else print(`opened ${fleet.name}:${win}; fleet attach ${fleet.name} to use it`)
 }
 
-// The window, its two panes and the claude launch line
+// The window, its two panes and the agent's launch line
 async function open(fleet: Fleet, win: string, name: string, dir: string, prompt: string) {
-  // --add-dir takes any number of folders, so -- ends the options and keeps
-  // the prompt from being read as one
-  const claude = `claude -n ${fleet.name}-${name}-pair --plugin-dir ${shq(root)}/plugin --add-dir ${
-    shq(fleet.notes)
-  } -- ${shq(prompt)}`
-  // The fleet's config folder, from the orchestrator's launch line, is set in
-  // the panes' environment, so a claude started there again by hand gets it
-  // too
-  const orchCmd = await opt(await fleet.pane("orch"), "@agent_cmd")
-  const configDir = orchCmd.match(/^CLAUDE_CONFIG_DIR=('(?:[^']|'\\'')*'|\S+) claude /)?.[1]
-  const paneEnv = configDir ? ["-e", `CLAUDE_CONFIG_DIR=${unquote(configDir)}`] : []
+  const command = agent.pairCommand(root, `${fleet.name}-${name}-pair`, fleet.notes, prompt)
+  const paneEnv = agent.paneEnv(await opt(await fleet.pane("orch"), "@agent_cmd"))
   const editor = await run("tmux", [
     "new-window",
     "-d",
@@ -132,7 +124,7 @@ async function open(fleet: Fleet, win: string, name: string, dir: string, prompt
     "-F",
     "#{pane_id}",
   ])
-  const agent = await run("tmux", [
+  const agentPane = await run("tmux", [
     "split-window",
     "-h",
     "-d",
@@ -146,18 +138,18 @@ async function open(fleet: Fleet, win: string, name: string, dir: string, prompt
     "#{pane_id}",
   ])
   await borders(`=${fleet.name}:${win}`)
-  for (const [pane, title] of [[editor, `${fleet.name}-${name}`], [agent, `${fleet.name}-${name}-claude`]]) {
+  for (
+    const [pane, title] of [[editor, `${fleet.name}-${name}`], [
+      agentPane,
+      `${fleet.name}-${name}-${agent.name}`,
+    ]]
+  ) {
     await tmux("set", "-p", "-t", pane, "allow-set-title", "off")
     await tmux("select-pane", "-t", pane, "-T", title)
   }
   await tmux("send-keys", "-t", editor, "nvim .", "Enter")
-  await tmux("send-keys", "-t", agent, claude, "Enter")
-  await tmux("select-pane", "-t", agent)
-}
-
-// A value shq quoted, as it was typed into a launch line
-function unquote(value: string): string {
-  return value.startsWith("'") ? value.slice(1, -1).replaceAll(`'\\''`, "'") : value
+  await tmux("send-keys", "-t", agentPane, command, "Enter")
+  await tmux("select-pane", "-t", agentPane)
 }
 
 function realPath(path: string): string {

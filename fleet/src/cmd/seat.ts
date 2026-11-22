@@ -1,9 +1,11 @@
 // Tasks and the seats that work them. Task messages (assign, bump, answer,
-// report) go to a seat's Claude Code inbox socket, which the register hook
-// records on its pane. Claude Code treats them as messages from another
-// session: they can't approve a permission prompt, and a busy session reads
-// them between tool calls. Only /clear, Escape and the launch line are typed
-// into panes, because commands that arrive over the socket don't run.
+// report) go to a seat's session through the agent, src/agent/agent.ts. With
+// Claude Code they go to its inbox socket, which the register hook records on
+// the pane, and Claude Code treats them as messages from another session:
+// they can't approve a permission prompt, and a busy session reads them
+// between tool calls. The agent types its reset and interrupt keys and the
+// launch line into panes, because commands that arrive over the socket don't
+// run.
 
 import { basename, join, relative } from "@std/path"
 import { Fleet, isWorker, needId, opt, root, tmux } from "../fleet.ts"
@@ -13,7 +15,6 @@ import {
   exists,
   fill,
   isFile,
-  isSocket,
   output,
   print,
   readText,
@@ -25,6 +26,7 @@ import {
   warn,
   writeAtomic,
 } from "../run.ts"
+import { agent } from "../agent/agent.ts"
 import { borders, launchLine } from "./lifecycle.ts"
 import { fetchOrigin, sync } from "./diff.ts"
 import { defaultBranch } from "../git.ts"
@@ -177,7 +179,7 @@ export async function assign(fleet: Fleet, args: string[]) {
   const pane = await fleet.pane(seat)
   if (!isFile(path)) die(`no task note ${path}`)
   await fleet.needIdle(pane, seat)
-  await fleet.needSocket(pane)
+  await fleet.needReady(pane)
   // reassigning would overwrite base, and `fleet diff` would lose the closed work
   if (note.get(path, "end")) {
     die(`${id} is closed; put follow-up work in a new task, such as fleet task ${id}-2 --from ${id}`)
@@ -214,18 +216,18 @@ export async function assign(fleet: Fleet, args: string[]) {
   // base is the worker branch's commit when the task starts, and end is set
   // by `fleet clear`, so `fleet diff` can show this task apart from the
   // branch's earlier and later tasks
-  const worktree = repo && repo !== fleet.repo ? await fleet.ensureWorktree(seat, repo) : fleet.checkout(seat)
+  const worktree = repo ? await fleet.ensureWorktree(seat, repo) : ""
   // A task with `start:` works on a branch of its own, checked out from that
   // ref; any other task works on the seat's branch, brought up to date with
   // the default branch
   const start = note.get(path, "start")
-  let branch = start ? note.get(path, "branch") || id : seatBranch(fleet, seat)
+  let branch = start ? note.get(path, "branch") || id : fleet.seatBranch(seat, repo)
   let base = "-"
   let target = "HEAD"
   if (worktree && start) {
     target = await taskBranchHead(worktree, seat, branch, start)
   } else if (worktree) {
-    await home(fleet, worktree, seat, die)
+    await home(fleet, repo, worktree, seat, die)
     if (doSync) await sync(worktree, seat)
     branch = (await output("git", ["-C", worktree, "symbolic-ref", "-q", "--short", "HEAD"])) || branch
   }
@@ -278,20 +280,14 @@ async function close(
   for (const [key, value] of Object.entries(extra)) note.set(path, key, value, fleet.name)
   // frees a task branch for a pair or a follow-up on another seat, since git
   // checks a branch out in one worktree at a time
-  if (worktree && note.get(path, "start")) await home(fleet, worktree, seat, warn)
+  if (worktree && note.get(path, "start")) await home(fleet, fleet.repoOf(path), worktree, seat, warn)
   return worktree
-}
-
-// The branch a seat's worktree was made on: Claude Code names it after the
-// -w name on the launch line, and ensureWorktree uses the same name
-function seatBranch(fleet: Fleet, seat: string) {
-  return `worktree-${fleet.name}-${seat}`
 }
 
 // Puts a worktree back on its seat's branch after a task on a branch of its
 // own. Untracked files that fleet clear left in place stay.
-async function home(fleet: Fleet, worktree: string, seat: string, fail: (msg: string) => void) {
-  const branch = seatBranch(fleet, seat)
+async function home(fleet: Fleet, repo: string, worktree: string, seat: string, fail: (msg: string) => void) {
+  const branch = fleet.seatBranch(seat, repo)
   const current = await output("git", ["-C", worktree, "symbolic-ref", "-q", "--short", "HEAD"])
   if (current === branch) return
   if (!(await test("git", ["-C", worktree, "rev-parse", "-q", "--verify", `refs/heads/${branch}`]))) return
@@ -331,11 +327,6 @@ async function checkoutTaskBranch(worktree: string, seat: string, branch: string
   }
 }
 
-async function typeClear(pane: string) {
-  await tmux("send-keys", "-t", pane, "-l", "/clear")
-  await tmux("send-keys", "-t", pane, "Enter")
-}
-
 export async function clear(fleet: Fleet, args: string[]) {
   const seat = args[0] || die("seat")
   const pane = await fleet.pane(seat)
@@ -352,7 +343,7 @@ export async function clear(fleet: Fleet, args: string[]) {
   }
   await tmux("set", "-p", "-u", "-t", pane, "@agent_task")
   await tmux("select-pane", "-t", pane, "-T", `${fleet.name}-${seat}`)
-  await typeClear(pane)
+  await agent.reset(pane)
 }
 
 // A seat holding a task keeps it across the restart: the new session gets
@@ -370,7 +361,7 @@ export async function restart(fleet: Fleet, args: string[]) {
   await tmux("send-keys", "-t", pane, await launchLine(fleet, pane), "Enter")
   if (!id) return
   const path = note.path(fleet.notes, id)
-  for (let tries = 0; !isSocket(await opt(pane, "@agent_socket")); tries++) {
+  for (let tries = 0; !(await agent.ready(pane)); tries++) {
     if (tries >= 120) {
       die(
         `${seat} did not start within a minute; it still holds ${id}, so run fleet bump ${id} once it is up`,
@@ -409,10 +400,10 @@ export async function abandon(fleet: Fleet, args: string[]) {
   }
   await tmux("set", "-p", "-u", "-t", pane, "@agent_task")
   await tmux("select-pane", "-t", pane, "-T", `${fleet.name}-${seat}`)
-  if (isSocket(await opt(pane, "@agent_socket"))) {
-    await tmux("send-keys", "-t", pane, "Escape")
+  if (await agent.ready(pane)) {
+    await agent.interrupt(pane)
     await sleep(500)
-    await typeClear(pane)
+    await agent.reset(pane)
   } else {
     warn(`${seat} has no live session; fleet restart ${seat} relaunches it`)
   }
@@ -420,7 +411,7 @@ export async function abandon(fleet: Fleet, args: string[]) {
 }
 
 export async function interrupt(fleet: Fleet, args: string[]) {
-  await tmux("send-keys", "-t", await fleet.pane(args[0] || die("seat")), "Escape")
+  await agent.interrupt(await fleet.pane(args[0] || die("seat")))
 }
 
 export async function rename(fleet: Fleet, args: string[]) {
@@ -546,11 +537,11 @@ export async function report(fleet: Fleet, args: string[]) {
       )
     }
   }
-  // find the orchestrator's socket before writing anything, so a report that
+  // check the orchestrator can take the report before writing anything, so one that
   // can't be delivered (the orchestrator mid-/clear) changes nothing and a
   // retry doesn't log the same line twice
   const orch = await fleet.pane("orch")
-  await fleet.needSocket(orch)
+  await fleet.needReady(orch)
   if (phase === "review") askApproval(path)
   note.set(path, "status", phase, fleet.name)
   note.appendLog(path, `${stamp()} ${phase}: ${text}`)

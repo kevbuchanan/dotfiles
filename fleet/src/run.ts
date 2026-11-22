@@ -179,3 +179,18 @@ export function removeIfAny(path: string) {
     if (!(e instanceof Deno.errors.NotFound)) throw e
   }
 }
+
+// an absolute path with symlinks resolved, or as given when it doesn't exist
+export function realPath(path: string): string {
+  try {
+    return Deno.realPathSync(path)
+  } catch {
+    return path
+  }
+}
+
+// a path under $HOME written from ~, for messages
+export function tilde(path: string): string {
+  const home = Deno.env.get("HOME") ?? ""
+  return home && path.startsWith(home) ? "~" + path.slice(home.length) : path
+}

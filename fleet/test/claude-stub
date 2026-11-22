@@ -1,23 +1,16 @@
 #!/usr/bin/python3
 # Stands in for claude in fleet's tests. It does what fleet relies on a seat
-# doing: with -w <name>, it creates the worktree Claude Code would, under
-# .claude/worktrees/<name> on branch worktree-<name>; it binds an inbox
-# socket and runs the real register hook on it, as SessionStart would; and
-# it records what reaches it. Socket messages go to <socket>.inbox and
-# typed lines to <socket>.typed, one per line, its arguments to
-# <socket>.argv, one per line, and its CLAUDE_CONFIG_DIR to <socket>.env.
+# doing: it binds an inbox socket and runs the real register hook on it, as
+# SessionStart would, and it records what reaches it. Socket messages go to
+# <socket>.inbox and typed lines to <socket>.typed, one per line, its
+# arguments to <socket>.argv, one per line, and its CLAUDE_CONFIG_DIR to
+# <socket>.env.
 # A typed /clear runs register again, as a new session would.
 import os, socket, subprocess, sys, threading
 
 hooks = os.path.join(os.environ["FLEET_ROOT"], "hooks")
 pane = os.environ["TMUX_PANE"]
 args = sys.argv[1:]
-if "-w" in args:
-    name = args[args.index("-w") + 1]
-    top = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True).stdout.strip()
-    wt = os.path.join(top, ".claude", "worktrees", name)
-    subprocess.run(["git", "-C", top, "worktree", "add", "-q", "-b", "worktree-" + name, wt], check=True)
-    os.chdir(wt)
 
 sock = os.path.join(os.environ["FLEET_TEST_SOCKS"], "%d.sock" % os.getpid())
 with open(sock + ".argv", "w") as f:
@@ -31,7 +24,6 @@ server.listen(8)
 def session_start():
     env = dict(os.environ, CLAUDE_CODE_MESSAGING_SOCKET=sock)
     subprocess.run([os.path.join(hooks, "register")], env=env, input=b"{}")
-    subprocess.run([os.path.join(hooks, "agent-state"), "idle"])
 
 def serve():
     while True:

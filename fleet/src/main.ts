@@ -5,6 +5,7 @@ import { archive, migrate } from "./cmd/archive.ts"
 import { diff } from "./cmd/diff.ts"
 import { attach, clean, create, kill, ls, repo } from "./cmd/lifecycle.ts"
 import { pair } from "./cmd/pair.ts"
+import { signal } from "./signal.ts"
 import { comment, review } from "./cmd/review.ts"
 import * as seat from "./cmd/seat.ts"
 import { die, FleetError } from "./run.ts"
@@ -59,6 +60,12 @@ there shows what agents wrote since the last assignment.
                                that its task's questions are answered
   fleet bump <id>              tell the worker still on a task that its
                                note has new work
+  fleet signal <start|busy|waiting|stop|end> [--pane <id>] [--socket <path>] [--again] [--reason <text>]
+                               an agent's report on its own session, from
+                               its hooks or a watcher: it started (with the
+                               socket fleet delivers to), changed state,
+                               stopped (prints what to tell an agent that
+                               still has todos), or ended
   fleet report <id> <phase> <text>
                                a worker's report on its task: progress,
                                review, done, blocked or error
@@ -151,6 +158,8 @@ async function main(argv: string[]) {
       return await kill(await Fleet.current(args[0] || name))
     case "clean":
       return await clean(args)
+    case "signal":
+      return await signal(args)
     default:
       console.log(USAGE)
       if (cmd !== "help") Deno.exit(1)

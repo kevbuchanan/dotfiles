@@ -1,6 +1,7 @@
 // Starting, listing, stopping and removing fleets.
 
-import { basename, dirname, join, resolve } from "@std/path"
+import { basename, join, resolve } from "@std/path"
+import { agent } from "../agent/agent.ts"
 import { Fleet, home, isFleet, opt, root, statedir, target, tmux } from "../fleet.ts"
 import {
   die,
@@ -13,11 +14,13 @@ import {
   print,
   readRecord,
   readText,
+  realPath,
   removeIfAny,
   run,
   shq,
   succeeds,
   test,
+  tilde,
   warn,
   writeAtomic,
 } from "../run.ts"
@@ -29,15 +32,6 @@ const env = (name: string) => Deno.env.get(name) ?? ""
 function logicalCwd(): string {
   const pwd = env("PWD")
   return pwd && realPath(pwd) === realPath(Deno.cwd()) ? pwd : Deno.cwd()
-}
-
-// an absolute path with symlinks resolved, or as given when it doesn't exist
-function realPath(path: string): string {
-  try {
-    return Deno.realPathSync(path)
-  } catch {
-    return path
-  }
 }
 
 export async function attach(name: string) {
@@ -54,13 +48,10 @@ export async function borders(window: string) {
   await tmux("set", "-w", "-t", window, "pane-border-format", " #{pane_title} #{@agent_state} ")
 }
 
-// The command typed into a seat's pane. A worker in a git fleet gets `-w` the
-// first time, which has Claude Code create its worktree. Once the worktree
-// exists, the worker starts inside it instead: a repo's WorktreeCreate hook may
-// refuse a name that already exists, and `fleet new` on an earlier fleet's
-// name or `fleet restart` would otherwise ask for it again. @agent_cmd holds
-// the line without `-w`; lines saved by older versions end in it, so it's
-// dropped.
+// The command typed into a seat's pane. A worker in a git fleet starts in its
+// own worktree, which fleet creates on first launch. @agent_cmd holds the
+// line without the worktree; lines saved by older versions end in `-w
+// <fleet>-<seat>`, which had Claude Code create it, so that is dropped.
 export async function launchLine(fleet: Fleet, pane: string): Promise<string> {
   const seat = await opt(pane, "@agent_seat")
   let cmd = await opt(pane, "@agent_cmd")
@@ -68,12 +59,7 @@ export async function launchLine(fleet: Fleet, pane: string): Promise<string> {
   if (cmd.endsWith(suffix)) cmd = cmd.slice(0, -suffix.length)
   const repo = fleet.repo
   if (!/^w\d+$/.test(seat) || !repo) return cmd
-  const wt = join(repo, ".claude", "worktrees", `${fleet.name}-${seat}`)
-  // a repo that moved or went away lists nothing, so the seat asks for -w
-  // again and Claude Code reports the problem in the pane
-  const list = await output("git", ["-C", repo, "worktree", "list", "--porcelain"])
-  if (list.split("\n").includes(`worktree ${wt}`)) return `cd ${shq(wt)} && ${cmd}`
-  return `${cmd}${suffix}`
+  return `cd ${shq(await fleet.ensureWorktree(seat, repo))} && ${cmd}`
 }
 
 // Claude's own terminal-title updates would overwrite the pane title, so each
@@ -84,22 +70,6 @@ async function launch(fleet: Fleet, pane: string, seat: string, line: string) {
   await tmux("set", "-p", "-t", pane, "allow-set-title", "off")
   await tmux("select-pane", "-t", pane, "-T", `${fleet.name}-${seat}`)
   await tmux("send-keys", "-t", pane, await launchLine(fleet, pane), "Enter")
-}
-
-// --model and --effort for one role from FLEET_<role>_MODEL and _EFFORT. They
-// become part of each seat's launch line, so `restart` keeps them.
-function roleFlags(role: string, settings: Record<string, string>): string {
-  const model = settings[`FLEET_${role}_MODEL`] ?? ""
-  const effort = settings[`FLEET_${role}_EFFORT`] ?? ""
-  let flags = ""
-  if (model) flags += ` --model ${shq(model)}`
-  if (effort) {
-    if (!["low", "medium", "high", "xhigh", "max"].includes(effort)) {
-      die(`FLEET_${role}_EFFORT must be low, medium, high, xhigh or max: ${effort}`)
-    }
-    flags += ` --effort ${effort}`
-  }
-  return flags
 }
 
 // Creates the fleet-level files beside tasks/ from templates/, leaving any
@@ -125,7 +95,6 @@ const NEW_FLAGS: Record<string, string> = {
   "--orch-effort": "FLEET_ORCH_EFFORT",
   "--worker-effort": "FLEET_WORKER_EFFORT",
 }
-const MODES = ["acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan"]
 
 export async function create(args: string[]) {
   // Each flag sets the environment variable of the same setting for this
@@ -161,10 +130,8 @@ export async function create(args: string[]) {
   if (workers && !(/^[0-9]+$/.test(workers) && Number(workers) >= 1)) {
     die(`workers must be a whole number from 1: ${workers}`)
   }
-  const workerMode = settings.FLEET_WORKER_MODE
-  if (workerMode && !MODES.includes(workerMode)) {
-    die(`worker mode must be acceptEdits, auto, bypassPermissions, manual, dontAsk or plan: ${workerMode}`)
-  }
+  // the agent refuses settings it can't run with, before anything is made
+  agent.check(settings)
 
   const name = (positional[0] || basename(logicalCwd())).replaceAll(/[.:]/g, "-")
   // the name becomes a tmux session, a notes folder and a state folder, so a
@@ -181,9 +148,6 @@ export async function create(args: string[]) {
   }
 
   const count = Number(workers || 6)
-  const mode = workerMode || "auto"
-  const orchFlags = roleFlags("ORCH", settings)
-  const workerFlags = roleFlags("WORKER", settings)
   const notes = join(home, name)
   const fleet = Fleet.at(name, notes)
   const rundir = fleet.rundir
@@ -210,50 +174,12 @@ export async function create(args: string[]) {
     Deno.writeTextFileSync(join(rundir, `${seat}.md`), text)
   }
 
-  // every seat may edit the notes; the orchestrator may also run seat commands
-  const edit = `Edit(/${notes}/**)`
-  const settingsText = fill(readText(join(root, "settings.json")), { ROOT: root })
-  Deno.writeTextFileSync(join(rundir, "settings.json"), settingsText)
-  const base = JSON.parse(settingsText)
-  const withAllow = (allow: string[]) =>
-    JSON.stringify({ ...base, permissions: { ...base.permissions, allow } }, null, 2) + "\n"
-  Deno.writeTextFileSync(join(rundir, "worker-settings.json"), withAllow([edit, "Bash(fleet report *)"]))
-  const orchCommands = [
-    "status",
-    "task",
-    "assign",
-    "clear",
-    "interrupt",
-    "rename",
-    "path",
-    "diff",
-    "answer",
-    "bump",
-    "archive",
-  ]
-  Deno.writeTextFileSync(
-    join(rundir, "orch-settings.json"),
-    withAllow([edit, ...orchCommands.flatMap((c) => [`Bash(fleet ${c})`, `Bash(fleet ${c} *)`])]),
-  )
-
-  // the plugin carries the fleet:orchestrator and fleet:worker skills, which
-  // hold the protocol; seats read a skill when they use it, so edits reach
-  // running seats
-  // the fleet's other repos: seats get --add-dir for each, so a worker can
-  // edit its worktree there
+  // the fleet's other repos, where seats may also work
   const primary = (await test("git", ["-C", dir, "rev-parse", "--is-inside-work-tree"]))
     ? await run("git", ["-C", dir, "rev-parse", "--show-toplevel"])
     : ""
   const others = [...new Set(await Promise.all(extraRepos.map(toplevel)))].filter((r) => r !== primary)
-  let claude = `claude --add-dir ${shq(notes)}${
-    others.map((r) => ` --add-dir ${shq(r)}`).join("")
-  } --plugin-dir ${shq(root)}/plugin`
-  // Sessions find each other only within one config dir, so every seat gets
-  // the same one. It is part of each pane's @agent_cmd, so restart keeps it.
-  if (env("CLAUDE_CONFIG_DIR")) {
-    claude = `CLAUDE_CONFIG_DIR=${shq(realPath(resolve(env("CLAUDE_CONFIG_DIR"))))} ${claude}`
-  }
-  await checkTrust(notes, others)
+  const commands = await agent.prepare({ root, rundir, notes, others, settings })
   // If this call starts the tmux server, the server's environment would carry
   // CLAUDE_CONFIG_DIR into every later pane, fleet or not
   const pane = await run("tmux", [
@@ -275,14 +201,7 @@ export async function create(args: string[]) {
   await tmux("set", "-t", target(name), "@fleet_notes", notes)
   await borders(`=${name}:orch`)
   render("orchestrator.md", orch)
-  await launch(
-    fleet,
-    pane,
-    "orch",
-    `${claude} -n ${orch} --settings ${shq(rundir)}/orch-settings.json --append-system-prompt-file ${
-      shq(rundir)
-    }/${orch}.md${orchFlags}`,
-  )
+  await launch(fleet, pane, "orch", commands.orch(orch))
 
   // nvim on the notes folder, left of the orchestrator. It has no @agent_seat,
   // so seat commands and `fleet status` skip it.
@@ -356,101 +275,12 @@ export async function create(args: string[]) {
   for (let i = 1; i <= count; i++) {
     const seat = `${name}-w${i}`
     render("worker.md", seat)
-    await launch(
-      fleet,
-      panes[i - 1],
-      `w${i}`,
-      `${claude} -n ${seat} --settings ${shq(rundir)}/worker-settings.json --append-system-prompt-file ${
-        shq(rundir)
-      }/${seat}.md --permission-mode ${mode}${workerFlags}`,
-    )
+    await launch(fleet, panes[i - 1], `w${i}`, commands.worker(seat))
   }
 
   await attach(name)
 }
 
-// Claude Code asks each session to trust every --add-dir folder it doesn't
-// trust yet, and that answer lasts one session, so an untrusted notes folder
-// stops every seat at a prompt. Trust given when starting claude in a folder
-// is saved in the config's .claude.json as projects[<path>].hasTrustDialogAccepted.
-// A folder is trusted when it or a parent has that flag, but inside a git repo
-// Claude Code looks no higher than the repo's root, and each notes folder is a
-// repo of its own. FLEET_CLAUDE_JSON names another file, for tests.
-function claudeJson(): string {
-  const configDir = env("CLAUDE_CONFIG_DIR")
-  return env("FLEET_CLAUDE_JSON") ||
-    (configDir ? join(resolve(configDir), ".claude.json") : join(env("HOME"), ".claude.json"))
-}
-
-type Projects = Record<string, { hasTrustDialogAccepted?: boolean }>
-
-function readProjects(): Projects | null {
-  try {
-    return JSON.parse(Deno.readTextFileSync(claudeJson())).projects ?? {}
-  } catch {
-    return null
-  }
-}
-
-async function untrusted(projects: Projects, dirs: string[]): Promise<string[]> {
-  const covered = async (dir: string) => {
-    const top = (await test("git", ["-C", dir, "rev-parse", "--is-inside-work-tree"]))
-      ? realPath(await run("git", ["-C", dir, "rev-parse", "--show-toplevel"]))
-      : ""
-    for (let d = realPath(dir);; d = dirname(d)) {
-      if (projects[d]?.hasTrustDialogAccepted) return true
-      if (d === top || d === dirname(d)) return false
-    }
-  }
-  const missing = []
-  for (const d of dirs) if (!(await covered(d))) missing.push(d)
-  return missing
-}
-
-// fleet made the notes folder, so it trusts it the way the trust prompt
-// would. Running sessions rewrite .claude.json by reading it, changing one
-// key and renaming a temporary file over it; this does the same, so the
-// entry is lost only if another session's write lands between this read and
-// this rename, and then the seats prompt again. The fields besides
-// hasTrustDialogAccepted are Claude Code's defaults for a new project.
-function trust(dir: string) {
-  const file = claudeJson()
-  const config = JSON.parse(Deno.readTextFileSync(file))
-  config.projects ??= {}
-  config.projects[dir] = {
-    allowedTools: [],
-    mcpContextUris: [],
-    mcpServers: {},
-    enabledMcpjsonServers: [],
-    disabledMcpjsonServers: [],
-    hasClaudeMdExternalIncludesApproved: false,
-    hasClaudeMdExternalIncludesWarningShown: false,
-    ...config.projects[dir],
-    hasTrustDialogAccepted: true,
-  }
-  const tmp = `${file}.fleet-${Deno.pid}`
-  Deno.writeTextFileSync(tmp, JSON.stringify(config, null, 2), { mode: 0o600 })
-  Deno.renameSync(tmp, file)
-  print(`trusted ${tilde(dir)} in ${tilde(file)}`)
-}
-
-async function checkTrust(notes: string, repos: string[]) {
-  const projects = readProjects()
-  // no readable config: Claude Code's own prompt is the check
-  if (!projects) return
-  if ((await untrusted(projects, [notes])).length) trust(realPath(notes))
-  const missing = await untrusted(projects, repos)
-  if (!missing.length) return
-  const config = env("CLAUDE_CONFIG_DIR") ? `CLAUDE_CONFIG_DIR=${shq(env("CLAUDE_CONFIG_DIR"))} ` : ""
-  warn(
-    `Claude Code doesn't trust ${missing.map(tilde).join(" or ")}, so every seat will stop to ask.\n` +
-      `Start claude there once and choose "Yes, trust it" to trust it for good:\n` +
-      missing.map((d) => `  cd ${shq(d)} && ${config}claude\n`).join(""),
-  )
-  if (Deno.stdin.isTerminal() && !confirm("Start the fleet anyway?")) Deno.exit(1)
-}
-
-const tilde = (path: string) => path.startsWith(env("HOME")) ? "~" + path.slice(env("HOME").length) : path
 const pad = (text: string, width: number) => text.padEnd(width)
 
 // A fleet is running while its tmux session exists, and stopped while only
@@ -526,7 +356,7 @@ export async function clean(args: string[]) {
         .map((e) => join(wtdir, e.name))
         .sort()
       for (const wt of wts) {
-        // read the branch before removal; it is the one Claude Code created
+        // read the branch before removal; fleet or a WorktreeCreate hook named it
         const branch = await output("git", ["-C", wt, "symbolic-ref", "-q", "--short", "HEAD"])
         // git refuses to remove a worktree with uncommitted or untracked changes
         if (!(await succeeds("git", ["-C", repo, "worktree", "remove", wt]))) {
@@ -567,8 +397,8 @@ function recordedRepos(rundir: string): string[] {
   return [...new Set([...own, ...others])]
 }
 
-// fleet repo: the fleet's repos. fleet repo add <path> records another. Each
-// seat's launch line gets --add-dir for it, which takes effect when the seat
+// fleet repo: the fleet's repos. fleet repo add <path> records another. The
+// agent adds it to each seat's launch line, which takes effect when the seat
 // restarts.
 export async function repo(fleet: Fleet, args: string[]) {
   if (args[0] === "add") {
@@ -578,7 +408,7 @@ export async function repo(fleet: Fleet, args: string[]) {
     Deno.writeTextFileSync(record, `${path}\n`, { append: true })
     for (const { pane } of await fleet.seats()) {
       const cmd = await opt(pane, "@agent_cmd")
-      const added = cmd.replace(/(^|\s)claude --add-dir /, `$1claude --add-dir ${shq(path)} --add-dir `)
+      const added = agent.addDir(cmd, path)
       if (added !== cmd) await tmux("set", "-p", "-t", pane, "@agent_cmd", added)
     }
     return print(`added ${path}; each seat can edit there after fleet restart <seat>`)

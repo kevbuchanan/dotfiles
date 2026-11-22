@@ -164,6 +164,9 @@ test_new() {
   (cd $T && command fleet new demo $T/repo --workers 2 --worker-model sonnet --orch-effort high --repo $T/repo2 > $T/new.log 2>&1 &)
   check "the fleet's seats register sockets" within 20 seats_up
   check "w1's worktree exists" test -d $(wt w1)
+  check "fleet makes it, so claude gets no -w" eval "! grep -qx -- -w \$(sock w1).argv"
+  eq "w1 starts in it" "$(popt w1 pane_current_path)" $(wt w1)
+  check "the state folder records w1's branch" grep -qx "$T/repo	w1	worktree-demo-w1" $T/state/fleet/demo/branches
   check "fleet new trusts the notes folder" eval "jq -e '.projects[\"$T/agents/demo\"].hasTrustDialogAccepted' $T/claude.json"
   eq "the rest of .claude.json is kept" "$(jq -c '[.numStartups, .projects["/elsewhere"].hasTrustDialogAccepted]' $T/claude.json)" '[3,true]'
   check "fleet new names an untrusted extra repo" grep -qF "doesn't trust $T/repo2" $T/new.log
@@ -459,6 +462,17 @@ test_todo_check() {
   eq "the second stop is stalled" "$(popt w1 @agent_state)" stalled
   check "the orchestrator gets a stall notice" within 3 received orch "Notice: alpha stalled"
   tmux set -p -t $(pane w1) @agent_state idle
+  # an agent with no hooks reports through a watcher outside the seat's pane
+  check "fleet signal busy --pane" command fleet signal busy --pane $(pane w1)
+  eq "sets the seat's state" "$(popt w1 @agent_state)" busy
+  check "fleet signal stop --pane answers with the todos left" eval "command fleet signal stop --pane $(pane w1) | grep -qE 'alpha has [0-9]+ unchecked todos'"
+  command fleet signal stop --again --pane $(pane w1)
+  check "the orchestrator gets the second stall notice" within 3 eval "[[ \$(messages orch | grep -c 'Notice: alpha stalled') == 2 ]]"
+  eq "both name the worker, not the user" "$(messages orch | grep -B1 'Notice: alpha stalled' | grep -c 'sent by worker demo-w1')" 2
+  eq "a stop again marks it stalled" "$(popt w1 @agent_state)" stalled
+  check "a pane in no fleet is left alone" command fleet signal busy --pane $(tmux new-session -d -s plain -P -F '#{pane_id}')
+  tmux kill-session -t '=plain:'
+  tmux set -p -t $(pane w1) @agent_state idle
 }
 
 test_diff() {
@@ -691,10 +705,21 @@ test_multi_repo() {
   check "fleet task --repo" fleet task multi-one --repo $r2 change the second repo
   eq "the note records its repo" "$(field $(note multi-one) repo)" $r2
   todos multi-one '[ ] change it'
+  # the second repo has a WorktreeCreate hook, which names the branch itself
+  # and provisions the worktree, as Claude Code's -w would run it
+  mkdir -p $r2/.claude
+  print -r -- '{"hooks": {"WorktreeCreate": [{"hooks": [{"type": "command", "command": "sh .claude/make-worktree"}]}]}}' > $r2/.claude/settings.json
+  print -r -- 'name=$(sed -n '"'"'s/.*"name": *"\([^"]*\)".*/\1/p'"'"')
+wt="$CLAUDE_PROJECT_DIR/.claude/worktrees/$name"
+git worktree add -q -b "$name" "$wt" main >&2
+touch "$wt/provisioned"
+echo "$wt"' > $r2/.claude/make-worktree
   tmux set -p -t $(pane w2) @agent_state idle
   check "fleet assign in the second repo" fleet assign w2 multi-one
   check "w2 gets a worktree there" test -d $wt2
-  eq "on the seat's branch" "$(git -C $wt2 symbolic-ref -q --short HEAD)" worktree-demo-w2
+  check "the repo's WorktreeCreate hook made it" test -f $wt2/provisioned
+  eq "on the branch the hook named" "$(git -C $wt2 symbolic-ref -q --short HEAD)" demo-w2
+  check "the state folder records it" grep -qx "$r2	w2	demo-w2" $T/state/fleet/demo/branches
   eq "base is the second repo's main" "$(field $(note multi-one) base)" "$(git -C $r2 rev-parse main)"
   check "the message names the worktree" within 3 received w2 "It works in $r2, in your worktree $wt2."
   eq "fleet path follows the task's repo" "$(fleet path w2)" $wt2

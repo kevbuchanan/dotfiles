@@ -5,10 +5,9 @@
 // agents wrote since the last assignment.
 
 import { dirname, fromFileUrl, join } from "@std/path"
-import { postToSession } from "../../lib/claude/session.ts"
-import { defaultBranch } from "./git.ts"
+import { agent } from "./agent/agent.ts"
 import { get, path as notePath } from "./note.ts"
-import { die, isDir, isFile, isSocket, output, readRecord, readText, run, sleep, test } from "./run.ts"
+import { die, isDir, isFile, output, readRecord, readText, run, sleep, writeAtomic } from "./run.ts"
 
 export const root = dirname(dirname(fromFileUrl(import.meta.url)))
 const env = (name: string) => Deno.env.get(name) ?? ""
@@ -118,29 +117,40 @@ export class Fleet {
   }
 
   // A worker seat's checkout in a repo, the fleet's own by default, or empty
-  // when there is none. In the fleet's own repo, Claude Code creates it from
-  // the -w name on the seat's launch line; in another, ensureWorktree does.
+  // when there is none yet. ensureWorktree creates it.
   checkout(seat: string, repo = this.repo): string {
     if (!repo) return ""
     const wt = join(repo, ".claude", "worktrees", `${this.name}-${seat}`)
     return isDir(wt) ? wt : ""
   }
 
-  // A seat's checkout in a repo other than the fleet's own, created on first
-  // use on branch worktree-<fleet>-<seat>, the name Claude Code gives the
-  // seat's branch in the fleet's own repo, from the repo's default branch.
+  // A seat's checkout in a repo, created on first use the way Claude Code's
+  // -w would, and its branch recorded, since a repo's WorktreeCreate hook
+  // names the branch itself
   async ensureWorktree(seat: string, repo: string): Promise<string> {
     const existing = this.checkout(seat, repo)
-    if (existing || repo === this.repo) return existing
-    const wt = join(repo, ".claude", "worktrees", `${this.name}-${seat}`)
-    const branch = `worktree-${this.name}-${seat}`
-    if (await test("git", ["-C", repo, "rev-parse", "-q", "--verify", `refs/heads/${branch}`])) {
-      await run("git", ["-C", repo, "worktree", "add", "-q", wt, branch])
-    } else {
-      const start = (await defaultBranch(repo)) || "HEAD"
-      await run("git", ["-C", repo, "worktree", "add", "-q", "-b", branch, wt, start])
+    if (existing) return existing
+    const branch = await agent.createWorktree(repo, `${this.name}-${seat}`)
+    const record = join(this.rundir, "branches")
+    const kept = isFile(record)
+      ? readText(record).split("\n").filter((l) => l && !l.startsWith(`${repo}\t${seat}\t`))
+      : []
+    writeAtomic(record, [...kept, `${repo}\t${seat}\t${branch}`].join("\n") + "\n")
+    return this.checkout(seat, repo)
+  }
+
+  // The branch a seat's worktree in a repo was created on. A worktree made
+  // before fleet recorded branches is on worktree-<fleet>-<seat>, the name
+  // Claude Code gives it without a hook.
+  seatBranch(seat: string, repo: string): string {
+    const record = join(this.rundir, "branches")
+    if (isFile(record)) {
+      for (const line of readText(record).split("\n")) {
+        const [r, s, branch] = line.split("\t")
+        if (r === repo && s === seat && branch) return branch
+      }
     }
-    return wt
+    return `worktree-${this.name}-${seat}`
   }
 
   // Like checkout, but stops fleet with the reason there is no checkout. The
@@ -182,21 +192,19 @@ export class Fleet {
     if (st !== "idle") die(`${seat} is ${st || "starting"}, not idle`)
   }
 
-  async needSocket(pane: string) {
-    if (!isSocket(await opt(pane, "@agent_socket"))) {
+  // Stops fleet when the seat's session can't take a message yet
+  async needReady(pane: string) {
+    if (!(await agent.ready(pane))) {
+      const seat = await opt(pane, "@agent_seat")
       die(
-        `${await opt(
-          pane,
-          "@agent_seat",
-        )} has no inbox socket recorded; a seat started before fleet recorded sockets needs fleet restart`,
+        `${seat}'s session can't take messages yet; a seat started before fleet recorded sessions needs fleet restart`,
       )
     }
   }
 
-  // Who a message is from: the seat of the calling pane when it belongs to
-  // this fleet, otherwise the user.
-  async sender(): Promise<string> {
-    const pane = env("TMUX_PANE")
+  // Who a message is from: the seat of the pane, the calling one by default,
+  // when it belongs to this fleet, otherwise the user.
+  async sender(pane = env("TMUX_PANE")): Promise<string> {
     let seat = ""
     if (pane && (await output("tmux", ["display", "-p", "-t", pane, "#S"])) === this.name) {
       seat = await opt(pane, "@agent_seat")
@@ -206,17 +214,15 @@ export class Fleet {
     return "the user"
   }
 
-  // Writes one message to a seat's inbox socket, headed with its sender and
-  // the skill that handles it
-  async post(pane: string, skill: string, text: string) {
-    await this.needSocket(pane)
-    const socket = await opt(pane, "@agent_socket")
+  // Delivers one message to a seat, headed with its sender, the seat of the
+  // pane from when given, and the skill that handles it
+  async post(pane: string, skill: string, text: string, from?: string) {
+    await this.needReady(pane)
     const seat = await opt(pane, "@agent_seat")
-    const message = `From fleet, sent by ${await this.sender()} (handle per /fleet:${skill} skill):\n${text}`
     try {
-      await postToSession({ socket }, message)
+      await agent.deliver(pane, `${agent.header(await this.sender(from), skill)}\n${text}`)
     } catch {
-      die(`could not deliver to ${seat} at ${socket}`)
+      die(`could not deliver to ${seat}`)
     }
   }
 

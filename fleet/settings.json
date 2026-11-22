@@ -6,10 +6,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "{{ROOT}}/hooks/agent-state idle"
-          },
-          {
-            "type": "command",
             "command": "{{ROOT}}/hooks/register"
           }
         ]
