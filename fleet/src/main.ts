@@ -6,6 +6,7 @@ import { diff } from "./cmd/diff.ts"
 import { attach, clean, create, kill, ls, repo } from "./cmd/lifecycle.ts"
 import { pair } from "./cmd/pair.ts"
 import { signal } from "./signal.ts"
+import { command as opencode } from "./agent/opencode.ts"
 import { comment, review } from "./cmd/review.ts"
 import * as seat from "./cmd/seat.ts"
 import { die, FleetError } from "./run.ts"
@@ -16,8 +17,9 @@ orchestrator seat in window \`orch\`, worker seats w1..wN in window
 share task notes in $FLEET_HOME/<fleet>/tasks, a git repo, so \`git diff\`
 there shows what agents wrote since the last assignment.
 
-  fleet new [name] [dir] [--workers N] [--worker-mode M] [--repo PATH]...
-            [--orch-model M] [--worker-model M] [--orch-effort E] [--worker-effort E]
+  fleet new [name] [dir] [--agent claude|opencode] [--workers N] [--worker-mode M]
+            [--repo PATH]... [--orch-model M] [--worker-model M] [--orch-effort E]
+            [--worker-effort E]
                                start a fleet and attach to it; each flag
                                overrides the FLEET_* variable of that name;
                                --repo adds another repo its tasks may work in
@@ -103,6 +105,8 @@ naming its sender and the skill that handles it.
 FLEET_HOME          notes root, default ~/agents
 XDG_STATE_HOME      fleet state goes in $XDG_STATE_HOME/fleet/<fleet>,
                     default ~/.local/state/fleet/<fleet>
+FLEET_AGENT         the agent every seat runs, for \`new\`: claude (the
+                    default) or opencode
 FLEET_WORKERS       worker count for \`new\`, default 6
 FLEET_WORKER_MODE   worker --permission-mode for \`new\`, default auto
 CLAUDE_CONFIG_DIR   if set for \`new\`, every seat runs claude with it
@@ -160,6 +164,8 @@ async function main(argv: string[]) {
       return await clean(args)
     case "signal":
       return await signal(args)
+    case "opencode":
+      return await opencode(name, args)
     default:
       console.log(USAGE)
       if (cmd !== "help") Deno.exit(1)

@@ -9,9 +9,11 @@ import * as note from "./note.ts"
 import { die, FleetError, isFile, output } from "./run.ts"
 
 // The session in pane started, after a launch, a restart or a context reset.
-// socket is where fleet delivers messages to it, for an agent that has one.
-export async function started(pane: string, socket = "") {
+// socket is where fleet delivers messages to it, for an agent that has one,
+// and session the agent's id for it, for an agent fleet reaches by id.
+export async function started(pane: string, socket = "", session = "") {
   if (socket) await tmux("set", "-p", "-t", pane, "@agent_socket", socket)
+  if (session) await tmux("set", "-p", "-t", pane, "@agent_session", session)
   await setState(pane, "idle")
 }
 
@@ -69,6 +71,7 @@ export async function ended(fleet: Fleet, pane: string, reason: string) {
   }
   await tmux("set", "-p", "-u", "-t", pane, "@agent_state")
   await tmux("set", "-p", "-u", "-t", pane, "@agent_socket")
+  await tmux("set", "-p", "-u", "-t", pane, "@agent_session")
 }
 
 // A notice from a worker's pane to the orchestrator, for what the worker

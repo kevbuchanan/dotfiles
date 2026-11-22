@@ -413,13 +413,14 @@ A seat started before fleet recorded sockets has no `@agent_socket`, and fleet r
 
 ### Other agents
 
-fleet runs Claude Code in its seats, through one module, `src/agent/claude.ts`. `src/agent/agent.ts` lists what that module does for fleet:
+A fleet's seats run Claude Code by default, or opencode with `fleet new --agent opencode`. The state folder's `agent` file records the choice, and every command reads it. Each agent is one module, `src/agent/claude.ts` or `src/agent/opencode.ts`, and `src/agent/agent.ts` lists what a module does for fleet:
 
 - **Launch:** check the fleet's settings, render what each role runs with, and return each role's launch command, and add a repo to a launch line for `fleet repo add`.
 - **Worktrees:** create a seat's worktree and return its branch.
 - **Messages:** the header line, whether a session can take a message, and delivery.
 - **Keys:** reset a session's context, as `/clear` does, and interrupt its turn.
 - **Pairing:** the pair pane's launch command and environment.
+- **Startup:** anything the agent needs beside its seats once they launch.
 
 Everything else, tasks, notes, git, tmux and seat state, is fleet's own. A session tells fleet about itself with `fleet signal`, the same for any agent:
 
@@ -429,6 +430,20 @@ Everything else, tasks, notes, git, tmux and seat state, is fleet's own. A sessi
 - `fleet signal end [--reason <text>]`: the session ended. See "Notices".
 
 Each takes `--pane <id>`, the seat's pane, and defaults to `$TMUX_PANE`, so Claude Code's hooks call it from the seat and a watcher outside the pane can call it for an agent with no hooks. A pane in no fleet is left alone.
+
+### opencode fleets
+
+opencode 2 keeps every session in one server, its background service, and its interfaces are clients of that server. So fleet drives an opencode seat through the server's HTTP API, by a session id fleet picks:
+
+- **Launch:** each seat pane runs `fleet opencode launch <role> <seat>`. It creates a session `ses-fleet-<seat>-<time>` in the pane's folder, with the role's permission rules and model, and gives the session's shell commands the pane's environment, `TMUX_PANE` among it, so `fleet report` finds the seat. The seat's prompt and its role's skill become the session's instructions. It records the id on the pane as `@agent_session`, runs `fleet signal start`, and runs `opencode --session <id>` in the pane. When the interface exits, it runs `fleet signal end`.
+- **Messages:** a queued prompt, which waits while the session works. The header names the skill in the session's instructions in place of `/fleet:<skill>`.
+- **State:** `fleet opencode watch` runs in a fourth window, `watch`. It follows the server's event stream and reports each seat with the same logic as `fleet signal`: a turn that starts makes the seat `busy`, a permission request `waiting`, and a turn that ends is a stop. When the todo check answers a stop, the answer goes to the session as a queued prompt. The stream drops events while it is down, so on each connection the watcher reads which sessions are running or waiting.
+- **Reset and interrupt:** `fleet clear` and `fleet abandon` relaunch the pane on a new session, and `fleet interrupt` stops the session's turn through the API.
+- **Permissions:** every seat may edit the notes, a worker may run `fleet report`, and the orchestrator its seat commands. `--worker-mode auto`, the default, adds a rule approving everything else a worker asks for, as opencode's `--auto` does. `--worker-mode ask` leaves opencode's default, which asks.
+- **Models:** `--orch-model` and `--worker-model` take opencode's `provider/model` or `provider/model#variant`. An effort becomes the model's variant.
+- **Worktrees:** opencode has no worktree hook, so fleet adds a plain worktree on `worktree-<fleet>-w<n>`.
+
+fleet uses opencode's background service, from `~/.local/state/opencode/service.json`, and starts it when it isn't running. `FLEET_OPENCODE_URL` and `FLEET_OPENCODE_PASSWORD` name another server.
 
 ### Pane titles
 
@@ -475,8 +490,9 @@ Seat commands act on the fleet that owns the calling pane, or on the fleet named
 
 | Flag | Variable | Default | Sets |
 | --- | --- | --- | --- |
+| `--agent A` | `FLEET_AGENT` | `claude` | the agent every seat runs: `claude` or `opencode`; see "opencode fleets" |
 | `--workers N` | `FLEET_WORKERS` | `6` | the number of worker seats, a whole number from 1 |
-| `--worker-mode M` | `FLEET_WORKER_MODE` | `auto` | workers' `--permission-mode`: `acceptEdits`, `auto`, `bypassPermissions`, `manual`, `dontAsk` or `plan` |
+| `--worker-mode M` | `FLEET_WORKER_MODE` | `auto` | workers' `--permission-mode`: `acceptEdits`, `auto`, `bypassPermissions`, `manual`, `dontAsk` or `plan`; for opencode, `auto` or `ask` |
 | `--orch-model M` | `FLEET_ORCH_MODEL` | unset | the orchestrator's `--model` |
 | `--worker-model M` | `FLEET_WORKER_MODEL` | unset | workers' `--model` |
 | `--orch-effort E` | `FLEET_ORCH_EFFORT` | unset | the orchestrator's `--effort`: `low`, `medium`, `high`, `xhigh` or `max` |
@@ -526,6 +542,7 @@ src/main.ts               argument parsing, usage and dispatch
 src/fleet.ts              a fleet's session, seats, worktrees, notes lock and message posting
 src/signal.ts             fleet signal: a session's start, state, stop and end, and the notices they send
 src/agent/agent.ts        what fleet needs from the agent its seats run
+src/agent/opencode.ts     opencode: sessions through its server's API, fleet opencode launch and watch
 src/agent/claude.ts       Claude Code: launch lines and settings, folder trust, worktree creation with
                           WorktreeCreate hooks, socket delivery, /clear, and the pair launch line
 src/note.ts               task note frontmatter, sections, migration and lookup by id
@@ -555,6 +572,8 @@ nvim/lua/fleet/           note.lua (frontmatter reader), tree.lua (nvim-tree dec
                           linked as ~/.config/nvim/lua/fleet
 test/run                  end-to-end tests, see "Tests"
 test/claude-stub          the claude the tests' seats run
+test/opencode-run         end-to-end tests for an opencode fleet, on a private opencode server
+test/fake-model.ts        the scripted model test/opencode-run's opencode uses
 ```
 
 `bin/fleet` resolves its own folder through the `~/.local/bin/fleet` symlink. Deno resolves `src/main.ts`'s relative imports, and its `deno.jsonc`, from the path it is given, so a bare symlink to `src/main.ts` fails with `Module not found` for the modules beside it. fleet posts to inbox sockets through `lib/claude/session.ts` at the dotfiles root, which prose uses too.
@@ -596,6 +615,8 @@ Each seat runs `test/claude-stub` in place of `claude`. The stub does what fleet
 - It records each socket message and each typed line, which the tests read back.
 
 The stub never runs `Stop` or `SessionEnd` hooks, so the tests call `hooks/todo-check` and `hooks/session-end` themselves, with the input Claude Code sends. What the tests can't cover is Claude Code itself: the inbox message format, which hook events fire when, and how a model follows the skills.
+
+`test/opencode-run` starts an opencode fleet with one worker against a private `opencode serve` on an unused port, with opencode's config, data, state and `HOME` in a scratch folder, and `test/fake-model.ts` as its only model. The model answers from a script, such as `RUN: <command>` for a shell tool call, so the tests run real opencode with no credentials or cost, and never touch your opencode service. It covers launch, permissions, instructions, delivery, the watcher's todo check and stall, `fleet report` from a session's shell, clear, interrupt, restart and kill. It skips when opencode 2 isn't on `PATH`.
 
 ## Limits
 

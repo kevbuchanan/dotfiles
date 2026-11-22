@@ -1,7 +1,7 @@
 // Starting, listing, stopping and removing fleets.
 
 import { basename, join, resolve } from "@std/path"
-import { agent } from "../agent/agent.ts"
+import { agentNamed } from "../agent/agent.ts"
 import { Fleet, home, isFleet, opt, root, statedir, target, tmux } from "../fleet.ts"
 import {
   die,
@@ -88,6 +88,7 @@ async function fleetFiles(fleet: Fleet) {
 }
 
 const NEW_FLAGS: Record<string, string> = {
+  "--agent": "FLEET_AGENT",
   "--workers": "FLEET_WORKERS",
   "--worker-mode": "FLEET_WORKER_MODE",
   "--orch-model": "FLEET_ORCH_MODEL",
@@ -131,6 +132,7 @@ export async function create(args: string[]) {
     die(`workers must be a whole number from 1: ${workers}`)
   }
   // the agent refuses settings it can't run with, before anything is made
+  const agent = agentNamed(settings.FLEET_AGENT)
   agent.check(settings)
 
   const name = (positional[0] || basename(logicalCwd())).replaceAll(/[.:]/g, "-")
@@ -155,6 +157,7 @@ export async function create(args: string[]) {
   Deno.mkdirSync(rundir, { recursive: true })
   Deno.mkdirSync(join(notes, "tasks"), { recursive: true })
   Deno.writeTextFileSync(join(rundir, "notes"), `${notes}\n`)
+  Deno.writeTextFileSync(join(rundir, "agent"), `${agent.name}\n`)
   if (!isDir(join(notes, ".git"))) {
     await run("git", ["-C", notes, "init", "-q"])
     await run("git", ["-C", notes, "commit", "-q", "--allow-empty", "-m", `fleet ${name}`])
@@ -278,6 +281,7 @@ export async function create(args: string[]) {
     await launch(fleet, panes[i - 1], `w${i}`, commands.worker(seat))
   }
 
+  await agent.started(fleet, dir)
   await attach(name)
 }
 
@@ -408,7 +412,7 @@ export async function repo(fleet: Fleet, args: string[]) {
     Deno.writeTextFileSync(record, `${path}\n`, { append: true })
     for (const { pane } of await fleet.seats()) {
       const cmd = await opt(pane, "@agent_cmd")
-      const added = agent.addDir(cmd, path)
+      const added = fleet.agent.addDir(cmd, path)
       if (added !== cmd) await tmux("set", "-p", "-t", pane, "@agent_cmd", added)
     }
     return print(`added ${path}; each seat can edit there after fleet restart <seat>`)

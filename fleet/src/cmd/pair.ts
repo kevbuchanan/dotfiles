@@ -13,7 +13,6 @@
 //   - --pr <ref>: a worktree of its own at a pull or merge request's branch
 
 import { basename, join } from "@std/path"
-import { agent } from "../agent/agent.ts"
 import { Fleet, isWorker, needId, opt, root, tmux } from "../fleet.ts"
 import { defaultBranch } from "../git.ts"
 import * as note from "../note.ts"
@@ -108,8 +107,8 @@ export async function pair(fleet: Fleet, args: string[]) {
 
 // The window, its two panes and the agent's launch line
 async function open(fleet: Fleet, win: string, name: string, dir: string, prompt: string) {
-  const command = agent.pairCommand(root, `${fleet.name}-${name}-pair`, fleet.notes, prompt)
-  const paneEnv = agent.paneEnv(await opt(await fleet.pane("orch"), "@agent_cmd"))
+  const command = fleet.agent.pairCommand(root, `${fleet.name}-${name}-pair`, fleet.notes, prompt)
+  const paneEnv = fleet.agent.paneEnv(await opt(await fleet.pane("orch"), "@agent_cmd"))
   const editor = await run("tmux", [
     "new-window",
     "-d",
@@ -141,7 +140,7 @@ async function open(fleet: Fleet, win: string, name: string, dir: string, prompt
   for (
     const [pane, title] of [[editor, `${fleet.name}-${name}`], [
       agentPane,
-      `${fleet.name}-${name}-${agent.name}`,
+      `${fleet.name}-${name}-${fleet.agent.name}`,
     ]]
   ) {
     await tmux("set", "-p", "-t", pane, "allow-set-title", "off")

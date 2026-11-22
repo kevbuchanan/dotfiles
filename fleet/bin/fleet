@@ -4,7 +4,9 @@
 # reached through the ~/.local/bin/fleet symlink, so it resolves its own
 # folder and passes --config explicitly. --allow-run is unrestricted because
 # Deno refuses any spawn under a narrowed list while a DYLD_* or LD_*
-# variable is set, as conda and nix shells do.
+# variable is set, as conda and nix shells do. --allow-net reaches only the
+# local opencode server, for fleets that run opencode.
 D=$(cd "$(dirname "$(realpath "$0")")/.." && pwd)
 exec deno run --quiet --no-prompt --config "$D/deno.jsonc" --allow-env --allow-read --allow-write --allow-run \
+  --allow-net=127.0.0.1,localhost \
   "$D/src/main.ts" "$@"

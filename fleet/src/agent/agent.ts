@@ -1,10 +1,12 @@
 // The agent that runs in fleet's seats. fleet's tasks, notes, git and tmux
 // work the same for any agent; these are the operations that depend on
-// which one runs. Claude Code is the only implementation. Another agent
-// reports its session's state with `fleet signal`, as Claude Code's hooks
-// do.
+// which one runs. Each agent reports its session's state with `fleet
+// signal`: Claude Code through its hooks, opencode through fleet's watcher.
 
+import type { Fleet } from "../fleet.ts"
+import { die } from "../run.ts"
 import * as claude from "./claude.ts"
+import * as opencode from "./opencode.ts"
 
 export type { SeatCommands, Setup } from "./claude.ts"
 import type { SeatCommands, Setup } from "./claude.ts"
@@ -31,6 +33,16 @@ export interface Agent {
   // window's panes from the orchestrator's launch line
   pairCommand(root: string, name: string, notes: string, prompt: string): string
   paneEnv(orchCmd: string): string[]
+  // runs once the fleet's seats are launched, for anything the agent needs
+  // beside them
+  started(fleet: Fleet, dir: string): Promise<void>
 }
 
-export const agent: Agent = claude
+export const agents: Record<string, Agent> = { claude, opencode }
+
+// The agent of that name, claude by default
+export function agentNamed(name: string): Agent {
+  const found = agents[name || "claude"]
+  if (!found) die(`unknown agent ${name}; fleet runs ${Object.keys(agents).join(" or ")}`)
+  return found
+}

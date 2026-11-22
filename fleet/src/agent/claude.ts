@@ -5,8 +5,8 @@ export const name = "claude"
 
 import { dirname, join, resolve } from "@std/path"
 import { postToSession } from "../../../lib/claude/session.ts"
-import { opt, tmux } from "../fleet.ts"
-import { defaultBranch } from "../git.ts"
+import { type Fleet, opt, tmux } from "../fleet.ts"
+import { addWorktree } from "../git.ts"
 import {
   die,
   fill,
@@ -73,14 +73,7 @@ export async function createWorktree(repo: string, name: string): Promise<string
     if (isWorktreeAt(printed, wt)) return await branchOf(wt)
     die(`${repo}'s WorktreeCreate hook printed ${printed || "nothing"}; fleet needs the worktree at ${wt}`)
   }
-  const branch = `worktree-${name}`
-  if (await test("git", ["-C", repo, "rev-parse", "-q", "--verify", `refs/heads/${branch}`])) {
-    await run("git", ["-C", repo, "worktree", "add", "-q", wt, branch])
-  } else {
-    const start = (await defaultBranch(repo)) || "HEAD"
-    await run("git", ["-C", repo, "worktree", "add", "-q", "-b", branch, wt, start])
-  }
-  return branch
+  return await addWorktree(repo, name)
 }
 
 function isWorktreeAt(printed: string, wt: string): boolean {
@@ -274,6 +267,9 @@ async function checkTrust(notes: string, repos: string[]) {
   )
   if (Deno.stdin.isTerminal() && !confirm("Start the fleet anyway?")) Deno.exit(1)
 }
+
+// Claude Code needs nothing beside its seats: its hooks report their state
+export async function started(_fleet: Fleet, _dir: string) {}
 
 // A seat's launch line with one more folder its session may edit
 export function addDir(cmd: string, path: string): string {

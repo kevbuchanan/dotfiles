@@ -1,0 +1,179 @@
+#!/usr/bin/env zsh
+# End-to-end tests for fleets that run opencode. Each run starts a private
+# `opencode serve` on an unused port, with opencode's config, data and state
+# in a scratch folder, and test/fake-model.ts as its only model, so it needs
+# no credentials and never touches your opencode service. The fleet runs on
+# its own tmux server, as in test/run.
+#
+#   test/opencode-run        run the tests
+#   test/opencode-run -k     keep the scratch folder and tmux server
+#
+# It needs opencode 2 on PATH, and skips with a note when it isn't there.
+
+emulate zsh
+setopt err_return no_unset pipe_fail extended_glob
+
+root=${0:A:h:h}
+keep=0
+[[ ${1:-} == -k ]] && keep=1
+if ! command -v opencode > /dev/null || [[ $(opencode --version 2>&1) != *v2.* ]]; then
+  print "skipped: opencode 2 is not on PATH"
+  exit 0
+fi
+
+T=$(mktemp -d)
+T=${T:A}
+server=fleet-oc-test-$$
+mkdir -p $T/bin $T/repo $T/home $T/cfg/opencode $T/data $T/state $T/cache
+print -r -- "#!/bin/sh
+exec $(command -v tmux) -L $server -f $T/tmux.conf \"\$@\"" > $T/bin/tmux
+print '#!/bin/sh\nexec cat > /dev/null' > $T/bin/nvim
+chmod +x $T/bin/tmux $T/bin/nvim
+print -r -- "set -g default-command \"env PATH=$T/bin:$root/bin:$PATH zsh -f\"" > $T/tmux.conf
+
+unset TMUX TMUX_PANE CLAUDE_CONFIG_DIR CLAUDE_CODE_MESSAGING_SOCKET CLAUDE_CODE_MESSAGING_TOKEN
+fleet_vars=(${(M)${(k)parameters}:#FLEET_*})
+(( $#fleet_vars )) && unset $fleet_vars
+# opencode reads nothing of yours: its folders, its database and HOME are
+# the scratch folder's, and it skips Claude Code's skills
+export HOME=$T/home XDG_CONFIG_HOME=$T/cfg XDG_DATA_HOME=$T/data XDG_STATE_HOME=$T/state XDG_CACHE_HOME=$T/cache
+export OPENCODE_DB=$T/data/opencode.db OPENCODE_DISABLE_AUTOUPDATE=1 OPENCODE_DISABLE_MODELS_FETCH=1
+export OPENCODE_DISABLE_CLAUDE_CODE=1 FAKE_API_KEY=x
+export PATH=$T/bin:$root/bin:$PATH FLEET_HOME=$T/agents
+export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.com
+export GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.com
+
+# two ports nothing listens on
+ports=()
+for p in {47700..47799}; do
+  lsof -nP -iTCP:$p -sTCP:LISTEN > /dev/null 2>&1 || ports+=($p)
+  (( $#ports < 2 )) || break
+done
+model_port=$ports[1] oc_port=$ports[2]
+
+cat > $T/cfg/opencode/opencode.jsonc <<EOF
+{
+  "model": "fake/fake",
+  "providers": {
+    "fake": {
+      "name": "Fake",
+      "env": ["FAKE_API_KEY"],
+      "package": "@opencode/ai/providers/openai-compatible",
+      "settings": { "baseURL": "http://127.0.0.1:$model_port/v1" },
+      "models": { "fake": { "name": "Fake" } }
+    }
+  }
+}
+EOF
+
+deno run --quiet --allow-net=127.0.0.1 --allow-write=$T $root/test/fake-model.ts $T/model.log $model_port > $T/fake.out 2>&1 &
+model_pid=$!
+export OPENCODE_PASSWORD=fleet-test FLEET_OPENCODE_URL=http://127.0.0.1:$oc_port FLEET_OPENCODE_PASSWORD=fleet-test
+(cd $T && opencode serve --hostname 127.0.0.1 --port $oc_port > $T/serve.out 2>&1) &
+serve_pid=$!
+
+cleanup() {
+  kill $serve_pid $model_pid 2> /dev/null || true
+  if (( keep )); then
+    print "kept $T; tmux -L $server attach -t demo, and tmux -L $server kill-server when done"
+  else
+    tmux kill-server 2> /dev/null || true
+    rm -f ${TMUX_TMPDIR:-/tmp}/tmux-$UID/$server
+    rm -rf $T
+  fi
+}
+trap cleanup EXIT
+
+integer passed=0 failed=0
+pass() { (( ++passed )) }
+fail() { (( ++failed )); print -u2 "  FAIL: $*" }
+check() { local what=$1; shift; if "$@" > /dev/null 2>&1; then pass; else fail $what; fi }
+eq() { if [[ $2 == $3 ]]; then pass; else fail "$1: got '$2', want '$3'"; fi }
+within() {
+  local tries=$(( $1 * 10 ))
+  shift
+  until "$@" > /dev/null 2>&1; do
+    (( --tries > 0 )) || return 1
+    sleep 0.1
+  done
+}
+
+fleet() { command fleet -s demo "$@" }
+pane() { tmux list-panes -s -t '=demo:' -F '#{pane_id} #{@agent_seat}' | awk -v s=$1 '$2 == s { print $1 }' }
+popt() { tmux display -p -t $(pane $1) "#{$2}" }
+sid() { popt $1 @agent_session }
+api() { curl -sf -u opencode:fleet-test "$FLEET_OPENCODE_URL$1" }
+# queues a prompt in a seat's session, as fleet delivers one
+prompt() {
+  curl -sf -u opencode:fleet-test -X POST -H 'content-type: application/json' \
+    "$FLEET_OPENCODE_URL/api/session/$(sid $1)/prompt" -d "$(jq -cn --arg t $2 '{text: $t, delivery: "queue"}')" > /dev/null
+}
+# every text in a seat's session, user and assistant, oldest first
+texts() {
+  api /api/session/$(sid $1)/message | jq -r '[.data[] | (.text // empty), (.content[]? | select(.type == "text") | .text)] | reverse | .[]'
+}
+said() { texts $1 | grep -qF -- $2 }
+note() { print -r -- $T/agents/demo/tasks/$1.md }
+field() { awk -v k=$2 'NR == 1 { next } /^---$/ { exit } index($0, k ": ") == 1 { print substr($0, length(k) + 3) }' $1 }
+todos() {
+  local f=$(note $1)
+  shift
+  ITEMS=$(print -l -- "- "${^@}) awk '
+    $0 == "## Todo" { print; print ""; print ENVIRON["ITEMS"]; print ""; skip = 1; next }
+    skip && /^## / { skip = 0 }
+    !skip' $f > $f.tmp && mv $f.tmp $f
+}
+seats_up() { [[ -n $(sid orch) && -n $(sid w1) && $(popt w1 @agent_state) == idle ]] }
+
+print "opencode on $FLEET_OPENCODE_URL, model on :$model_port"
+check "the private server answers" within 20 api /api/info
+git -C $T/repo init -q -b main
+git -C $T/repo commit -q --allow-empty -m init
+(cd $T && command fleet new demo $T/repo --agent opencode --workers 1 > $T/new.log 2>&1 &)
+check "both seats get a session" within 30 seats_up
+
+eq "the state folder records the agent" "$(< $T/state/fleet/demo/agent)" opencode
+eq "the windows, in order" "$(tmux list-windows -t '=demo:' -F '#{window_name}' | xargs)" "orch workers shell watch"
+check "the watcher runs" within 10 eval "tmux capture-pane -p -t '=demo:watch' | grep -q 'watching demo'"
+wt=$T/repo/.claude/worktrees/demo-w1
+eq "w1's session works in its worktree" "$(api /api/session/$(sid w1) | jq -r .data.location.directory)" $wt
+check "a worker may run fleet report" eval "api /api/session/$(sid w1) | jq -e '.data.permissions | any(.action == \"shell\" and .resource == \"fleet report *\" and .effect == \"allow\")'"
+check "the orchestrator may run fleet assign" eval "api /api/session/$(sid orch) | jq -e '.data.permissions | any(.resource == \"fleet assign *\")'"
+check "the orchestrator gets no allow-all rule" eval "api /api/session/$(sid orch) | jq -e '.data.permissions | all(.resource != \"*\" or .action != \"*\")'"
+check "w1's instructions hold the worker skill" eval "api /api/experimental/session/$(sid w1)/instructions/entries | grep -q 'Fleet worker'"
+
+# a task: the message, a turn, the todo check's answer, and a stall
+fleet task alpha first task > /dev/null
+todos alpha '[ ] the work'
+check "fleet assign" fleet assign w1 alpha
+check "w1's session gets the task" within 10 said w1 "Task alpha: read $(note alpha)"
+check "the header names the skill in its instructions" within 10 said w1 "(handle per the fleet:worker skill in your instructions)"
+check "the stop with a todo left is answered" within 15 said w1 "alpha has 1 unchecked todos"
+check "a second stop stalls the seat" within 15 eval "[[ \$(popt w1 @agent_state) == stalled ]]"
+check "the orchestrator gets the notice" within 10 said orch "Notice: alpha stalled"
+
+# the session's shell commands run with the pane's environment, so fleet
+# report finds the seat
+prompt w1 "RUN: fleet report alpha progress halfway"
+check "fleet report from the session's shell" within 15 eval "[[ \$(field $(note alpha) status) == progress ]]"
+check "the orchestrator gets the report" within 10 said orch "Report: alpha progress: halfway"
+
+# with the todo done, a stop leaves the seat idle, and clear starts a new session
+todos alpha '[x] the work'
+prompt w1 "all done"
+check "a stop with nothing left is idle" within 15 eval "[[ \$(popt w1 @agent_state) == idle ]]"
+old=$(sid w1)
+check "fleet clear" fleet clear w1
+check "the seat gets a new session" within 20 eval "[[ -n \$(sid w1) && \$(sid w1) != $old ]]"
+eq "the note records the end" "$(field $(note alpha) end)" "$(git -C $wt rev-parse HEAD)"
+
+check "fleet interrupt" fleet interrupt w1
+old=$(sid w1)
+check "fleet restart" fleet restart w1
+check "the restarted seat has a new session" within 20 eval "[[ -n \$(sid w1) && \$(sid w1) != $old ]]"
+
+check "fleet kill" fleet kill
+check "the watch window goes with the session" within 10 eval "! tmux has-session -t '=demo:'"
+
+print "$passed passed, $failed failed"
+(( failed == 0 ))

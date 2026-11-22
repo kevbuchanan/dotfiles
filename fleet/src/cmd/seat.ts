@@ -26,7 +26,6 @@ import {
   warn,
   writeAtomic,
 } from "../run.ts"
-import { agent } from "../agent/agent.ts"
 import { borders, launchLine } from "./lifecycle.ts"
 import { fetchOrigin, sync } from "./diff.ts"
 import { defaultBranch } from "../git.ts"
@@ -343,7 +342,7 @@ export async function clear(fleet: Fleet, args: string[]) {
   }
   await tmux("set", "-p", "-u", "-t", pane, "@agent_task")
   await tmux("select-pane", "-t", pane, "-T", `${fleet.name}-${seat}`)
-  await agent.reset(pane)
+  await fleet.agent.reset(pane)
 }
 
 // A seat holding a task keeps it across the restart: the new session gets
@@ -356,12 +355,13 @@ export async function restart(fleet: Fleet, args: string[]) {
   const id = await opt(pane, "@agent_task")
   await tmux("set", "-p", "-t", pane, "@agent_state", "restarting")
   await tmux("set", "-p", "-u", "-t", pane, "@agent_socket")
+  await tmux("set", "-p", "-u", "-t", pane, "@agent_session")
   await tmux("respawn-pane", "-k", "-t", pane)
   await tmux("set", "-p", "-u", "-t", pane, "@agent_state")
   await tmux("send-keys", "-t", pane, await launchLine(fleet, pane), "Enter")
   if (!id) return
   const path = note.path(fleet.notes, id)
-  for (let tries = 0; !(await agent.ready(pane)); tries++) {
+  for (let tries = 0; !(await fleet.agent.ready(pane)); tries++) {
     if (tries >= 120) {
       die(
         `${seat} did not start within a minute; it still holds ${id}, so run fleet bump ${id} once it is up`,
@@ -400,10 +400,10 @@ export async function abandon(fleet: Fleet, args: string[]) {
   }
   await tmux("set", "-p", "-u", "-t", pane, "@agent_task")
   await tmux("select-pane", "-t", pane, "-T", `${fleet.name}-${seat}`)
-  if (await agent.ready(pane)) {
-    await agent.interrupt(pane)
+  if (await fleet.agent.ready(pane)) {
+    await fleet.agent.interrupt(pane)
     await sleep(500)
-    await agent.reset(pane)
+    await fleet.agent.reset(pane)
   } else {
     warn(`${seat} has no live session; fleet restart ${seat} relaunches it`)
   }
@@ -411,7 +411,7 @@ export async function abandon(fleet: Fleet, args: string[]) {
 }
 
 export async function interrupt(fleet: Fleet, args: string[]) {
-  await agent.interrupt(await fleet.pane(args[0] || die("seat")))
+  await fleet.agent.interrupt(await fleet.pane(args[0] || die("seat")))
 }
 
 export async function rename(fleet: Fleet, args: string[]) {

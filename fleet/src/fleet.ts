@@ -5,7 +5,7 @@
 // agents wrote since the last assignment.
 
 import { dirname, fromFileUrl, join } from "@std/path"
-import { agent } from "./agent/agent.ts"
+import { type Agent, agentNamed } from "./agent/agent.ts"
 import { get, path as notePath } from "./note.ts"
 import { die, isDir, isFile, output, readRecord, readText, run, sleep, writeAtomic } from "./run.ts"
 
@@ -64,6 +64,12 @@ export class Fleet {
 
   get rundir() {
     return join(statedir, this.name)
+  }
+
+  // The agent the fleet's seats run, from the state folder's agent file
+  get agent(): Agent {
+    const record = join(this.rundir, "agent")
+    return agentNamed(isFile(record) ? readRecord(record) : "")
   }
 
   // The fleet's own repo, where its workers start, or empty outside a repo.
@@ -130,7 +136,7 @@ export class Fleet {
   async ensureWorktree(seat: string, repo: string): Promise<string> {
     const existing = this.checkout(seat, repo)
     if (existing) return existing
-    const branch = await agent.createWorktree(repo, `${this.name}-${seat}`)
+    const branch = await this.agent.createWorktree(repo, `${this.name}-${seat}`)
     const record = join(this.rundir, "branches")
     const kept = isFile(record)
       ? readText(record).split("\n").filter((l) => l && !l.startsWith(`${repo}\t${seat}\t`))
@@ -194,7 +200,7 @@ export class Fleet {
 
   // Stops fleet when the seat's session can't take a message yet
   async needReady(pane: string) {
-    if (!(await agent.ready(pane))) {
+    if (!(await this.agent.ready(pane))) {
       const seat = await opt(pane, "@agent_seat")
       die(
         `${seat}'s session can't take messages yet; a seat started before fleet recorded sessions needs fleet restart`,
@@ -220,7 +226,7 @@ export class Fleet {
     await this.needReady(pane)
     const seat = await opt(pane, "@agent_seat")
     try {
-      await agent.deliver(pane, `${agent.header(await this.sender(from), skill)}\n${text}`)
+      await this.agent.deliver(pane, `${this.agent.header(await this.sender(from), skill)}\n${text}`)
     } catch {
       die(`could not deliver to ${seat}`)
     }
