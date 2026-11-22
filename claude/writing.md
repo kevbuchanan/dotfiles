@@ -12,11 +12,11 @@ You MUST:
   trap to avoid".
 - Re-verify counts, line citations, and the MR description after any
   correction pass. They drift silently.
-- In a page read to understand, such as a Confluence page, ADR, RFC or
+- In a page read to understand, such as a wiki page, ADR, RFC or
   design doc, move anchors to a closing References section: ticket keys,
   MR numbers, SHAs, URLs, paths with line numbers, and dates of events. One
   entry per named thing, the name the prose uses in bold, then the
-  identifiers verbatim, separated by semicolons. MR descriptions, Jira
+  identifiers verbatim, separated by semicolons. MR descriptions, ticket
   descriptions and commit bodies carry a `Refs: ABC-123, !45, ab4d67b`
   trailer instead. An anchor stays inline when the reader acts on it in the
   next sentence: a command to run, a file to open, or the identifiers a
@@ -50,7 +50,7 @@ You MUST:
   table cell longer than two lines becomes prose under a heading. Reserve
   tables for genuinely tabular material such as per-field decisions.
 - Name the source or cut the claim. No "experts suggest", "the docs imply",
-  "while specific details are limited". Cite the person, ticket, Confluence
+  "while specific details are limited". Cite the person, ticket, wiki
   page, or `file:line`, or say plainly that nobody has answered it yet.
 - Say what a thing does, not how it feels. Replace "makes the schema easy
   to reason about" with the mechanism, a number, or a failure mode: "a
@@ -101,8 +101,8 @@ You MUST NOT use:
 - Synonym cycling for one referent. Pick a name and repeat it.
 
 Comprehensiveness in a written doc is wanted. Brevity matters most in the
-conversational reply and in anything drafted for Slack, Jira, or
-Confluence.
+conversational reply and in anything drafted for chat, a ticket, or
+a wiki page.
 
 ## Sentence structure
 

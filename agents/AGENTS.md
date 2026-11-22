@@ -13,8 +13,8 @@ You MUST:
 - Describe the subject, not the task. A comment in a build file describes
   the build, not the ticket that added it.
 - Omit ticket numbers, MR numbers, and phrases like "scaffold only" or
-  "phase 1" from code, comments, and READMEs. Tracking belongs in Jira and
-  the MR.
+  "phase 1" from code, comments, and READMEs. Tracking belongs in the
+  issue tracker and the MR.
 
 You MUST NOT:
 
@@ -32,9 +32,10 @@ You MUST:
   change, match its file set.
 - Break large work into small reviewable MRs and present the breakdown for
   review before implementing.
-- Present a plan for Jira ticket updates or Confluence page changes and wait for approval
-  before applying them.
-- When picking up work, move Jira or Linear tickets into In Progress, and along to the next step from there.
+- Present a plan for issue tracker updates or wiki page changes and wait
+  for approval before applying them.
+- When picking up work, move its ticket into In Progress, and along to
+  the next step from there.
 - Draft locally and show the draft first. Commit, push, publish, and post
   only when explicitly asked, one action at a time.
 - Call out claims that need verification by a named person, and say where
