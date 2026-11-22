@@ -26,7 +26,6 @@
 # task, is opened again instead of started twice.
 set -eu
 here=$(cd "$(dirname "$(realpath "$0")")" && pwd)
-usage="usage: prose diff [-C DIR] [--to NAME | --new] [--no-open] [--port N] [git diff args...] | --task ID [-s FLEET]"
 
 dir=$PWD
 to=""

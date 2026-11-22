@@ -8,6 +8,7 @@ fd
 fmt
 fzf
 git-delta
+git-lfs
 hexyl
 htop
 jq

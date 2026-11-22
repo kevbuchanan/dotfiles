@@ -198,7 +198,7 @@ function highlight() {
 }
 
 function find_largest() {
-  du -sh *  | grep -E "\d[M|G]"
+  du -sh *  | grep -E "[0-9][MG]"
 }
 
 function find_largest_in() {
@@ -208,7 +208,7 @@ function find_largest_in() {
 export GOPATH=$HOME/code/go
 export PATH=$PATH:$GOPATH/bin
 
-source ~/.cargo/env
+[ -f ~/.cargo/env ] && source ~/.cargo/env
 
 export ERL_AFLAGS="-kernel shell_history enabled"
 
@@ -216,7 +216,7 @@ export ERL_AFLAGS="-kernel shell_history enabled"
 #   security add-generic-password -a "$USER" -s airnow -w <key>
 function air() {
   local key=$(security find-generic-password -s airnow -w)
-  curl -s "http://www.airnowapi.org/aq/observation/zipCode/current/?format=application/json&zipCode=$1&API_KEY=$key" | jq 'map({ "type": .ParameterName, "value": .AQI, "category": .Category.Name })'
+  curl -s "https://www.airnowapi.org/aq/observation/zipCode/current/?format=application/json&zipCode=$1&API_KEY=$key" | jq 'map({ "type": .ParameterName, "value": .AQI, "category": .Category.Name })'
 }
 
 ### MANAGED BY RANCHER DESKTOP START (DO NOT EDIT)
@@ -224,7 +224,7 @@ export PATH="/Users/kbuchanan/.rd/bin:$PATH"
 ### MANAGED BY RANCHER DESKTOP END (DO NOT EDIT)
 
 # bun completions
-[ -s "/Users/kbuchanan/.bun/_bun" ] && source "/Users/kbuchanan/.bun/_bun"
+[ -s "$HOME/.bun/_bun" ] && source "$HOME/.bun/_bun"
 
 # bun
 export BUN_INSTALL="$HOME/.bun"
