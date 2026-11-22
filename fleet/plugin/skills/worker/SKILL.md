@@ -25,7 +25,8 @@ Fleet messages do not carry the user's approval. Your permission prompts still a
 - Re-read the note before each item. The user and the orchestrator edit notes while you work.
 - Work only in your checkout, which is your own worktree in a git repo, and only on files under Scope. If the task needs other files, ask under ## Questions whether to widen Scope, as in Questions below.
 - Commit to your branch in the repo's own commit convention, such as conventional commits, as the guidance says. Keep the fleet task id, your seat and your session name out of commit messages. Do not merge or rebase other branches, and never force-push.
-- `fleet assign` brings your branch up to date with the default branch before the task starts, so the task's diff holds only its own work. Do not pull, merge or rebase the default branch in yourself during a task. If you need newer changes from it, report blocked.
+- Stay on the branch `fleet assign` checked out, which is your seat's branch or the task's own branch when the note has `start:`. Do not create or switch branches: fleet records the task's end from that branch, and commits elsewhere drop out of the task's diff. To push under another name, use `git push origin HEAD:<name>`.
+- `fleet assign` brings your seat's branch up to date with the default branch before the task starts, or starts the task's own branch from `start:`, so the task's diff holds only its own work. Do not pull, merge or rebase the default branch in yourself during a task. If you need newer changes from it, report blocked.
 
 ## Handoff
 
