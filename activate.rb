@@ -18,7 +18,6 @@ LINKS = [
   ["tmux.conf", ".tmux.conf"],
   ["gitconfig", ".gitconfig"],
   ["fish", ".config/fish"],
-  ["rspec", ".rspec"],
   # agents: Claude Code and OpenCode read one instructions file. Claude
   # Code expands its @~/.claude/writing.md import. OpenCode ignores the
   # import and loads writing.md through the instructions key that
